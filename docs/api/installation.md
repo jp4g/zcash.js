@@ -19,10 +19,17 @@ Open **http://127.0.0.1:4173/**. `npm run docs:dev` serves the editing site at t
 
 ## Read the examples
 
-Future application notation is `import { createWalletClient } from 'zcash.js'`. The book instead includes actual compile-only source files using a local **type-only** namespace import:
+Examples use direct named imports from the proposed single public entry point:
+
+```ts
+import { createWalletClient, formatZec, isZcashError, parseZec } from "zcash.js";
+import type { WalletOptions } from "zcash.js";
+```
+
+No namespace object is required. Types use type-only named imports; factories and utilities use ordinary named imports.
 
 <<< ./examples/notation.ts
 
-`typeof Contract` checks proposed factory signatures without importing a runtime value. The ambient `sdk` has no implementation. Do not execute these files or cast application data into opaque brands. Application callbacks and input declarations are explicitly supplied context, not SDK exports.
+These are compile-only specification examples, not an implemented or installed SDK. Do not execute them or cast application data into opaque brands. Declared application inputs and callbacks represent code the consumer supplies; they are not SDK exports. The walkthrough keeps its explicit, typed application configuration outside the displayed setup region; the complete source includes those values. `parseZec` and `formatZec` are proposed root utilities for exact decimal ZEC input and display, with bigint zatoshis between them.
 
-The example tsconfig uses strict checking and `noEmit`; it includes `public-api.ts` directly. There is no package alias pretending an installed SDK exists and no generated JavaScript. Future package exports, ESM/CJS support, worker URLs and asset distribution still require qualification.
+The example tsconfig uses strict checking and `noEmit`. Its exact `zcash.js` path alias resolves to `../public-api.ts` solely for declaration checking; it does not provide runtime module resolution or generate JavaScript. All proposed exports share this one entry point, with no utility or other subpaths. Future package distribution, ESM/CJS support, worker URLs and asset distribution still require qualification.

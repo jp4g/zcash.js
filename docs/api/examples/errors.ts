@@ -1,15 +1,15 @@
-import type * as Contract from '../public-api.js';
+import { isZcashError } from "zcash.js";
+import type { ErrorCode, ErrorInfo, PaymentState, PendingPayment } from "zcash.js";
 
-declare const sdk: typeof Contract;
-declare const pending: Contract.PendingPayment;
+declare const pending: PendingPayment;
 declare const signal: AbortSignal;
-declare function showRecovery(code: Contract.ErrorCode, recovery: Contract.ErrorInfo['recovery']): void;
-declare function retainPrivateState(state: Contract.PaymentState): void;
+declare function showRecovery(code: ErrorCode, recovery: ErrorInfo['recovery']): void;
+declare function retainPrivateState(state: PaymentState): void;
 
 try {
   await pending.wait({ timeoutMs: 120_000, signal });
 } catch (error: unknown) {
-  if (!sdk.isZcashError(error)) throw error;
+  if (!isZcashError(error)) throw error;
   showRecovery(error.code, error.recovery);
   if (error.paymentState) retainPrivateState(error.paymentState);
   // No blind retry, automatic logging or release of locks.

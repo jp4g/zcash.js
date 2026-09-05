@@ -1,8 +1,8 @@
-import type * as Contract from '../public-api.js';
+import type { AccountId, Signer, WalletClient } from "zcash.js";
 
-declare const wallet: Contract.WalletClient;
-declare const accountId: Contract.AccountId;
-declare const signer: Contract.Signer;
+declare const wallet: WalletClient;
+declare const accountId: AccountId;
+declare const signer: Signer;
 declare const recipient: string; // synthetic fixture destination
 
 export async function sendPayment() {

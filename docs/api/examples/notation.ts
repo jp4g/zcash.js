@@ -1,7 +1,7 @@
-import type * as Contract from '../public-api.js';
+import { createWalletClient } from "zcash.js";
+import type { WalletOptions } from "zcash.js";
 
-declare const sdk: typeof Contract;
-declare const options: Contract.WalletOptions;
+declare const options: WalletOptions;
 
-const wallet = await sdk.createWalletClient(options);
+const wallet = await createWalletClient(options);
 await wallet.close();

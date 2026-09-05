@@ -78,7 +78,7 @@ Standalone parse/serialize use P `Pczt::{parse,serialize}`; inspect projects get
 
 ## Host-only transport and composition
 
-`http/grpc`, `createPublicClient/createLightClient`, custom transport, `createCustomSigner` and `createZcashClient` are **narrow TS glue** without a wallet Rust call. `isZcashError` is a host type guard. Transport DTO validation can use checked codec operations without loading the wallet/prover.
+`http/grpc`, `createPublicClient/createLightClient`, custom transport, `createCustomSigner` and `createZcashClient` are **narrow TS glue** without a wallet Rust call. `isZcashError` is a host type guard. The root utilities `parseZec` and `formatZec` are host-only, exact TypeScript bigint/decimal conversions with no wallet, network, or Rust/WASM call; they must reject float/scientific-notation parsing. Transport DTO validation can use checked codec operations without loading the wallet/prover.
 
 Public `getTip/getBlock/getBlockHeader` map to qualified node `getblockchaininfo` or coherent count/hash, `getblock/getblockheader`; transaction/status to `getrawtransaction` plus coherent block/tip/mempool evidence; optional UTXO/tree/subtree queries to `getaddressutxos/z_gettreestate/z_getsubtreesbyindex`. Broadcast maps to `sendrawtransaction`; wait/watch compose observations. These are protocol candidates, not universal server methods.
 

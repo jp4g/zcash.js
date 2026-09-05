@@ -1,8 +1,8 @@
-import type * as Contract from '../public-api.js';
+import type { SyncStatus, WalletClient } from "zcash.js";
 
-declare const wallet: Contract.WalletClient;
+declare const wallet: WalletClient;
 declare const signal: AbortSignal;
-declare function render(status: Contract.SyncStatus): void;
+declare function render(status: SyncStatus): void;
 
 render(await wallet.getSyncStatus()); // local read
 const completed = await wallet.sync({ signal }); // finite target captured by SDK

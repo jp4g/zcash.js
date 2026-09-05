@@ -1,12 +1,12 @@
-import type * as Contract from '../public-api.js';
+import { createPublicClient, http } from "zcash.js";
+import type { Network } from "zcash.js";
 
-declare const sdk: typeof Contract;
-declare const network: Contract.Network;
+declare const network: Network;
 declare const rpcUrl: string; // application-selected fixture endpoint
 
-const publicClient = sdk.createPublicClient({
+const publicClient = createPublicClient({
   network,
-  transport: sdk.http(rpcUrl, {
+  transport: http(rpcUrl, {
     sourceId: 'review-rpc', timeoutMs: 15_000,
     readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4_000_000,
   }),

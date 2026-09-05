@@ -1,16 +1,16 @@
-import type * as Contract from '../public-api.js';
+import { accountIndex } from "zcash.js";
+import type { Birthday, SecretInput, WalletClient } from "zcash.js";
 
-declare const sdk: typeof Contract;
-declare const wallet: Contract.WalletClient;
-declare const mnemonic: Contract.SecretInput; // supplied by application BIP39 tooling
-declare const birthday: Contract.Birthday;
+declare const wallet: WalletClient;
+declare const mnemonic: SecretInput; // supplied by application BIP39 tooling
+declare const birthday: Birthday;
 declare const recoveredIndex: number;
 declare const ufvk: string; // synthetic test fixture, never a real key
 
 // Alternative onboarding paths for distinct fixture accounts, not duplicate imports.
 export async function recoverMnemonic() {
   return wallet.accounts.import({
-    mnemonic, accountIndex: sdk.accountIndex(recoveredIndex), birthday,
+    mnemonic, accountIndex: accountIndex(recoveredIndex), birthday,
   }); // caller owns and must dispose the returned signer
 }
 export async function importViewing() {

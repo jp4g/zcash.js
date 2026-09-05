@@ -1,153 +1,144 @@
-import type * as Contract from '../public-api.js';
+import {
+  createLightClient, createPublicClient, createWalletClient, defineNetwork, formatZec,
+  grpc, http, isZcashError, parseZec,
+} from "zcash.js";
+import type {
+  ErrorCode, LocalProvingOptions, MemorySigner, NetworkDefinition, PaymentState,
+  Proposal, SecretInput, SignerBinding, WalletOptions,
+} from "zcash.js";
 
-declare const sdk: typeof Contract;
+// Compile-only: the application supplies validated network/proof data and private inputs.
+declare const networkDefinition: NetworkDefinition;
+declare const appProving: LocalProvingOptions;
+declare const mnemonic: SecretInput; // application BIP39 tooling owns generation and backup
+declare const recipient: string;
+declare const amountInput: string; // decimal ZEC from the payment form, e.g. "0.00125"
+declare function showBalance(totalZec: string): void; // private application UI
+declare function review(proposal: Proposal): Promise<boolean>;
+declare function saveOperationId(id: string): Promise<void>; // durable private application storage
+declare function loadOperationId(): Promise<string | null>;
+declare function showRecovery(code: ErrorCode, state: PaymentState | undefined): void;
 
-// Every value/callback is application-owned synthetic fixture context.
-interface ReviewContext {
-  network: Contract.Network;
-  rpcUrl: string;
-  lightUrl: string;
-  runtime: Contract.RuntimeOptions;
-  storage: Exclude<Contract.WalletStorage, { kind: 'memory' }>;
-  proving: Contract.LocalProvingOptions;
-  transactionPolicy: Contract.TransactionPolicy;
-  onboarding: { kind: 'create'; mnemonic: Contract.SecretInput }
-    | { kind: 'recover'; mnemonic: Contract.SecretInput;
-        accountIndex: Contract.AccountIndex; birthday: Contract.Birthday | 'fullScan' }
-    | { kind: 'ufvk'; viewingKey: string; birthday: Contract.Birthday | 'fullScan';
-        signer: Contract.Signer };
-  recipient: string;
-  idempotencyKey: string;
-  renderReceive(address: string): void;
-  inspect(balance: Contract.WalletBalance, history: Contract.HistoryPage): void;
-  review(proposal: Contract.Proposal): Promise<boolean>;
-  saveOperationId(id: string): Promise<void>;
-  recoverSavedOperationId(): Promise<string | null>;
-  showPayment(state: Contract.PaymentState): void;
-  showMissing(state: Contract.PaymentState): void;
-  showError(code: Contract.ErrorCode): void;
+// Explicit application configuration; fixture URLs/pins are not usable release assets.
+const appTransportOptions = {
+  sourceId: 'walkthrough-light', timeoutMs: 15_000,
+  readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4_000_000,
+};
+const appObservation = { pollIntervalMs: 5_000, maxBufferedUpdates: 32 };
+const confirmations = { trusted: 3, untrusted: 3, allowZeroConfirmationShielding: false };
+const appWalletConfiguration: Pick<WalletOptions,
+  'proving' | 'confirmations' | 'observation' | 'runtime' | 'transactionPolicy'> = {
+  proving: appProving, confirmations, observation: appObservation,
+  runtime: {
+    baseline: {
+      manifestUrl: 'https://assets.example.invalid/baseline/manifest.json',
+      manifestSha256: '0'.repeat(64), // placeholder, not a valid release pin
+    },
+    threading: { mode: 'baseline' }, maxMemoryBytes: 512 * 1024 * 1024,
+    maxQueuedBytes: 16 * 1024 * 1024, maxQueuedJobs: 8,
+    scanBatchSize: 100, maxPcztBytes: 4 * 1024 * 1024,
+  },
+  transactionPolicy: {
+    spendPools: ['sapling', 'ironwood'], transparent: 'disallow', changePool: 'ironwood',
+    feeRule: 'zip317-standard', confirmations, expiry: { kind: 'offset', blocks: 40 },
+    lockExpiryBlocks: 20, shieldingThreshold: 100_000n,
+    freshness: { mode: 'require-synced', maxLagBlocks: 0 },
+  },
+};
+
+// #region setup
+const network = await defineNetwork(networkDefinition);
+const publicClient = createPublicClient({
+  network, observation: appObservation,
+  transport: http('https://rpc.example.invalid', {
+    ...appTransportOptions, sourceId: 'walkthrough-rpc',
+  }),
+});
+const light = createLightClient({
+  network, transport: grpc('https://light.example.invalid', appTransportOptions),
+});
+const options: WalletOptions = {
+  network, light, broadcaster: publicClient,
+  storage: { kind: 'node-filesystem', path: './walkthrough-wallet.sqlite' },
+  ...appWalletConfiguration,
+};
+const wallet = await createWalletClient(options);
+// #endregion setup
+let signer: MemorySigner | undefined;
+let binding: SignerBinding | undefined;
+let operationId: string | null = null;
+try {
+  // #region onboarding
+  const synced = await wallet.sync(); // establish local chain/tree state before creation
+  if (!synced.targetReached) throw new Error('Sync must reach its target before account creation');
+  const created = await wallet.accounts.create({ mnemonic });
+  const accountId = created.account.id;
+  signer = created.signer; // caller-owned and initially unattached
+  binding = await wallet.accounts.attachSigner({ accountId, signer });
+  if (binding.state !== 'ready') throw new Error('Signer binding requires recovery');
+  // #endregion onboarding
+
+  // #region receive
+  const scanned = await wallet.sync();
+  if (!scanned.targetReached) throw new Error('Account sync has not reached its target');
+  const issued = await wallet.addresses.next({
+    accountId,
+    request: { format: 'unified', transparent: 'omit', sapling: 'require', ironwood: 'require' },
+  });
+  // Display issued.address privately in the receive UI. Sync does not fund this account.
+  // Sending requires a separate incoming payment; this specification supplies none.
+  await wallet.sync();
+  const balance = await wallet.getBalance({ accountId });
+  const history = await wallet.getHistory({ accountId, limit: 50 });
+  // Display balance/history privately; unavailable amounts are different from zero.
+  if (balance.amounts === null || !balance.scan.scanComplete) throw new Error('Balance is not ready');
+  showBalance(formatZec(balance.amounts.total));
+  // Rust proposal selection determines sufficient funds and eligibility.
+  // #endregion receive
+
+  // #region send
+  const proposal = await wallet.propose({
+    accountId, to: recipient, amount: parseZec(amountInput), idempotencyKey: 'walkthrough-payment-1',
+  }); // use a unique application key for each intended payment
+  operationId = proposal.operationId;
+  await saveOperationId(operationId); // persist before send; never telemetry
+  // Review every step, recipient, amount, fee and expiry without modifying the proposal.
+  if (await review(proposal)) {
+    const pending = await wallet.send({ proposal }); // execute this exact immutable proposal
+    await pending.wait({ confirmations: 3, timeoutMs: 120_000 });
+  }
+  // #endregion send
+} catch (error: unknown) {
+  if (!isZcashError(error)) throw error;
+  operationId = error.operationId ?? operationId;
+  if (operationId !== null) await saveOperationId(operationId);
+  showRecovery(error.code, error.paymentState); // private UI; never log raw errors
+} finally {
+  try { await binding?.dispose(); }
+  finally {
+    try { await wallet.close(); }
+    finally { await signer?.dispose(); }
+  }
 }
 
-export async function walkthrough(app: ReviewContext): Promise<void> {
-  // #region setup
-  const transportOptions: Contract.TransportOptions = {
-    sourceId: 'review-light', timeoutMs: 15_000,
-    readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4_000_000,
-  };
-  const observation = { pollIntervalMs: 5_000, maxBufferedUpdates: 32 };
-  const publicClient = sdk.createPublicClient({
-    network: app.network,
-    transport: sdk.http(app.rpcUrl, { ...transportOptions, sourceId: 'review-rpc' }),
-    observation,
-  });
-  const light = sdk.createLightClient({
-    network: app.network, transport: sdk.grpc(app.lightUrl, transportOptions),
-  });
-  const options: Contract.WalletOptions = {
-    network: app.network, runtime: app.runtime, storage: app.storage,
-    light, broadcaster: publicClient, proving: app.proving,
-    transactionPolicy: app.transactionPolicy,
-    confirmations: app.transactionPolicy.confirmations, observation,
-  };
-  const wallet = await sdk.createWalletClient(options);
-  // #endregion setup
-  let localSigner: Contract.MemorySigner | undefined;
-  let binding: Contract.SignerBinding | undefined;
-  let operationId: string | null = null;
-  try {
-    // #region onboarding
-    if (app.onboarding.kind === 'create') {
-      const synced = await wallet.sync(); // establish current local chain/tree state first
-      if (!synced.targetReached) return;
-    }
-    let account: Contract.AccountRecord;
-    let signer: Contract.Signer;
-    if (app.onboarding.kind === 'ufvk') {
-      account = await wallet.accounts.import({
-        viewingKey: app.onboarding.viewingKey,
-        birthday: app.onboarding.birthday, viewOnly: false,
-      });
-      signer = app.onboarding.signer; // application retains ownership
-    } else {
-      const created = app.onboarding.kind === 'create'
-        ? await wallet.accounts.create({ mnemonic: app.onboarding.mnemonic })
-        : await wallet.accounts.import({
-            mnemonic: app.onboarding.mnemonic,
-            accountIndex: app.onboarding.accountIndex,
-            birthday: app.onboarding.birthday,
-          });
-      account = created.account;
-      localSigner = created.signer; // caller-owned and initially unattached
-      signer = localSigner;
-    }
-    binding = await wallet.accounts.attachSigner({ accountId: account.id, signer });
-    if (binding.state !== 'ready') return; // present recovery-required UX
-    // #endregion onboarding
-
-    // #region receive
-    const initialSync = await wallet.sync();
-    if (!initialSync.targetReached) return;
-    const issued = await wallet.addresses.next({
-      accountId: account.id,
-      request: { format: 'unified', transparent: 'omit', sapling: 'require', ironwood: 'require' },
-    });
-    app.renderReceive(issued.address);
-    // A separate fixture sender would fund this address. This book sends no funds.
-    await wallet.sync();
-    const balance = await wallet.getBalance({ accountId: account.id });
-    const history = await wallet.getHistory({ accountId: account.id, limit: 50 });
-    app.inspect(balance, history);
-    if (balance.amounts === null || balance.scan.scanComplete !== true) return;
-    // Rust proposal selection still decides sufficient funds and eligibility.
-    // #endregion receive
-
-    // #region send
-    const proposal = await wallet.propose({
-      accountId: account.id, to: app.recipient, amount: 125_000n,
-      idempotencyKey: app.idempotencyKey,
-    });
-    operationId = proposal.operationId;
-    await app.saveOperationId(operationId); // private application state, never telemetry
-    if (!await app.review(proposal)) return;
-    const pending = await wallet.send({ proposal }); // verified attached signer
-    app.showPayment(await pending.snapshot());
-    await pending.wait({ confirmations: 3, timeoutMs: 120_000 });
-    // #endregion send
-  } catch (error: unknown) {
-    if (!sdk.isZcashError(error)) throw error;
-    operationId = error.operationId ?? operationId;
-    if (operationId !== null) await app.saveOperationId(operationId);
-    if (error.paymentState) app.showPayment(error.paymentState);
-    app.showError(error.code); // no raw error or private payload logging
-  } finally {
-    try { await binding?.dispose(); }
-    finally {
-      try { await wallet.close(); }
-      finally { await localSigner?.dispose(); }
-    }
-  }
-
-  // #region restart
-  // Models a later process/tab session; do not repeat onboarding on reopen.
-  const savedId = await app.recoverSavedOperationId();
-  if (savedId === null) return; // alternatively inspect all operations pages
-  const reopened = await sdk.createWalletClient(options);
+// #region restart
+// In a later session, reopen the same database; do not create the account again.
+const savedId = await loadOperationId();
+if (savedId !== null) {
+  const reopened = await createWalletClient(options);
   try {
     const pending = await reopened.operations.resume({ operationId: savedId });
-    const state = await pending.snapshot(); // resume itself has no network/signing side effect
-    app.showPayment(state);
-    if (state.missing.length > 0) {
-      app.showMissing(state); // no implicit signer prompt or invented restore method
-      return;
+    const state = await pending.snapshot(); // resume does not sign or broadcast
+    if (state.missing.length === 0) {
+      await pending.broadcast(); // reconcile first; retry only exact stored transaction bytes
+      await pending.wait({ confirmations: 3, timeoutMs: 120_000 });
     }
-    app.showPayment(await pending.broadcast()); // reconcile; retry exact bytes if appropriate
-    await pending.wait({ confirmations: 3, timeoutMs: 120_000 });
+    // Otherwise show state.missing and follow explicit recovery; never rebuild or re-sign here.
   } catch (error: unknown) {
-    if (!sdk.isZcashError(error)) throw error;
-    if (error.paymentState) app.showPayment(error.paymentState);
-    app.showError(error.code);
+    if (!isZcashError(error)) throw error;
+    showRecovery(error.code, error.paymentState); // retain the saved operation ID
   } finally {
     await reopened.close();
   }
-  // #endregion restart
 }
+// #endregion restart

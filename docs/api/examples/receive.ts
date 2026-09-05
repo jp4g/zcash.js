@@ -1,7 +1,7 @@
-import type * as Contract from '../public-api.js';
+import type { AccountId, WalletClient } from "zcash.js";
 
-declare const wallet: Contract.WalletClient;
-declare const accountId: Contract.AccountId;
+declare const wallet: WalletClient;
+declare const accountId: AccountId;
 const request = {
   format: 'unified', transparent: 'omit', sapling: 'require', ironwood: 'require',
 } as const;

@@ -20,7 +20,7 @@ export default defineConfig({
   title: 'zcash.js',
   description: 'Proposed Zcash TypeScript API, planning decisions and source research. Pre-implementation; no usable SDK.',
   lang: 'en-US',
-  base: '/zcash.js/',
+  base: '/',
   cleanUrls: false,
   ignoreDeadLinks: false,
   themeConfig: {

@@ -21,7 +21,7 @@ Never attach mnemonics, passphrases, seeds, spending/viewing keys, addresses, tr
 
 ## Local documentation validation
 
-Install the documentation-only development dependencies with `npm ci` (or `npm install` when intentionally updating the lockfile), then run `npm run docs:build`. Use `npm run docs:dev` to edit and `npm run docs:preview` to review the built site at `/zcash.js/`.
+Install the documentation-only development dependencies with `npm ci` (or `npm install` when intentionally updating the lockfile), then run `npm run docs:build`. Use `npm run docs:dev` to edit and `npm run docs:preview` to review the built site at `/`.
 
 ```sh
 git diff --check

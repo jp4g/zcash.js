@@ -134,6 +134,6 @@ npm run docs:build
 npm run docs:preview
 ```
 
-The docs toolchain requires Node.js `^20.19.0` or `>=22.12.0`. Preview the built site at `/zcash.js/`; build output is `docs/.vitepress/dist`. The committed npm lockfile supports reproducible `npm ci` builds. The private root manifest contains only development dependencies and docs-prefixed scripts; it sets no SDK entry points, exports, workspace topology or runtime module format. Future package work can evolve it under separately agreed scope.
+The docs toolchain requires Node.js `^20.19.0` or `>=22.12.0`. Preview the local site at `/`; build output is `docs/.vitepress/dist`. The committed npm lockfile supports reproducible `npm ci` builds. The private root manifest contains only development dependencies and docs-prefixed scripts; it sets no SDK entry points, exports, workspace topology or runtime module format. Future package work can evolve it under separately agreed scope.
 
-The Pages workflow builds pull requests and deploys only `main`, using the GitHub Pages environment. Repository Pages settings must use GitHub Actions before deployment; adding this workflow does not enable Pages or publish the site by itself.
+GitHub Actions validates the declarations and site build. The site is intentionally local-only; no Pages deployment is configured.

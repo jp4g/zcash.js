@@ -39,6 +39,16 @@ export declare function diversifierIndex(value: bigint): DiversifierIndex; // 0.
 export declare function txId(value: string): TxId;
 export declare function blockHash(value: string): BlockHash;
 
+/** Parse a decimal ZEC string to exact bigint zatoshis (1 ZEC = 100_000_000n).
+ * Reject scientific notation and more than 8 fractional digits; never use
+ * floating-point parsing or arithmetic.
+ */
+export declare function parseZec(value: string): bigint;
+/** Format exact bigint zatoshis as a decimal ZEC string without floating-point
+ * arithmetic or scientific notation. Omit unnecessary trailing fractional zeros.
+ */
+export declare function formatZec(zatoshis: bigint): string;
+
 /** Validated protocol descriptor; no built-in activation schedule is asserted. */
 export interface Network {
   readonly [opaque]: 'network';

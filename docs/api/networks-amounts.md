@@ -12,7 +12,7 @@ All operations use an explicitly validated network. All amounts are exact bigint
 
 ## Amount handling
 
-Pass `125_000n` for 125,000 zatoshis. Do not multiply a floating-point ZEC input by 100 million and assume exactness. Applications must parse decimal input exactly, reject excess fractional precision and use an explicit bigint codec for JSON. No amount parsing/formatting helper is declared by this API.
+Use the root named export `parseZec(value: string): bigint` to convert decimal ZEC input to exact zatoshis: `parseZec("0.00125")` returns `125_000n`. It rejects scientific notation and more than 8 fractional digits, without floating-point parsing or arithmetic. `formatZec(zatoshis: bigint): string` formats exact zatoshis as decimal ZEC without floating-point arithmetic or scientific notation, omitting unnecessary trailing fractional zeros. Neither helper takes an options object. Use an explicit bigint codec for JSON.
 
 Only balance deltas may be negative. Fees, payment amounts and balance buckets remain nonnegative with further protocol validation in Rust. `MemoInput` is either text or bytes, never both; validate its encoding, size and destination compatibility at the trust boundary.
 

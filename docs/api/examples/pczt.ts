@@ -1,7 +1,7 @@
-import type * as Contract from '../public-api.js';
+import type { PcztArtifact, WalletClient } from "zcash.js";
 
-declare const wallet: Contract.WalletClient;
-declare const prepared: Contract.PcztArtifact; // single-step, required proofs already satisfied
+declare const wallet: WalletClient;
+declare const prepared: PcztArtifact; // single-step, required proofs already satisfied
 // Application-owned reviewed exchange; qualified for this artifact's role state.
 declare function exchangeWithSigner(bytes: Uint8Array): Promise<Uint8Array>;
 

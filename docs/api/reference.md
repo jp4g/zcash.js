@@ -6,7 +6,7 @@ The complete declaration file is included on the [declaration page](public-api.m
 
 ## Factories, composition and foundational types
 
-`defineNetwork`, `accountIndex`, `diversifierIndex`, `txId`, `blockHash` validate inputs. See [networks and amounts](networks-amounts.md) for `NetworkDefinition`, `Network`, `ConsensusContext`, `AccountId`, `AccountIndex`, `DiversifierIndex`, `TxId`, `BlockHash`, `Pool`, `ShieldedPool`, `ReceiverType`, `SecretInput`, `NonEmpty`, `Op` and `Disposable`.
+`defineNetwork`, `accountIndex`, `diversifierIndex`, `txId`, `blockHash` validate inputs. `parseZec(value: string): bigint` and `formatZec(zatoshis: bigint): string` convert decimal ZEC strings and exact bigint zatoshis without floating-point arithmetic. See [networks and amounts](networks-amounts.md) for `NetworkDefinition`, `Network`, `ConsensusContext`, `AccountId`, `AccountIndex`, `DiversifierIndex`, `TxId`, `BlockHash`, `Pool`, `ShieldedPool`, `ReceiverType`, `SecretInput`, `NonEmpty`, `Op` and `Disposable`.
 
 `http`, `grpc`, `createPublicClient`, `createLightClient`, `createWalletClient`, `createZcashClient` construct the proposed clients/transports. See [public](public-client.md), [light](light-client.md) and [wallet](wallet-runtime.md) chapters for `TransportOptions`, `HttpTransport`, `GrpcTransport`, `LightUnaryMethod`, `LightStreamMethod`, `CustomLightTransport`, `ObservationOptions`, `WalletOptions`, `WalletStorage`, `RuntimeOptions`, `WasmArtifact`, `ArtifactManifest`, `ArtifactFile`, `RuntimeDiagnostic`, `AssetRequirement`, `LocalProvingOptions`, `ConfirmationsPolicy` and `TransactionPolicy`. `ZcashClient` composition references existing instances without disposal ownership.
 

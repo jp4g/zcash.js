@@ -1,13 +1,14 @@
-import type * as Contract from '../public-api.js';
+import { formatZec } from "zcash.js";
+import type { AccountId, ScanState, WalletBalance, WalletClient } from "zcash.js";
 
-declare const wallet: Contract.WalletClient;
-declare const accountId: Contract.AccountId;
-declare function showUnavailable(scan: Contract.ScanState): void;
-declare function showBalance(balance: Contract.WalletBalance): void;
+declare const wallet: WalletClient;
+declare const accountId: AccountId;
+declare function showUnavailable(scan: ScanState): void;
+declare function showBalance(totalZec: string, balance: WalletBalance): void;
 
 const balance = await wallet.getBalance({ accountId });
 if (balance.amounts === null) showUnavailable(balance.scan);
-else showBalance(balance);
+else showBalance(formatZec(balance.amounts.total), balance);
 const history = await wallet.getHistory({ accountId, limit: 50 });
 if (history.nextCursor !== null) {
   await wallet.getHistory({ accountId, limit: 50, cursor: history.nextCursor });

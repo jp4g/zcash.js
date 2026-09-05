@@ -8,7 +8,10 @@
     "noEmit": true,
     "verbatimModuleSyntax": true,
     "exactOptionalPropertyTypes": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "paths": {
+      "zcash.js": ["../public-api.ts"]
+    }
   },
   "include": ["./*.ts", "../public-api.ts"]
 }

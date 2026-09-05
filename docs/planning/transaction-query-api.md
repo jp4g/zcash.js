@@ -1,5 +1,9 @@
 # Transaction and query API plan
 
+::: info Historical planning context
+Retained source analysis and candidate snippets may predate the declaration freeze. Use the [proposed v1 API book](../api/README.md) and [exact declarations](../api/public-api.md) for current examples and signatures. Settled decision semantics remain authoritative.
+:::
+
 Authoritative integration, 2026-09-04; documentation only. [Decisions D04–D25](decision-log.md), the [approved namespace tree](api-namespace-audit.md), and [keys/account contract](keys-accounts-signers-api.md) govern scope. Signatures and new host names remain planning candidates, not implemented exports. This plan supersedes conflicting transaction/query sketches in research and scratch reports. It does not claim runtime validation.
 
 ## Evidence and reconciliation
@@ -287,4 +291,4 @@ All are future bounded proofs, not tests executed here; the [host plan](wasm-hos
 - Outbox crash matrix: before/after operation/lock commit, proposal/artifact commit, each local multi-step build/store boundary, outbox commit, attempt-start commit, transmission and response append; restart without signer, idempotency collision, immutable bytes and partial dependencies. Validate rollback/nested transaction behavior for each composition before claiming atomicity.
 - Provider protocol/network fixtures and explicitly authorized future endpoint probes: wrong network, uint64 sentinels, SendResponse error/duplicate/unknown behavior, pruned/index-missing lookup, fork identity/depth, range boundaries/filter support, Ironwood tree/compact/v6 behavior, transparent coverage, TLS/auth/redacted diagnostics, browser gRPC-Web CORS/trailers/stream cancellation, bounded reconnect with no silent failover.
 
-No project infrastructure, UIVK account import, mnemonic generation, spending-key export, persistent vault, concrete Ledger support, multisig or remote-wallet RPC is added. Performance measurement and possible N-API acceleration belong only to the [future benchmark placeholder](future-issues.md#future-issue-placeholder--wasm-performance-and-possible-native-acceleration).
+No project infrastructure, UIVK account import, mnemonic generation, spending-key export, persistent vault, concrete Ledger support, multisig or remote-wallet RPC is added. Performance measurement and possible N-API acceleration belong only to the [tracked benchmark issue #11](future-issues.md#issue-11-wasm-performance-and-possible-native-acceleration).

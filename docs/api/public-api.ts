@@ -242,11 +242,34 @@ export type WalletStorage =
   | { readonly kind: 'node-filesystem'; readonly path: string }
   | { readonly kind: 'browser-opfs'; readonly name: string }
   | { readonly kind: 'memory' };
+/** Application-pinned canonical manifest; H1.1 defines URL and verification rules. */
 export interface WasmArtifact {
-  readonly moduleUrl: string;
-  readonly workerUrl: string;
+  readonly manifestUrl: string; // absolute credential-free HTTPS URL
+  readonly manifestSha256: string; // expected lowercase 64-hex SHA-256 of canonical bytes
+}
+/** Complete executable closure; no unlisted imports or runtime-downloaded code. */
+export interface ArtifactFile {
+  readonly url: string; // relative path under the manifest directory; H1.1
+  readonly sha256: string; // lowercase 64-hex SHA-256 of exact asset bytes
+  readonly byteLength: number; // positive safe integer
+  readonly kind: 'module' | 'glue' | 'wasm' | 'worker' | 'thread-bootstrap';
+  readonly mediaType: 'text/javascript' | 'application/wasm';
+}
+export interface ArtifactManifest {
+  readonly format: 'zcash-artifact/1';
+  readonly contractRevision: string;
   readonly abiVersion: string;
-  readonly sha256: string;
+  readonly schemas: {
+    readonly operations: Readonly<Record<string, string>>;
+    readonly protobuf: string;
+    readonly networkParameters: string;
+    readonly database: string;
+    readonly hostServices: Readonly<Record<string, string>>;
+  };
+  readonly buildSha256: string; // digest of reproducible build/toolchain identity record
+  readonly dependencyGraphSha256: string; // digest of complete locked dependency/feature graph
+  readonly mode: 'baseline' | 'threaded';
+  readonly files: NonEmpty<ArtifactFile>;
 }
 export interface RuntimeOptions {
   readonly baseline: WasmArtifact;
@@ -371,7 +394,10 @@ export interface ViewingImport extends Op {
 }
 export interface CreatedAccount { readonly account: AccountRecord; readonly signer: MemorySigner }
 export interface AccountsApi {
-  /** Zakura chooses next seed-relative index; verified current prior state required.
+  /** No birthday argument: derive AccountBirthday internally from one coherent wallet DB
+   * snapshot after explicit sync. No network request or implicit sync. Unavailable/stale
+   * local chain/tree state fails SYNC_REQUIRED before mutation (see accounts-signers.md).
+   * Zakura chooses the next seed-relative index.
    * Returned signer is caller-owned, memory-only and UNATTACHED.
    */
   create(args: AccountCreate): Promise<CreatedAccount>;

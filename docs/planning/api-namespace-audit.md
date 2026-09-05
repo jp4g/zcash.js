@@ -1,5 +1,9 @@
 # Planned API namespace audit
 
+::: info Historical planning context
+Retained source analysis and candidate snippets may predate the declaration freeze. Use the [proposed v1 API book](../api/README.md) and [exact declarations](../api/public-api.md) for current examples and signatures. Settled decision semantics remain authoritative.
+:::
+
 Planning only, 2026-09-04. No production implementation or dependencies. **D18/D21 approve the wallet namespace tree below and flat placement of ordinary wallet, PublicClient and LightClient methods.** This audit is authoritative for those naming decisions over earlier sketches, subject to the [decision log](decision-log.md). Approval is not an implementation or support claim. It does not freeze signatures, package topology or unresolved backend coverage.
 
 Use four approved shallow wallet namespaces: **addresses, accounts, pczt, operations**. Keep everyday orchestration and simple queries flat. A namespace groups operations over a resource with shared ownership or lifecycle; it is a property of the existing client, never another service to construct. The optional `zcash.wallet` composition prefix does not count as a resource layer. There is at most one resource namespace beneath each client.
@@ -107,7 +111,7 @@ Account lifecycle mappings use [W3/W5 in the keys plan](keys-accounts-signers-ap
 
 | Approved method | Exact backend or glue | Required semantics |
 | --- | --- | --- |
-| `accounts.create({ mnemonic, ... })` | Mnemonic-to-seed boundary → `WalletWrite::create_account` | Zakura transactionally chooses the next sequential ZIP-32 index using stored seed fingerprint/derivation metadata. Return DB account plus USK-backed memory signer. No JS index counter, gap-filling ledger, or allocation by `list().length`. New-account omitted birthday resolves current verified prior chain state; never reuse that default for recovery. |
+| `accounts.create({ mnemonic, ... })` | Mnemonic-to-seed boundary → `WalletWrite::create_account` | Zakura transactionally chooses the next sequential ZIP-32 index using stored seed fingerprint/derivation metadata. Return DB account plus USK-backed memory signer. No JS index counter, gap-filling ledger, or allocation by `list().length`. `accounts.create({ mnemonic })` has no birthday input: after explicit sync it derives `AccountBirthday` internally from one coherent current locally verified wallet database chain/tree snapshot. No hidden network request or implicit sync occurs; unavailable/stale local state fails `SYNC_REQUIRED` before mutation. See [creation semantics](../api/accounts-signers.md#choose-the-onboarding-path). Recovery requires an explicit birthday or full scan. |
 | `accounts.import({ mnemonic, accountIndex, birthday, ... })` | `WalletWrite::import_account_hd` | Exact supplied recovery index and explicit birthday or full scan. Preserve HD provenance and return account plus memory signer. Not standalone derive followed by UFVK import, which would lose the exact lifecycle mapping. |
 | `accounts.import({ viewingKey, birthday, viewOnly?, ... })` | `WalletWrite::import_account_ufvk` | UFVK import directly calls `WalletWrite::import_account_ufvk` with public `viewOnly?: boolean`, default `false`. Omitted/false maps internally to `AccountPurpose::Spending { derivation: None }` and retains spend-supporting state; it does not imply, store or manufacture a spending key or signer. `true` maps to `AccountPurpose::ViewOnly` and may require reconstruction/rescan before later spending. Zakura has no public `import_account_uivk`; UIVK-only account import is excluded from v1 and stays in the [tracked future issue](future-issues.md), without inventing a backend path. If a descriptor overload ships, it must use this same path and validate UFVK authority. |
 | `accounts.list()` / `accounts.get({ accountId })` | `WalletRead::get_account_ids` + `get_account` / `get_account` | List records or one record (`null` for successful missing lookup). Signer status is session glue, never inferred from spending-purpose metadata. |
@@ -144,7 +148,9 @@ const created = await wallet.createAccount({ mnemonic });
 const restored = await wallet.importAccount({ mnemonic, accountIndex, birthday });
 await wallet.accounts.attachSigner({ accountId: restored.account.id, signer: restored.signer });
 
-// After: creation still delegates index selection to Zakura; recovery is explicit.
+// After: explicit sync establishes local state; create itself performs no network work.
+const synced = await wallet.sync();
+if (!synced.targetReached) return;
 const created = await wallet.accounts.create({ mnemonic });
 const restored = await wallet.accounts.import({ mnemonic, accountIndex, birthday });
 await wallet.accounts.attachSigner({ accountId: restored.account.id, signer: restored.signer });

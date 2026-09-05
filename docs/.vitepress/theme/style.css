@@ -1,0 +1,36 @@
+:root {
+  --vp-c-brand-1: #8a5800;
+  --vp-c-brand-2: #a66b00;
+  --vp-c-brand-3: #c58000;
+  --vp-c-brand-soft: rgba(213, 152, 30, .12);
+  --vp-sidebar-width: 280px;
+  --vp-layout-max-width: 1480px;
+  --vp-font-family-base: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+.dark {
+  --vp-c-brand-1: #efbd61;
+  --vp-c-brand-2: #e8ad44;
+  --vp-c-brand-3: #d79a30;
+}
+.VPDoc .content-container { max-width: 820px !important; }
+.vp-doc h1 { letter-spacing: -.035em; line-height: 1.2; }
+.vp-doc h2 { letter-spacing: -.02em; }
+.vp-doc table { width: 100%; }
+.vp-doc th { text-align: left; }
+.VPSidebarItem .text { font-size: 13px; }
+.proposal-notice {
+  margin: 0 0 28px;
+  padding: 12px 16px;
+  border: 1px solid var(--vp-c-divider);
+  border-left: 3px solid var(--vp-c-brand-1);
+  border-radius: 6px;
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-text-1);
+  font-size: 12px;
+  line-height: 1.7;
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .proposal-notice { margin-bottom: 20px; }
+  .vp-doc h1 { font-size: 30px; }
+}

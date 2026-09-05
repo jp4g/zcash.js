@@ -1,0 +1,30 @@
+name: Configuration or runtime design
+description: Discuss docs tooling configuration or proposed runtime requirements.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Pre-implementation: no usable SDK or validated wallet runtime.**
+
+        Do not submit credentials, mnemonics, keys, wallet identifiers, addresses, txids, PCZTs, database contents, or sensitive logs. Use synthetic examples and placeholder URLs/paths only.
+  - type: textarea
+    id: context
+    attributes:
+      label: Configuration context
+      description: Specify docs tooling or proposed Node/browser runtime. Proposed wallet support is not implemented.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Question or failure
+      description: Use synthetic configuration, placeholder paths/URLs, safe error codes, and expected behavior. Do not paste raw logs.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Safe report
+      options:
+        - label: "I used synthetic data and excluded all sensitive material listed above."
+          required: true

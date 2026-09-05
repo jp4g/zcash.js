@@ -16,6 +16,32 @@ const research = [
   ['API inspiration', 'transaction-api-inspiration-review'],
 ].map(([text, slug]) => ({ text, link: `/research/${slug}` }));
 
+const book = [
+  ['Status & scope', 'README'],
+  ['End-to-end walkthrough', 'walkthrough'],
+  ['Design principles', 'principles'],
+  ['Installation & imports', 'installation'],
+  ['Networks & exact amounts', 'networks-amounts'],
+  ['Public client', 'public-client'],
+  ['Light client', 'light-client'],
+  ['Wallet, runtime & storage', 'wallet-runtime'],
+  ['Accounts, recovery & signers', 'accounts-signers'],
+  ['Receive addresses', 'receive-addresses'],
+  ['Sync & scan status', 'sync'],
+  ['Balances, history & inventory', 'queries'],
+  ['Send & shield', 'send-shield'],
+  ['Reviewed proposals', 'proposals'],
+  ['Local signing & external PCZT', 'signing'],
+  ['Pending payments & recovery', 'operations'],
+  ['Errors & lifecycle', 'errors-lifecycle'],
+  ['Security & privacy', 'security-privacy'],
+  ['Node & browser limits', 'platforms'],
+  ['Full API reference', 'reference'],
+  ['Exact declarations', 'public-api'],
+  ['Rust/WASM host contract', 'host-contract'],
+  ['Host operation mapping', 'host-mapping'],
+].map(([text, slug]) => ({ text, link: `/api/${slug}` }));
+
 export default defineConfig({
   title: 'zcash.js',
   description: 'Proposed Zcash TypeScript API, planning decisions and source research. Pre-implementation; no usable SDK.',
@@ -27,7 +53,7 @@ export default defineConfig({
     siteTitle: 'zcash.js / docs',
     nav: [
       { text: 'API · proposed', link: '/api/README', activeMatch: '/api/' },
-      { text: 'Planning', link: '/planning/decision-log', activeMatch: '/planning/' },
+      { text: 'Walkthrough', link: '/api/walkthrough' },
       { text: 'Research', link: '/research/zakura-api-capability-map', activeMatch: '/research/' },
     ],
     sidebar: [
@@ -36,11 +62,8 @@ export default defineConfig({
         { text: 'Repository overview', link: '/repository' },
         { text: 'Contributing', link: '/contributing' },
       ] },
-      { text: 'Proposed API', items: [
-        { text: 'Guide & examples', link: '/api/README' },
-        { text: 'Declaration reference', link: '/api/public-api' },
-      ] },
-      { text: 'Planning', collapsed: false, items: planning },
+      { text: 'Proposed v1 API book', items: book },
+      { text: 'Planning · retained decisions', collapsed: true, items: planning },
       { text: 'Research · source evidence', collapsed: true, items: research },
     ],
     search: { provider: 'local' },

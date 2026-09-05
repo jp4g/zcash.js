@@ -1,103 +1,34 @@
-# Proposed API guide
+# Proposed v1 API book
 
-**Pre-implementation · declaration-only · not runnable.** No usable SDK, npm release, validated wallet runtime, network activation, or device support is provided. The `zcash.js` import is proposed notation.
+::: warning Unimplemented
+This is the documentation/specification deliverable for [issue #1](https://github.com/jp4g/zcash.js/issues/1). There is no SDK runtime, published package, validated wallet support or production dependency here. Examples are compile-only contracts.
+:::
 
-Start with the ordinary journeys below, then inspect the [proposed declarations](public-api.ts). The [decision log](../planning/decision-log.md) governs scope; the [namespace audit](../planning/api-namespace-audit.md) governs naming. Research preserves evidence and rejected alternatives, not new support claims.
+Start with the [end-to-end walkthrough](walkthrough.md), then follow the chapters in sidebar order. A stakeholder should be able to explain who owns the account, what has actually been submitted, and what survives a restart before reviewing the implementation boundary.
 
-## Ordinary send
+## Status and scope
 
-This sketch assumes an already synchronized wallet with explicit transaction policy, matching confirmation policy, broadcaster, local proof assets, and a matching supplied or attached signer. Wallet setup alone does not configure spending.
+V1 targets **transparent, Sapling and Ironwood**, with one TypeScript product for Node and browsers. Transparent receipt/spending/shielding remains subject to owned scripts, maturity and recovery constraints. Sapling and Ironwood each require scanning, transaction and local proving qualification. Ironwood uses an Orchard receiver encoding; legacy Orchard is not a supported `Pool`. Historical legacy accounting remains visible.
 
-```ts
-import type { AccountId, Signer, WalletClient } from 'zcash.js';
+The public client queries chain data, the light client supplies lightwallet data, and the wallet client owns local state. Each constructs independently; optional composition holds those same instances. No default network, endpoint, account, signer, provider failover or project infrastructure is supplied.
 
-declare const wallet: WalletClient;
-declare const accountId: AccountId;
-declare const recipient: string;
-declare const signer: Signer;
+Excluded from v1: Sprout and legacy Orchard spending/automatic migration; mnemonic/seed generation; raw spending-key export; persistent secret custody; UIVK wallet import and less-common key imports; concrete Ledger support; remote proving; multisig; remote-wallet RPC. No WebZjs API or snapshot compatibility, full-node consensus validator, release topology or license is established.
 
-const pending = await wallet.send({
-  accountId, to: recipient, amount: 125_000n, signer,
-});
-await pending.wait({ confirmations: 3 });
-```
+## How to read the book
 
-Amounts are exact bigint zatoshis; `100_000_000n` is one ZEC. `send` returns after creation/storage and the first ordered submission pass, including unknown or rejected attempts. It does not wait for mining. `wait` checks every required transaction; cancellation or timeout cannot undo submission and failures retain partial state. Use `wallet.operations` to inspect and recover durable operations. A reviewed `send({ proposal })` executes that exact plan without silently replanning.
+- **Proposed Contract** identifies behavior required of a future implementation.
+- **Unimplemented** identifies missing product work, including all SDK examples.
+- **Requires Qualification** identifies claims that need functional evidence before support can be advertised.
 
-## Wallet setup
+The [declarations](public-api.md) remain the exact signature baseline. [D01–D25](../planning/decision-log.md) govern settled scope; this book preserves them. Research and historical candidate snippets are secondary evidence, not alternate current APIs. The [host contract](host-contract.md) adds a versioned review boundary. Issue #1 freezes the authenticated `WasmArtifact` manifest declaration and clarifies that zero-birthday account creation uses coherent local database state after explicit sync, failing `SYNC_REQUIRED` before mutation when unavailable/stale.
 
-Proposed browser viewing wallet with an application-selected gRPC-Web endpoint, dedicated worker and OPFS storage:
+## Review route
 
-```ts
-import { createLightClient, createWalletClient, grpc } from 'zcash.js';
-import type { Birthday, Network, RuntimeOptions } from 'zcash.js';
+1. [Walk through a wallet lifecycle](walkthrough.md), including interruption and restart.
+2. Read [principles](principles.md) and [installation notation](installation.md), then networks, clients, accounts and queries.
+3. Review sending, immutable proposals, signer roles and recovery together.
+4. Inspect the [full API reference](reference.md) and [Rust/WASM mapping](host-mapping.md).
 
-declare const network: Network;
-declare const runtime: RuntimeOptions; // application-resolved WASM/worker URLs and bounds
-declare const checkpoint: Birthday; // validated prior chain state for recovery
-declare const ufvk: string; // application input; never log or put in a URL
-
-const light = createLightClient({
-  network,
-  transport: grpc('https://light.example.invalid', {
-    sourceId: 'app-light', timeoutMs: 15_000,
-    readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4_000_000,
-  }),
-});
-const wallet = await createWalletClient({
-  network, runtime, light,
-  storage: { kind: 'browser-opfs', name: 'app-wallet' },
-  confirmations: { trusted: 3, untrusted: 10, allowZeroConfirmationShielding: false },
-  observation: { pollIntervalMs: 5_000, maxBufferedUpdates: 32 },
-});
-try {
-  const account = await wallet.accounts.import({
-    viewingKey: ufvk, birthday: checkpoint, viewOnly: true,
-  });
-  await wallet.sync();
-  const balance = await wallet.getBalance({ accountId: account.id });
-  // amounts is null until a summary is available; scan state travels with it.
-  if (balance.amounts !== null) console.log(balance.scan.scanComplete);
-} finally {
-  await wallet.close();
-}
-```
-
-The `.invalid` endpoint is intentionally nonfunctional. Applications supply validated network/birthday data and resolved WASM/worker artifacts. Node storage would use `{ kind: 'node-filesystem', path: applicationPath }`. Durable storage must never silently fall back to memory. Threaded startup requires a separately qualified artifact with fresh baseline fallback.
-
-## Accounts, receiving and authority
-
-`wallet.accounts.create({ mnemonic })` delegates next-index selection to Zakura and returns an account plus a caller-owned, memory-only, unattached signer. Applications generate and back up mnemonics with their own BIP39 tooling. Recovery uses `wallet.accounts.import({ mnemonic, accountIndex, birthday })`; it requires an explicit account index and birthday or full scan.
-
-UFVK import accepts `viewOnly`, defaulting to `false` to retain spend-supporting state. It supplies no signer. True view-only state may need reconstruction/rescan before spending; attaching a signer cannot perform that upgrade. UIVK wallet import, raw spending-key export and persistent secret custody are outside v1.
-
-Use `wallet.addresses.current/next/list/at` with an explicit account ID. `current` does not allocate on a miss; `next` and `at` persist exposure. Default unified requests include every available supported receiver, linking receivers and permitting transparent receipt. Shielded-only requests are explicit.
-
-## Surface and source mapping
-
-| Proposed surface | Contract and source evidence |
-| --- | --- |
-| `createPublicClient`, `http`, flat public queries/broadcast | [Transaction/query plan](../planning/transaction-query-api.md), [provider evidence](../research/provider-endpoint-landscape.md) |
-| `createLightClient`, `grpc`, lightwallet streams | [Transaction/query plan](../planning/transaction-query-api.md), [capability map](../research/zakura-api-capability-map.md) |
-| `createWalletClient`, runtime/storage/lifecycle | [WASM host architecture and functional gates](../planning/wasm-host-architecture.md) |
-| `wallet.accounts`, `wallet.addresses`, signers and standalone viewing/address tools | [Keys/accounts/signers contract](../planning/keys-accounts-signers-api.md) |
-| Flat `send`, `shield`, `propose`, queries, sync and observations | [Transaction/query contract](../planning/transaction-query-api.md) |
-| `wallet.pczt`, advanced PCZT stages, standalone `pczt` | [Transaction/query contract](../planning/transaction-query-api.md), [pool-specific source map](../research/zakura-api-capability-map.md) |
-| `wallet.operations`, pending payment recovery | [Transaction/query contract](../planning/transaction-query-api.md), [host durability gates](../planning/wasm-host-architecture.md) |
-| `createZcashClient({ public, light, wallet })` | [Approved shallow namespace tree](../planning/api-namespace-audit.md) — references the same independent clients |
-
-Rust owns checked codecs, derivation, selection, fees/change, construction, authorization checks, proving, scanning and SQLite projections. TypeScript owns transport, scheduling and application/signer composition. The selected dependency baseline is the coherent locked Common 1.0.0 graph; separate 1.1.0 evidence does not authorize mixed dependencies.
-
-## Execution boundaries
-
-Local send is fused. Advanced `build/prove/sign/finalize` describe supported single-step PCZT roles, not universal local staging. Custom external signing rejects multi-step plans before disclosure. Proof and signature ordering follows qualified protocol roles. A UFVK does not replace proving or spending authority.
-
-The intended pools are transparent, Sapling and Ironwood. Orchard receiver/key encoding reused by Ironwood does not add legacy Orchard to `Pool`. Historical legacy balances remain explicitly identified. Sapling parameter delivery/integrity and Ironwood network/branch/version applicability require validation.
-
-Networks, endpoints, accounts and signers are explicit. Factories do not invent endpoints or fail over silently. Queries carry observation/scan state; unavailable balances are not zero. Errors, bounded streams, cancellation, transaction identity and retained unknown broadcast outcomes are part of the proposed contract.
-
-## Validation status and reporting
-
-The declaration freeze is a review baseline, not G3–G6 approval. Type-checking proves only TypeScript consistency; functional storage, scanner, transport and transaction gates remain open in the [workplan](../planning/api-surface-workplan.md) and [host plan](../planning/wasm-host-architecture.md). See [deferred work](../planning/future-issues.md) before extending scope.
-
-Do not submit credentials, mnemonics, keys, wallet identifiers, addresses, txids, PCZTs, database contents, or sensitive logs. Use synthetic examples and placeholder URLs/paths only.
+::: info Requires Qualification
+G0–G6 design/implementation-readiness gates and F1–F8 functional gates are not marked complete by this book. TypeScript and site builds establish documentation consistency only. Storage durability, scanner liveness, protocol interoperability, proving and device support remain unvalidated.
+:::

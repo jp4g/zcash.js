@@ -21,13 +21,16 @@ Never attach mnemonics, passphrases, seeds, spending/viewing keys, addresses, tr
 
 ## Local documentation validation
 
-Install the documentation-only development dependencies with `npm ci` (or `npm install` when intentionally updating the lockfile), then run `npm run docs:build`. Use `npm run docs:dev` to edit and `npm run docs:preview` to review the built site at `/`.
+The preview command uses the Vite executable supplied by the pinned VitePress development toolchain. This VitePress release's preview server ignores `--host`; Vite preview honors the explicit loopback host and strict port. Both dev and preview must remain at base `/` and `http://127.0.0.1:4173/`.
+
+
+Install the documentation-only development dependencies with `npm ci` (or `npm install` when intentionally updating the lockfile), then run `npm run docs:typecheck` and `npm run docs:build`. Use `npm run docs:dev` to edit and `npm run docs:preview` to review the built site at `http://127.0.0.1:4173/`.
 
 ```sh
 git diff --check
 tsc --noEmit --strict --target ES2020 --module ESNext --lib ES2020,DOM docs/api/public-api.ts
 ```
 
-The documentation toolchain provides `tsc`; use `npx --no-install tsc` if it is not on your PATH. It validates declarations, not runtime implementation. Include untracked files in explicit whitespace checks because `git diff --check` omits them. Check final newlines, trailing whitespace, NULs, Markdown relative targets and heading anchors. Parse issue-form YAML with an available parser and review its required fields and privacy language. Type-check active usage snippets against the declaration file using temporary files outside the repository; historical comparison snippets are not runtime examples.
+The documentation toolchain provides `tsc`; use `npx --no-install tsc` if it is not on your PATH. It validates declarations, not runtime implementation. Include untracked files in explicit whitespace checks because `git diff --check` omits them. Check final newlines, trailing whitespace, NULs, Markdown relative targets and heading anchors. Parse issue-form YAML with an available parser and review its required fields and privacy language. Active API-book snippets are included from compile-only files in `docs/api/examples` and checked by `npm run docs:typecheck` using local type-only imports. Historical comparison snippets are not current API examples.
 
 Review searches for accidental Orchard pool membership, implicit account selection, backend purpose fields in public account records, mnemonic generation, raw secret export, UIVK wallet onboarding, persistent custody, nested service APIs and universal local staging. Matches in historical evidence or explicit exclusions require context, not blind replacement. Preserve planned Node/Rust lockfiles in version control once tooling is chosen.

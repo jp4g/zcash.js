@@ -1,0 +1,91 @@
+# Host operation catalog and source mapping
+
+::: tip Proposed Contract
+This catalog belongs to `zcash-host/1.0-draft.1`. Payload type names refer to the issue #1 [public declarations](public-api.md), lowered by H1.2. All wallet commands take a wallet target handle; independent codecs take a runtime target. Every command inherits validation, bounds, cancellation and envelope rules from the [host contract](host-contract.md).
+:::
+
+## Mapping categories
+
+**Direct Zakura** means an inspected public Rust primitive exists. **Composed** means several such primitives must be combined. **Narrow glue** means new bounded Rust projection, lifecycle/journal, binding or TS transport work; it is not already supplied by Zakura. **Unsupported** means no v1 path is exposed. A command can combine categories; none establishes runtime support.
+
+Source coordinates: W is wallet-libraries commit `a9142ee100b3a563b7d9ba7a8e94201d00ad8154`; B is its `librustzcash/zcash_client_backend`, S its `zcash_client_sqlite`, P its `pczt`. Exact files/symbol links are in the [transaction source index](../planning/transaction-query-api.md#evidence-and-reconciliation) and [key source index](../planning/keys-accounts-signers-api.md#source-evidence-and-semantic-differences). Common 1.1.0 commit `13360888be437f066da5e16242663d1b211c6f87` is supplementary source evidence; the implementation baseline remains W's coherent locked **1.0.0** graph. Same symbol names across those graphs are not type/ABI parity.
+
+## Runtime, storage and authority
+
+- `runtime_init` → H1.1 report plus instance token; `runtime_close` → void; `handle_release({ handle })` → void. **Narrow glue** for loaders, tables and teardown, consumed by factories and disposable wrappers. `buffer_allocate({ length })` → lease, `buffer_consume({ lease })` → owned internal bytes, `buffer_release({ lease })` → void are optional physical-binding lowering operations, not public exports.
+- `wallet_open({ network, storage, confirmations })` → wallet handle after migration/recovery; `wallet_close` → void. **Direct Zakura + narrow glue:** S `WalletDb::from_connection`, `WalletMigrator::{with_external_migrations,init_or_migrate}` plus VFS, ownership and journal recovery. Consumed by `createWalletClient/close`; runtime/transport/policy callbacks stay in the host.
+- `account_create(AccountCreate)` → `CreatedAccount` with opaque signer token; `account_import_hd(MnemonicImport)` → same; `account_import_ufvk(ViewingImport)` → `AccountRecord`. **Direct Zakura + narrow glue:** B `WalletWrite::{create_account,import_account_hd,import_account_ufvk}`, checked mnemonic processing and authority table. These commit account state, not secrets. `AccountCreate` remains the public intent payload, without birthday. Using the target wallet handle, `account_create` checks the database's current locally verified chain/tree state after explicit sync and derives `AccountBirthday` internally from one coherent local snapshot before invoking Zakura `create_account`. The serialized owner keeps freshness validation, birthday derivation and creation coherent with scans/rewinds. Unavailable/stale state returns `SYNC_REQUIRED` with `commit: none`, before mutation; there is no hidden network request or implicit sync. [Freshness semantics](accounts-signers.md#choose-the-onboarding-path) also apply to empty wallets.
+- `account_list` → account records; `account_get({ accountId })` → record/null; `account_remove({ accountId, acknowledge })` → void. **Direct/composed + narrow glue:** B `WalletRead::{get_account_ids,get_account}`, `WalletWrite::delete_account`, DTO/session binding projection and unresolved-lock checks. Removal commits local history deletion.
+- `signer_bind({ accountId, descriptor, authorityRef })` → binding token and ready/recovery-required; `signer_unbind({ accountId })` → void. **Narrow glue + composed key checks**, consumed by attach/detach. These are H1 names for the existing plan's session registry, not a backend purpose upgrade. External `Signer` callbacks remain TS; internal local authority uses an instance-checked lease, never exported USK bytes.
+- `viewing_derive` is a tagged union: parse `(network, format, encoded, enabledPools)` → `AccountDescriptor`; incoming `(descriptor)` → reduced descriptor; export `(descriptor, format, acknowledge)` → string. **Direct/composed + narrow glue:** Common UFVK/UIVK `decode/encode`, `to_unified_incoming_viewing_key`, checked components. Consumed by `accountFromViewingKey` and `viewing`; export is explicit disclosure. `signer_release({ handle })` releases memory authority via the handle rules.
+
+## Addresses and codecs
+
+`address_current(AccountAddressArgs)` → string/null; `address_next(AccountAddressArgs)` → `AddressRecord`; `address_list({ accountId })` → records; `address_at(AccountAddressArgs & { index })` → record. **Direct Zakura:** B `get_last_generated_address_matching`, `get_next_available_address`, `list_addresses`, `get_address_for_index`, respectively. **Narrow glue** preserves DTOs, scope, recovery constraints and commits exposure on next/at before returning. Current/list do not mutate.
+
+`codec_decode` and `codec_encode` are discriminated operation schemas, never arbitrary codec/plugin names. H1 consumers are `defineNetwork`, checked `accountIndex/diversifierIndex/txId/blockHash`, standalone address decode/derive/find/selectReceiver, and protocol normalization for public/light data. Payload/result fields exactly follow each corresponding public signature; address find includes positive `maxAttempts`, receiver selection includes `ConsensusContext`. **Direct/composed** Common key/address/transaction codecs and **narrow glue** parameter validation, exact widths/byte order and scope filters. `derive/find` return unallocated address records; they do not persist wallet exposure. Cheap scalar checks may remain host-only, but Rust repeats checks on trust-boundary use. No public generic transaction-builder or raw-key codec is added.
+
+`resolveBirthday` is **composed** host light query plus checked B `AccountBirthday::from_treestate`; its result includes first scan height, prior state, optional exclusive boundary and source. It does not create an account.
+
+## Query projections
+
+- `balance_read({ accountId, confirmations })` → `WalletBalance`: **direct Zakura** B `get_wallet_summary`, account/balance getters; **narrow glue** revision/scan projection and explicit legacy totals.
+- `history_page({ accountId, cursor?, limit? })` → `HistoryPage`: **narrow glue**, schema-pinned S `v_transactions` query. No complete production history collection method is established; never use `WalletTest::get_tx_history`.
+- `transaction_read({ txid })` → `WalletTransaction | null`: **composed** B `get_transaction/get_tx_height/get_memo/get_received_outputs`; **narrow glue** local-existence test, account filtering and deduplicated sent/received output projections.
+- `notes_page` and `utxos_page` take the exact public inventory filters/page fields (notes optionally pool) → `NotePage/UtxoPage`: **narrow glue**, schema-pinned received/spend projections. Selection methods supply subsets and cannot serve full inventory. Eligibility stays unknown.
+- `sync_state_read` → `SyncStatus`: **composed** B chain/scan/birthday/recovery/range/request reads plus **narrow glue** runner/revision state.
+
+These use serialized coherent reads, bind cursors to revision/account/filter/order and preserve all public nullability. No JS SQL, test API, per-note callback or reconstructed JS accounting crosses the boundary.
+
+## Scan and enhancement operations
+
+`scan_plan({ target })` → bounded prioritized half-open ranges and required chain/tree inputs. **Composed** B `suggest_scan_ranges`, chain/scan metadata. `scan_ingest_batch({ target, blocks, priorState })` → committed range/count/revision plus next requests: **composed** `scan_cached_blocks` and wallet writes, with a **requires-qualification** serial seam using `scanning::scan_block` if required by baseline liveness. The host converts public inclusive stream ranges explicitly; batch results are not a fabricated all-pool percentage.
+
+`scan_rewind({ requestedPoint })` → actual rewind point/revision or recovery error: **direct/composed** B `truncate_to_height/truncate_to_chain_state` plus cache/tree reconciliation. Never assume requested height equals returned height.
+
+`enhancement_requests` → bounded typed backend requests; `enhancement_apply({ requestRef, rawTransaction, context })` → revision/new requests; `status_apply({ requestRef, observation })` → revision; `transparent_apply({ requestRef, response, completedRange })` → revision; `subtrees_apply({ pool, roots })` → revision. **Direct/composed** B `transaction_data_requests`, `decrypt_and_store_transaction`, `set_transaction_status`, `put_received_transparent_utxo`, `notify_address_checked`, `notify_output_verified_unspent`, and `WalletCommitmentTrees::put_*_subtree_roots`. **Narrow glue** binds response to original request/network/range and requires real unspent evidence before notification. Typed request references are instance-bound; omitted/failed data cannot become completed coverage.
+
+Consumed by `sync/watchSync`, whose shared finite/continuous orchestration is **narrow TS glue**. No complete enhancement-aware scheduler is established by backend `sync::run`.
+
+## Proposal and fused execution
+
+`proposal_create({ intent, transactionPolicy })` → retained proposal handle and `Proposal` review DTO. **Direct** B wallet `propose_transfer/propose_shielding`; **composed/narrow glue** versioned proposal, advisory lock/operation owner and immutable review commitment. Send/shield intents keep their exact public union and defaults. Allocate operation identity before/with locks.
+
+`proposal_review({ proposal })` → owned `Proposal` DTO; `proposal_restore({ operationId, artifactVersion })` → new retained handle/DTO or recovery error. **Direct/composed** `Proposal/Step` getters and `proto::proposal::Proposal::{from_standard_proposal,try_into_standard_proposal}` plus **narrow glue** association/revalidation. Restore is internal to persisted work; there is no corresponding new public method.
+
+`local_execute_and_store({ proposal, authorityRef, assets })` → stored operation/step state used to create `PendingPayment`. **Composed** B `create_proposed_transactions(SpendingKeys, ...)`, `get_transaction`, locked-graph `Transaction::write`; **narrow glue** atomic exact-byte journal via S extension transactions. This is fused and potentially multi-step. All policy/context/locks/effects are revalidated. No detached universal local build/sign/prove operations are exposed. TS performs the initial broadcast pass after durable storage.
+
+## PCZT and proving
+
+- `pczt_build({ proposal })` → `PcztArtifact`: **direct** B `create_pczt_from_proposal`, **narrow glue** single-step rejection/association/storage.
+- `pczt_export({ proposal } | { pczt })` → `PcztExchange`: **composed** B `redact_pczt_for_signer` and P serialization plus retained full copy. No export on multi-step or unsupported role before disclosure.
+- `pczt_import({ operationId, bytes })` → new associated artifact: **composed** P parse/Combiner plus **narrow glue** effects, signature, request and association validation/persistence. Partial authorization can remain partial.
+- `pczt_prove({ pczt, assets, authorityRef? })` → new artifact: **composed** P `Prover::{new,requires_sapling_proofs,requires_ironwood_proof,create_sapling_proofs,create_ironwood_proof,finish}`. Least necessary proving authority is internal; no public authority parameter is added to `wallet.prove`.
+- `pczt_authorize({ pczt, authorityRef } | { pczt, signingResult })` → new artifact: **composed** P `Signer::{new,sign_transparent,sign_sapling,sign_ironwood,finish}` or checked contribution combination; **narrow glue** external callback return verification. Host invokes callbacks outside borrowed Rust state.
+- `pczt_finalize_and_store({ pczt })` → stored pending operation: **direct/composed** B `extract_and_store_transaction_from_pczt`, `SpendFinalizer`, `TransactionExtractor`; **narrow glue** atomic outbox. No network side effect.
+
+Standalone parse/serialize use P `Pczt::{parse,serialize}`; inspect projects getters; combine/redact use P `Combiner/Redactor`. H1 commands `pczt_parse/serialize/inspect/combine/redact` take the exact standalone `PcztApi` arguments and return the same lowered handle/DTO/bytes. **Direct/composed + narrow glue** for bounds, versioned redaction profile and context. They do not enroll wallet operations.
+
+`assets_load({ requirement, bytes })` → verified asset handle; `proof_job_start({ artifact, assetRefs, authorityRef? })` → job handle; `job_poll/cancel/release({ job })` → job state/cancel acknowledgment/void. **Composed** Common `LocalTxProver::from_bytes` and pool circuit/prover roles, **narrow glue** verified cache, leases and bounded scheduling. `LocalProvingOptions.loadAsset` is host-only parameter delivery, never witness transport or remote proving.
+
+## Operations and submission
+
+`operation_list(PageArgs & { accountId? })` → `OperationPage`; `operation_get({ operationId })` → state/null; `operation_resume({ operationId })` → state plus rehydrated behavior association. **Narrow glue:** S `ext_` journal using `transactionally_with_extension`, `ExtensionTransaction::{execute,query_row}` and external migrations. No Zakura PendingPayment primitive exists. Resume does not propose, sign or submit.
+
+`outbox_read({ operationId, stepIndex })` → owned exact bytes/digest and dependencies; `attempt_start({ operationId, stepIndex, sourceId })` → committed attempt ID; `attempt_result({ attemptId, report })` → appended result and revision. **Narrow glue** persists attempt boundaries, rejects byte/effect mismatch and never edits finalized bytes. Request/result crash ambiguity follows H1.6.
+
+`wallet.broadcast`, pending `broadcast/snapshot/events/wait` compose these reads/commits with public/light observations and Rust scan/chain identity checks. **Composed + narrow glue** for dependencies, confirmation/reorg reconciliation and observers. Snapshot is local; events/wait/broadcast have the separately documented behavior.
+
+## Host-only transport and composition
+
+`http/grpc`, `createPublicClient/createLightClient`, custom transport, `createCustomSigner` and `createZcashClient` are **narrow TS glue** without a wallet Rust call. `isZcashError` is a host type guard. Transport DTO validation can use checked codec operations without loading the wallet/prover.
+
+Public `getTip/getBlock/getBlockHeader` map to qualified node `getblockchaininfo` or coherent count/hash, `getblock/getblockheader`; transaction/status to `getrawtransaction` plus coherent block/tip/mempool evidence; optional UTXO/tree/subtree queries to `getaddressutxos/z_gettreestate/z_getsubtreesbyindex`. Broadcast maps to `sendrawtransaction`; wait/watch compose observations. These are protocol candidates, not universal server methods.
+
+Light tip/server/transaction map to `GetLatestBlock/GetLightdInfo/GetTransaction`; address data to `GetAddressUtxos` (or stream) and `GetTaddressBalance`; tree/subtrees to `GetTreeState/GetSubtreeRoots`; compact/address/mempool streams to `GetBlockRange/GetTaddressTransactions/GetMempoolStream`; broadcast to `SendTransaction`. Qualified protobuf/status/sentinel/browser adaptation is **narrow glue**; no method availability transfers from a server label.
+
+## Unsupported mappings and review gaps
+
+**Unsupported v1:** mnemonic/seed generation, raw spending-key export, UIVK wallet onboarding, less-common/raw key imports, persistent spending-secret vault, legacy Orchard/Sprout spending/migration, multi-step external PCZT, concrete Ledger, remote proving, multisig and remote-wallet RPC. An upstream symbol or feature flag does not create a public path for these.
+
+History/inventory/revision/journal/scheduler/VFS/serial scanner integration are **unimplemented narrow glue**, not excluded public requirements. Pin operation payload schema IDs and physical ABI signatures with the implementation manifest before G4 approval; the operation families above specify their consumers, semantics and source limits for review. F1–F8 remain qualification requirements.

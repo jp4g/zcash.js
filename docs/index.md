@@ -1,34 +1,21 @@
-# zcash.js documentation
+# zcash.js · proposed v1 API book
 
-**PROPOSED API · PRE-IMPLEMENTATION**
+::: warning Unimplemented
+A specification for stakeholder review, with no usable SDK, npm release or validated wallet runtime. All API examples are compile-only. This site implements documentation only.
+:::
 
-## A coherent TypeScript interface for Zcash — in design
+**[Start the end-to-end walkthrough →](api/walkthrough.md)**
 
-Explore the proposed public, light and wallet clients, the decisions behind them, and the source evidence still to validate. **There is no usable SDK, npm release, production runtime, or validated wallet support here.** Every API example is a design sketch.
+Follow one application from explicit client setup through account creation/import, sync, receive, balance inspection, reviewed payment, waiting, restart recovery and close. Then use the ordered chapters to review each behavior and its failure cases.
 
-| Start with a journey | Follow the design |
-| --- | --- |
-| [Ordinary send](api/README.md#ordinary-send) — explicit account, exact amount, pending payment | [API guide](api/README.md) — contracts, ownership and source mapping |
-| [Wallet setup](api/README.md#wallet-setup) — viewing wallet, worker and durable storage | [Planning decisions](planning/decision-log.md) — decided, open and deferred scope |
-| [Accounts and receiving](api/README.md#accounts-receiving-and-authority) — recovery and signer lifecycle | [Research evidence](research/zakura-api-capability-map.md) — inspected symbols, not runtime qualification |
+## Read in order
 
-## Three clients, explicit responsibilities
+Begin with [status and scope](api/README.md), [principles](api/principles.md) and [installation notation](api/installation.md). Continue through networks, public/light clients, wallet/accounts, receiving, sync/queries, send/review/signing and recovery. Finish with errors, privacy, platform limits, the [full reference](api/reference.md) and the [versioned Rust/WASM boundary](api/host-contract.md).
 
-**Public client** · Proposed wallet-independent chain queries and raw broadcast over HTTP JSON-RPC.
+Transparent, Sapling and Ironwood are proposed v1 targets, not validated deployments. Viewing authority, signing, proving and durable state remain separate responsibilities. Examples preserve exact bigint amounts and never turn an unknown submission into a new spend.
 
-**Light client** · Proposed lightwallet queries and bounded streams, with application-supplied transport.
+## Review locally
 
-**Wallet client** · Proposed local synchronization, accounts, balances, payments and operation recovery, with Rust/WASM owning wallet state.
+From the repository root, run `npm ci`, `npm run docs:typecheck`, `npm run docs:build`, then `npm run docs:preview`. Open **http://127.0.0.1:4173/**. Use `npm run docs:dev` instead while editing. No Pages deployment is configured.
 
-The intended v1 pools are transparent, Sapling and Ironwood. These are support targets only. No network activation or hardware compatibility is asserted.
-
-## Read the contracts, then the evidence
-
-1. Begin with the [proposed API and examples](api/README.md).
-2. Review the [namespace tree](planning/api-namespace-audit.md), [transaction contract](planning/transaction-query-api.md) and [keys/accounts/signers](planning/keys-accounts-signers-api.md).
-3. Follow the [WASM architecture](planning/wasm-host-architecture.md) and [validation workplan](planning/api-surface-workplan.md) for the proofs still required.
-4. Consult [provider research](research/provider-endpoint-landscape.md), [Common landscape](research/zakura-common-landscape.md) and [API inspiration](research/transaction-api-inspiration-review.md) for historical evidence.
-
-## Contribute to the design
-
-Read the [repository overview](../README.md) and [contribution guide](../CONTRIBUTING.md). Report contradictions with synthetic examples. Never submit credentials, mnemonics, keys, wallet identifiers, addresses, txids, PCZTs, database contents, or sensitive logs.
+The [decisions](planning/decision-log.md) govern settled scope. Planning/research are retained in collapsed sidebar sections as evidence, including historical alternatives. They do not override the current [declarations](api/public-api.md). See [contributing](contributing.md) for safe synthetic review reports.

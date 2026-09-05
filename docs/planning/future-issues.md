@@ -16,7 +16,7 @@
 | Raw Orchard/Ironwood component keys | Verify exact codec/length/validity and authority derivation; shared Orchard key structure does not imply legacy Orchard transaction support. Define explicit network/pool context, account registration and collision rules; never imply Sapling/transparent authority from one component. |
 | Unstable USK binary import/export | Pin graph, codec version and era; establish format detection, bounds, malformed-input behavior, migration and incompatibility policy. Evaluate whether any public exposure is justified; this is not a portable user-facing standard. Any future raw spending-key export requires a new scope decision, disclosure/custody policy and security review; v1 stays excluded for every pool and encoding. |
 | Coherent ZeWIF import | Assess available specification, implementation and version maturity on one coherent dependency graph. Map supported account/key/script/viewing data and recovery metadata; define unknown/unsupported item behavior, atomicity or explicit partial-import reports, duplicates, provenance and secret handling. Record unsupported cases rather than guessing encodings or promising complete recovery. |
-| Any future stable Zakura mnemonic utility | Recheck actual availability, stability, target support, BIP39 validation/passphrase behavior and dependency coherence. Evaluate reuse for supplied-mnemonic processing; generation remains application-owned unless a later explicit decision revisits D19. Do not claim a utility exists or add a generation API based on this placeholder. |
+| Any future stable Zakura mnemonic utility | Recheck actual availability, stability, target support, BIP39 validation/passphrase behavior and dependency coherence. Evaluate reuse for supplied-mnemonic processing; generation remains application-owned unless a later explicit decision revisits D19. Do not claim a utility exists or add a generation API based on this deferred assessment. |
 
 **Acceptance criteria:**
 
@@ -28,13 +28,13 @@
 
 **Evidence and dependencies:** [Keys plan K2–K5 and W1–W5](keys-accounts-signers-api.md#source-evidence-and-semantic-differences), [decision log D16/D16a/D17/D19/D20](decision-log.md), and [workplan G2–G6](api-surface-workplan.md). Persistent encrypted custody remains separately deferred by D16a; an import assessment does not implement a vault. Existing namespace conclusions remain in force.
 
-## Issue #11 — WASM performance and possible native acceleration
+## Issue #11 — WASM performance and possible native acceleration {#issue-11-wasm-performance-and-possible-native-acceleration}
 
 **Title:** Benchmark qualified WASM and evaluate optional native acceleration.
 
 **Status:** deferred performance study tracked as [GitHub issue #11](https://github.com/jp4g/zcash.js/issues/11) in the `Post-v1 — Deferred` milestone and [project board](https://github.com/users/jp4g/projects/4). It commits no delivery date or N-API implementation. **Execution dependencies:** [F1–F8 functional evidence](wasm-host-architecture.md#functional-acceptance-gates), stable [transaction/query semantics](transaction-query-api.md), coherent pinned dependency graph and qualified storage/worker variants. Functional correctness/liveness proof is separate from this benchmark study.
 
-**Problem:** determine which WASM boundary, concurrency, SIMD, asset-cache and batching choices meet product budgets while preserving custody, protocol behavior and durability. WASM-first Node/browser is the baseline. Native/N-API is only a separately approved follow-up comparison after a demonstrated WASM budget shortfall; no native SQLite default or acceleration promise follows from this placeholder.
+**Problem:** determine which WASM boundary, concurrency, SIMD, asset-cache and batching choices meet product budgets while preserving custody, protocol behavior and durability. WASM-first Node/browser is the baseline. Native/N-API is only a separately approved follow-up comparison after a demonstrated WASM budget shortfall; no native SQLite default or acceleration promise follows from this tracked issue.
 
 **Acceptance criteria:**
 

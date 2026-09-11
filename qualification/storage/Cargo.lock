@@ -911,7 +911,10 @@ name = "issue-2-qualification"
 version = "0.0.0"
 dependencies = [
  "getrandom 0.4.3",
+ "rand",
  "rusqlite",
+ "schemerz",
+ "schemerz-rusqlite",
  "uuid",
  "wasm-bindgen",
  "zakura-bellman",
@@ -934,6 +937,7 @@ dependencies = [
  "zakura-redjubjub",
  "zakura-sapling-crypto",
  "zakura-sinsemilla",
+ "zcash_protocol",
 ]
 
 [[package]]

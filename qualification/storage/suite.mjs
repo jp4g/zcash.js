@@ -27,6 +27,11 @@ export async function suite(factory, report) {
     await finish(w); w = await open(root); await ok(w, 'verify'); await finish(w);
     return { root, trace };
   });
+  await test('real-file-short-read-zero-fill-truncate-delete', async () => {
+    const root = await factory.root(); const w = await start(root, true);
+    await ok(w, 'vfsControls'); await ok(w, 'open'); await ok(w, 'seed'); await ok(w, 'verify');
+    const trace = await w.call({ op: 'trace' }); await finish(w); return { root, trace };
+  });
   await test('allocator-policy-rollback-migration', async () => {
     const root = await factory.root(); let w = await seeded(root);
     const allocator = await ok(w, 'allocator'); await ok(w, 'verify'); await ok(w, 'policy');
@@ -82,5 +87,19 @@ export async function suite(factory, report) {
       return { root, checkpoint, crashKind: 'external worker termination', powerLoss: false };
     });
   }
+  await test('pinned-wallet-schema-and-external-migration-atomicity', async () => {
+    const root = await factory.root(); let w = await open(root, true);
+    await ok(w, 'walletMigrate'); const baseline = await w.call({ op: 'walletCheck' });
+    await finish(w); w = await open(root);
+    equal(await w.call({ op: 'walletCheck' }), baseline, 'fresh wallet schema');
+    await ok(w, 'walletMigrate', { mode: 1 });
+    equal(await w.call({ op: 'walletCheck' }), baseline, 'failed external migration');
+    await finish(w); w = await open(root);
+    equal(await w.call({ op: 'walletCheck' }), baseline, 'failed migration survives reopen');
+    await ok(w, 'walletMigrate', { mode: 2 }); await finish(w); w = await open(root);
+    const committed = await w.call({ op: 'walletCheck', external: true });
+    equal(committed.migrations, baseline.migrations + 1, 'external migration committed');
+    await finish(w); return { root, baseline, committed, emptyWallet: true, accountFixture: false };
+  });
   return results;
 }

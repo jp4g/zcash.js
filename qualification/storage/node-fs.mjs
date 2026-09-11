@@ -33,8 +33,8 @@ export function acquire(root, { create = false, crash = () => {} } = {}) {
       }
       return result;
     },
-    open(path, make) {
-      const fd = fs.openSync(`${base}/${path}`, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW | (make ? fs.constants.O_CREAT : 0), 0o600);
+    open(path, make, readOnly) {
+      const fd = fs.openSync(`${base}/${path}`, (readOnly ? fs.constants.O_RDONLY : fs.constants.O_RDWR) | fs.constants.O_NOFOLLOW | (make ? fs.constants.O_CREAT : 0), 0o600);
       descriptors.add(fd);
       // Persist namespace entries before journal/database writes can depend on them.
       fs.fsyncSync(dir); host.directorySyncs++; return fd;

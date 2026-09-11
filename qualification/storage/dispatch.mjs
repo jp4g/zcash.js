@@ -6,6 +6,7 @@ export function dispatch(e, state, host, command) {
   if (op === 'inspect') return host.inspect();
   let rc;
   switch (op) {
+    case 'vfsControls': rc = e.st_vfs_controls(); break;
     case 'open': rc = e.st_open(); break;
     case 'seed': rc = e.st_seed(); break;
     case 'verify': rc = e.st_verify(); break;
@@ -16,6 +17,8 @@ export function dispatch(e, state, host, command) {
     case 'migrate': rc = e.st_migrate(command.fail ? 1 : 0); break;
     case 'version': return { version: e.st_version() };
     case 'policy': rc = e.st_policy_check(); break;
+    case 'walletMigrate': rc = e.st_wallet_migrate(command.mode ?? 0); break;
+    case 'walletCheck': return { migrations: e.st_wallet_check(command.external ? 1 : 0) };
     case 'allocator': {
       if (e.rt_grow(24 * 1024 * 1024) !== 1 || e.rt_pool_check() !== 1 || e.rt_heap_check() !== 1 || e.rt_hosts() !== 1 || e.rt_pairing() !== 1) throw Error('allocator/host/crypto control');
       return { rc: 0, poolStart: e.rt_pool_start(), poolSize: e.rt_pool_size(), heapBase: e.__heap_base.value };

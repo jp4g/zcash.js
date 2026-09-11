@@ -7,6 +7,7 @@ export async function load(bytes, backend) {
     const generated = i.module === './storage_bg.js' && [
       '__wbg___wbindgen_exports_3d3410a3b95d7b41',
       '__wbg___wbindgen_throw_5d9e815e6fdf150f', '__wbindgen_init_externref_table',
+      '__wbg_getRandomValues_a678b7300e8ed57f',
     ].includes(i.name);
     const callback = i.module === './storage-host.mjs' && [
       'entropy', 'utc_ms', 'sleep', 'host_error', 'file_open', 'file_close',

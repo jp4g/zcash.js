@@ -190,3 +190,26 @@ static int authorize(void *p, int op, const char *a, const char *b, const char *
  return SQLITE_OK;
 }
 int st_policy(sqlite3 *db) { return sqlite3_set_authorizer(db, authorize, 0); }
+
+/* Direct ABI controls use this same registered VFS and real journal file before
+ * any SQL database is opened. Never run these on a wallet containing a journal. */
+int st_vfs_controls(void) {
+ HostFile f; memset(&f, 0, sizeof(f));
+ int out = 0, rc = lower.xOpen(&lower, "/wallet.db-journal", &f.base,
+   SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_MAIN_JOURNAL, &out);
+ if (rc) return rc;
+ const sqlite3_io_methods *m = f.base.pMethods;
+ unsigned char value[4] = {1,2,3,4}, read[16]; sqlite3_int64 size;
+ if (m->xTruncate(&f.base,0) || m->xWrite(&f.base,value,4,4) || m->xFileSize(&f.base,&size) || size != 8) return SQLITE_ERROR;
+ memset(read,0xee,sizeof(read));
+ if (m->xRead(&f.base,read,16,0) != SQLITE_IOERR_SHORT_READ) return SQLITE_ERROR;
+ for (int i=0;i<16;i++) if (read[i] != (i>=4 && i<8 ? value[i-4] : 0)) return SQLITE_ERROR;
+ if (m->xTruncate(&f.base,6) || m->xFileSize(&f.base,&size) || size != 6 || m->xSync(&f.base,SQLITE_SYNC_FULL)) return SQLITE_ERROR;
+ if (m->xClose(&f.base)) return SQLITE_ERROR;
+ if (lower.xOpen(&lower,"/wallet.db-journal",&f.base,SQLITE_OPEN_READONLY | SQLITE_OPEN_MAIN_JOURNAL,&out)) return SQLITE_ERROR;
+ if (f.base.pMethods->xWrite(&f.base,value,4,0) != SQLITE_READONLY || f.base.pMethods->xTruncate(&f.base,0) != SQLITE_READONLY) return SQLITE_ERROR;
+ if (f.base.pMethods->xClose(&f.base) || lower.xDelete(&lower,"/wallet.db-journal",1)) return SQLITE_ERROR;
+ if (lower.xAccess(&lower,"/wallet.db-journal",SQLITE_ACCESS_EXISTS,&out) || out != 0) return SQLITE_ERROR;
+ if (lower.xDelete(&lower,"/wallet.db",1) != SQLITE_IOERR_DELETE) return SQLITE_ERROR;
+ return SQLITE_OK;
+}

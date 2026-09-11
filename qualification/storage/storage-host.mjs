@@ -6,7 +6,7 @@ export const RC = { OK: 0, BUSY: 5, READONLY: 8, IOERR: 10, FULL: 13, CANTOPEN: 
 let memory, backend;
 const files = new Map();
 let next = 1;
-export const state = { trace: [], last: '', lastCode: 0, fault: null, crash: null };
+export const state = { trace: [], traceDropped: 0, last: '', lastCode: 0, fault: null, crash: null };
 export function attach(mem, host) {
   if (memory || !(mem.buffer instanceof ArrayBuffer)) throw Error('host attach/nonshared contract');
   memory = mem; backend = host;
@@ -33,15 +33,17 @@ function offset(at) {
 }
 function int(ptr, n) { new DataView(bytes(ptr, 4).buffer).setInt32(ptr >>> 0, n, true); }
 function record(op, file, extra = {}) {
-  if (state.trace.length >= 10000) throw Error('trace bound');
+  if (state.trace.length >= 10000) { state.traceDropped++; return; }
   state.trace.push({ op, file, ...extra });
 }
 function lease() { if (!backend?.owned) throw Object.assign(Error('owner lease absent'), { code: 'EBUSY' }); }
 function get(id) { lease(); const f = files.get(id); if (!f) throw Error('closed file'); return f; }
 export function mapError(error, fallback) {
-  if (['ENOSPC', 'EDQUOT', 'QuotaExceededError'].includes(error.code ?? error.name)) return RC.FULL;
-  if (['EACCES', 'EPERM', 'NotAllowedError'].includes(error.code ?? error.name)) return RC.READONLY;
-  if (['EBUSY', 'EAGAIN', 'NoModificationAllowedError'].includes(error.code ?? error.name)) return RC.BUSY;
+  // DOMException.code is a legacy numeric value; its name carries the category.
+  const tag = typeof error.code === 'string' ? error.code : error.name;
+  if (['ENOSPC', 'EDQUOT', 'QuotaExceededError'].includes(tag)) return RC.FULL;
+  if (['EACCES', 'EPERM', 'NotAllowedError'].includes(tag)) return RC.READONLY;
+  if (['EBUSY', 'EAGAIN', 'NoModificationAllowedError'].includes(tag)) return RC.BUSY;
   return fallback;
 }
 function attempt(op, file, fallback, fn) {
@@ -63,7 +65,7 @@ function attempt(op, file, fallback, fn) {
     return rc;
   } catch (e) {
     const rc = mapError(e, fallback);
-    state.last = `${op}:${e.code ?? e.name}`; state.lastCode = rc;
+    state.last = `${op}:${typeof e.code === 'string' ? e.code : e.name}`; state.lastCode = rc;
     record(op, file, { rc, error: state.last });
     return rc;
   }
@@ -72,10 +74,11 @@ export function file_open(ptr, flags, out) {
   const path = name(ptr);
   return attempt('open', path, RC.CANTOPEN, () => {
     const type = flags & (0x100 | 0x800 | 0x80000 | 0x4000 | 0x200 | 0x400 | 0x1000 | 0x2000);
-    if (type !== (path === 'wallet.db' ? 0x100 : 0x800) || !(flags & 2) || flags & (1 | 8 | 16)) return RC.CANTOPEN;
+    const readOnly = (flags & 3) === 1;
+    if (type !== (path === 'wallet.db' ? 0x100 : 0x800) || ![1, 2].includes(flags & 3) || flags & (8 | 16) || (readOnly && (flags & 4))) return RC.CANTOPEN;
     if ([...files.values()].some(f => f.path === path)) return RC.BUSY;
-    const handle = backend.open(path, Boolean(flags & 4));
-    const id = next++; files.set(id, { path, handle, level: 0 }); int(out, id); return RC.OK;
+    const handle = backend.open(path, Boolean(flags & 4), readOnly);
+    const id = next++; files.set(id, { path, handle, level: 0, readOnly }); int(out, id); return RC.OK;
   });
 }
 export function file_close(id) {
@@ -94,6 +97,7 @@ export function file_read(id, ptr, n, at) {
 export function file_write(id, ptr, n, at) {
   const f = get(id);
   return attempt('write', f.path, RC.WRITE, () => {
+    if (f.readOnly) return RC.READONLY;
     const source = bytes(ptr, n); let wrote = 0;
     while (wrote < n) {
       const count = backend.write(f.handle, source.subarray(wrote), offset(at) + wrote);
@@ -105,7 +109,7 @@ export function file_write(id, ptr, n, at) {
 }
 export function file_truncate(id, size) {
   const f = get(id);
-  return attempt('truncate', f.path, RC.TRUNCATE, () => { backend.truncate(f.handle, offset(size)); return RC.OK; });
+  return attempt('truncate', f.path, RC.TRUNCATE, () => { if (f.readOnly) return RC.READONLY; backend.truncate(f.handle, offset(size)); return RC.OK; });
 }
 export function file_sync(id, flags) {
   const f = get(id);

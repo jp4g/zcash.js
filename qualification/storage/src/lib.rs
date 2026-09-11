@@ -33,7 +33,7 @@ pub extern "C" fn st_open() -> i32 {
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn st_close() -> i32 {
- DB.with(|s| match s.borrow_mut().take() { None=>21, Some(db)=> match db.close() { Ok(())=>0, Err((db,e))=> { *s.borrow_mut()=Some(db); rc(Err(e)) } } })
+ DB.with(|s| { let connection = s.borrow_mut().take(); match connection { None=>21, Some(db)=> match db.close() { Ok(())=>0, Err((db,e))=> { *s.borrow_mut()=Some(db); rc(Err(e)) } } } })
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn st_seed() -> i32 { with_db(|db| {
@@ -106,3 +106,5 @@ pub extern "C" fn rt_grow(size: u32) -> u32 {
 pub extern "C" fn rt_heap_check() -> u32 {
     HEAP.with(|slot| u32::from(slot.borrow().iter().enumerate().all(|(i, b)| *b == (i % 251) as u8)))
 }
+
+mod wallet;

@@ -13,6 +13,6 @@ onmessage = async ({ data }) => {
     else { postMessage(dispatch(runtime.e, runtime.state, host, data)); }
   } catch (e) {
     if (!runtime) host?.release();
-    failure = { error: e.message, code: e.code ?? e.name }; postMessage(failure);
+    failure = { error: e.message, code: typeof e.code === 'string' ? e.code : e.name, nativeCode: e.code }; postMessage(failure);
   }
 };

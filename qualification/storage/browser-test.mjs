@@ -43,7 +43,7 @@ try {
     },
   }, result => { results.push(result); document.querySelector('#result').textContent = results.map(r => `${r.test}: PASS`).join('\n'); });
   outcome = { pass: true, results, contexts, userAgent: navigator.userAgent, estimate: await navigator.storage.estimate(), actualQuotaExhaustion: false };
-} catch (e) { outcome = { pass: false, error: e.stack, results, contexts }; }
+} catch (e) { outcome = { pass: false, error: `${e.name}: ${e.message}\n${e.stack}`, results, contexts }; }
 finally { for (const worker of active) worker.terminate(); }
 document.querySelector('#result').textContent = JSON.stringify(outcome, null, 2);
 await fetch('/result', { method: 'POST', body: JSON.stringify(outcome) });

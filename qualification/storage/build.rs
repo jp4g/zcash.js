@@ -14,7 +14,7 @@ fn main() {
     println!("cargo:rustc-link-lib=static=c");
     println!("cargo:rustc-link-arg=--error-limit=0");
     println!("cargo:rustc-link-arg=-Map=/home/jack/zcash-storage-scratch/runtime.map");
-    for name in ["rt_init", "rt_pool_check", "rt_pool_start", "rt_pool_size", "rt_hosts", "rt_time", "__heap_base", "__heap_end"] {
+    for name in ["st_vfs_controls", "rt_init", "rt_pool_check", "rt_pool_start", "rt_pool_size", "rt_hosts", "rt_time", "__heap_base", "__heap_end"] {
         println!("cargo:rustc-link-arg=--export={name}");
     }
 }

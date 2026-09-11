@@ -11,6 +11,10 @@ publish = false
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+rand = "=0.10.2"
+zcash_protocol = "=0.10.6"
+schemerz = "=0.2.0"
+schemerz-rusqlite = "=0.370.0"
 zakura-bellman = { version = "=1.0.0", default-features = false, features = [] }
 zakura-bls12-381 = { version = "=1.0.0", default-features = false, features = ["groups", "pairings", "alloc", "bits"] }
 zakura-client-backend = { version = "=0.1.0-rc4", default-features = false, features = ["orchard", "transparent-inputs", "pczt"] }

@@ -1,7 +1,7 @@
 // Coordinator host execution required: this worker sandbox denies socket creation.
 import http from 'node:http';
 import fs from 'node:fs';
-import path from 'node:path';
+import { serveStatic } from './serve-static.mjs';
 import { spawn } from 'node:child_process';
 const base = '/home/jack/zcash-storage-scratch/bundle';
 const log = '/home/jack/zcash-storage-logs';
@@ -22,11 +22,7 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
-  const name = req.url === '/' ? 'browser-test.html' : req.url.slice(1);
-  if (name.includes('/') || !/^[a-zA-Z0-9_.-]+$/.test(name)) { res.writeHead(404).end(); return; }
-  const type = { '.mjs': 'text/javascript', '.js': 'text/javascript', '.wasm': 'application/wasm', '.html': 'text/html' }[path.extname(name)];
-  try { res.writeHead(200, { 'Content-Type': type ?? 'text/plain', 'Cache-Control': 'no-store' }); res.end(fs.readFileSync(`${base}/${name}`)); }
-  catch { res.writeHead(404).end(); }
+  serveStatic(base, req, res);
 });
 let finishing = false;
 const timer = setTimeout(() => { console.error('external browser suite timeout'); finish(1); }, 180000);
@@ -36,6 +32,8 @@ function finish(code) {
   server.closeAllConnections(); server.close(); fs.closeSync(chromeLog); process.exitCode = code;
 }
 server.on('error', e => { console.error(e); finish(1); });
+process.on('uncaughtException', e => { console.error(e); finish(1); });
+process.on('unhandledRejection', e => { console.error(e); finish(1); });
 process.on('SIGTERM', () => finish(143)); process.on('SIGINT', () => finish(130));
 server.listen(0, '127.0.0.1', () => {
   chrome = spawn('/home/jack/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome', [

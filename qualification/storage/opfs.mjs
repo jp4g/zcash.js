@@ -19,7 +19,11 @@ export async function acquire(root, { create = false, crash = () => {} } = {}) {
         return [path, { size: h.getSize(), header: Array.from(b) }];
       }));
     },
-    open(path) { const h = handles.get(path); if (!h) throw Error('unsupported OPFS slot'); return h; },
+    open(path, create) {
+      const h = handles.get(path);
+      if (!h || (!create && path.endsWith('-journal') && h.getSize() === 0)) throw Object.assign(Error('absent OPFS slot'), { code: 'ENOENT' });
+      return h;
+    },
     close() { /* SQLite file lifetime is shorter than the exclusive owner lease. */ },
     read: (h, b, at) => h.read(b, { at }),
     write: (h, b, at) => h.write(b, { at }),

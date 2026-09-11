@@ -11,7 +11,7 @@ const port = Number(process.env.STORAGE_DRIVER_PORT ?? 19445);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error('invalid local driver port');
 const endpoint = `http://127.0.0.1:${port}`;
 let driver, session, browserPid, socket, finishing = false, sequence = 0;
-let startup = Promise.resolve(), cleanup, driverError, outputClosed = false;
+let startup = Promise.resolve(), cleanup, driverError, outputClosed = false, finishCode = 0;
 function checkStartup() {
   if (finishing) throw Error('Firefox startup cancelled');
   if (driverError) throw driverError;
@@ -55,13 +55,15 @@ function bidi(method, params) {
 }
 const timer = setTimeout(() => { console.error('external Firefox suite timeout'); void finish(1); }, 180000);
 function finish(code) {
+  // Join one cleanup, but retain the first failure even if success started it.
+  if (!finishCode) finishCode = code;
   if (finishing) return cleanup;
   finishing = true;
   cleanup = (async () => {
     // Every acquisition is bounded. Join it before inspecting resources so a
     // late session response is still deleted, and keep the run deadline active.
     await startup;
-    const failed = e => { console.error(`cleanup: ${e.message}`); if (!code) code = 1; };
+    const failed = e => { console.error(`cleanup: ${e.message}`); if (!finishCode) finishCode = 1; };
     try { socket?.close(); } catch (e) { failed(e); }
     if (session) {
       try { await request(`/session/${session}`, 'DELETE'); }
@@ -75,7 +77,7 @@ function finish(code) {
     outputClosed = true;
     try { fs.closeSync(output); } catch (e) { failed(e); }
     clearTimeout(timer);
-    process.exitCode = code;
+    process.exitCode = finishCode;
   })();
   return cleanup;
 }

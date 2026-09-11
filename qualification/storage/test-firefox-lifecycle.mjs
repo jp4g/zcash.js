@@ -1,3 +1,4 @@
+// Includes R2 cleanup regressions from the independent reviewer probe.
 // Regression derived from the independent review's read-only VM probe.
 // Evaluate the runner unchanged. All external effects are simulated;
 // no sockets, browsers, shared files or real signals are used by this control.
@@ -27,6 +28,14 @@ async function scenario(kind) {
         if (kind === 'stop-during-session' || kind === 'stop-session-delete-failure') await new Promise(r => { resolveSession = r; });
         return { ok: true, json: async () => ({ value: { sessionId: 'created-on-existing-driver', capabilities: { 'moz:processID': 434343, webSocketUrl: 'ws://mock/' } } }) };
       }
+      if (init.method === 'DELETE' && kind === 'signal-during-cleanup') {
+        handlers.SIGTERM();
+        handlers.uncaughtException(Error('later error must preserve signal status'));
+      }
+      if (init.method === 'DELETE' && kind === 'error-during-cleanup') {
+        handlers.uncaughtException(Error('simulated driver-output EIO during session cleanup'));
+        handlers.SIGTERM();
+      }
       if (init.method === 'DELETE' && ['delete-failure', 'stop-session-delete-failure'].includes(kind)) throw Error('mock delete failure');
       if (init.method === 'DELETE') return { ok: true, json: async () => ({ value: null }) };
       return { ok: true, json: async () => ({ value: null }) };
@@ -43,7 +52,7 @@ async function scenario(kind) {
   });
   const deps = {
     'node:http': { default: { createServer(fn) { resultHandler = fn; return server; } } },
-    'node:fs': { default: { openSync() { return 123; }, closeSync() {}, writeSync() {}, writeFileSync() {} } },
+    'node:fs': { default: { openSync() { return 123; }, closeSync() { calls.push('closeLog'); }, writeSync() {}, writeFileSync() {} } },
     './serve-static.mjs': { serveStatic() {} },
     'node:child_process': { spawn() { calls.push('spawn-new-driver'); queueMicrotask(() => {
       if (kind === 'occupied-port') { calls.push('own-driver-bind-failed'); child.exit(1); }
@@ -69,15 +78,19 @@ async function scenario(kind) {
     assert.ok(openSocket); handlers.SIGTERM(); openSocket();
   }
   await running;
-  if (['success', 'delete-failure', 'kill-failure', 'socket-close-failure'].includes(kind)) {
+  if (['success', 'delete-failure', 'kill-failure', 'socket-close-failure', 'signal-during-cleanup', 'error-during-cleanup'].includes(kind)) {
     const req = { url: '/result', method: 'POST', on(event, fn) { this[event] = fn; } };
     resultHandler(req, { end() {} });
     // Inject the same worker lifecycle messages the real browser supplies.
     // The fake subscription emits them below.
     req.data(JSON.stringify({ pass: true, results: [{}] }));
     const done = req.end();
+    // A second successful result must not reset a failure recorded while the
+    // first result's cleanup is in flight.
+    const repeated = ['signal-during-cleanup', 'error-during-cleanup'].includes(kind) ? req.end() : undefined;
     for (const [id, t] of timers) if (t.ms === 500) { timers.delete(id); t.fn(); }
     await done;
+    await repeated;
   }
   for (let n = 0; n < 100; n++) await Promise.resolve();
   if (kind === 'occupied-port') {
@@ -91,7 +104,7 @@ async function scenario(kind) {
 
 console.log(JSON.stringify({ sourceSha256: createHash('sha256').update(source).digest('hex') }));
 let failures = 0;
-for (const kind of ['occupied-port', 'stop-during-session', 'stop-session-delete-failure', 'stop-before-listen', 'stop-during-socket', 'success', 'delete-failure', 'kill-failure', 'socket-close-failure']) {
+for (const kind of ['occupied-port', 'stop-during-session', 'stop-session-delete-failure', 'stop-before-listen', 'stop-during-socket', 'success', 'delete-failure', 'kill-failure', 'socket-close-failure', 'signal-during-cleanup', 'error-during-cleanup']) {
   const result = await scenario(kind);
   console.log(JSON.stringify(result));
   try {
@@ -101,13 +114,20 @@ for (const kind of ['occupied-port', 'stop-during-session', 'stop-session-delete
     } else if (kind === 'stop-before-listen') {
       assert.equal(result.exitCode, 130);
       assert.equal(result.calls.some(c => c.url), false);
-    } else if (['success', 'delete-failure', 'kill-failure', 'socket-close-failure'].includes(kind)) {
-      assert.equal(result.exitCode, kind === 'success' ? 0 : 1);
+    } else if (['success', 'delete-failure', 'kill-failure', 'socket-close-failure', 'signal-during-cleanup', 'error-during-cleanup'].includes(kind)) {
+      assert.equal(result.exitCode, kind === 'success' ? 0 : kind === 'signal-during-cleanup' ? 143 : 1);
       assert.ok(result.calls.some(c => c.method === 'DELETE'));
     } else {
       assert.equal(result.exitCode, 143);
       assert.ok(result.calls.some(c => c.method === 'DELETE'), 'late session must be deleted');
       assert.equal(result.calls.some(c => c.method === 'POST' && c.url.endsWith('/url')), false, 'no navigation after shutdown');
+    }
+    if (['signal-during-cleanup', 'error-during-cleanup'].includes(kind)) {
+      assert.equal(result.calls.filter(c => c.method === 'DELETE').length, 1);
+      for (const operation of ['closeSocket', 'closeConnections', 'closeServer', 'closeLog']) {
+        assert.equal(result.calls.filter(c => c === operation).length, 1, operation + ' exactly once');
+      }
+      assert.deepEqual(result.calls.filter(c => c.kill), [{ kill: -424242, signal: 'SIGKILL' }]);
     }
     assert.deepEqual(result.remainingTimers, []);
     console.log('PASS ' + kind);

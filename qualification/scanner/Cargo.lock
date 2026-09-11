@@ -913,9 +913,9 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "incrementalmerkletree",
+ "js-sys",
  "prost",
  "rand",
- "rand_core 0.6.4",
  "rusqlite",
  "secrecy",
  "serde_json",
@@ -923,6 +923,7 @@ dependencies = [
  "shardtree",
  "subtle",
  "uuid",
+ "wasm-bindgen",
  "zakura-bellman",
  "zakura-bls12-381",
  "zakura-client-backend",
@@ -936,7 +937,7 @@ dependencies = [
  "zakura-orchard",
  "zakura-pairing",
  "zakura-pasta-curves",
- "zakura-pczt 0.1.0-rc2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zakura-pczt",
  "zakura-primitives",
  "zakura-proofs",
  "zakura-reddsa",
@@ -2115,7 +2116,7 @@ dependencies = [
  "zakura-keys",
  "zakura-orchard",
  "zakura-pasta-curves",
- "zakura-pczt 0.1.0-rc2",
+ "zakura-pczt",
  "zakura-primitives",
  "zakura-sapling-crypto",
  "zcash_address",
@@ -2163,7 +2164,7 @@ dependencies = [
  "zakura-jubjub",
  "zakura-keys",
  "zakura-orchard",
- "zakura-pczt 0.1.0-rc2",
+ "zakura-pczt",
  "zakura-primitives",
  "zakura-sapling-crypto",
  "zcash_address",
@@ -2329,36 +2330,6 @@ dependencies = [
 [[package]]
 name = "zakura-pczt"
 version = "0.1.0-rc2"
-dependencies = [
- "blake2b_simd",
- "document-features",
- "ff",
- "getset",
- "nonempty",
- "postcard",
- "rand",
- "rand_core 0.10.1",
- "secp256k1",
- "serde",
- "serde_with",
- "zakura-bls12-381",
- "zakura-jubjub",
- "zakura-orchard",
- "zakura-pasta-curves",
- "zakura-primitives",
- "zakura-redjubjub",
- "zakura-sapling-crypto",
- "zcash_note_encryption",
- "zcash_protocol",
- "zcash_script",
- "zcash_transparent",
-]
-
-[[package]]
-name = "zakura-pczt"
-version = "0.1.0-rc2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fc78b3e1d6fe525d7e1a7fb17bc07bcc580a21f07ce1aa205cbc29b09f72d30"
 dependencies = [
  "blake2b_simd",
  "document-features",

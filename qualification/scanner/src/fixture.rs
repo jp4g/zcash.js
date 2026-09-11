@@ -1,6 +1,6 @@
 //! Synthetic public-protocol construction. No proofs or consensus-valid block claim.
 use prost::Message;
-use rand::{SeedableRng, RngExt};
+use rand::SeedableRng;
 use sha2::{Digest, Sha256};
 use std::{convert::Infallible, num::NonZeroU32, time::{SystemTime, Duration}};
 use rusqlite::Connection;
@@ -40,20 +40,11 @@ pub fn key(index: u32) -> UnifiedSpendingKey {
     UnifiedSpendingKey::from_seed(&network(), &[0;32], zip32::AccountId::try_from(index).unwrap()).unwrap()
 }
 pub fn bytes(label: &str) -> [u8;32] { Sha256::digest(label.as_bytes()).into() }
-// Only supplies the legacy RNG trait to public Sapling encryption. ZIP212 derives esk from rseed.
-struct LegacyRng(rand::rngs::SmallRng);
-impl rand_core_06::RngCore for LegacyRng {
-    fn next_u32(&mut self) -> u32 { self.0.random() }
-    fn next_u64(&mut self) -> u64 { self.0.random() }
-    fn fill_bytes(&mut self, out: &mut [u8]) { for b in out { *b = self.0.random(); } }
-    fn try_fill_bytes(&mut self, out: &mut [u8]) -> Result<(), rand_core_06::Error> { self.fill_bytes(out); Ok(()) }
-}
-fn sapling_output(label: &str, account: u32, scope: Scope, value: u64, position: u64) -> (CompactSaplingOutput, sapling::Nullifier) {
-    let fvk = key(account).to_unified_full_viewing_key().sapling().unwrap().clone();
+fn sapling_output(label: &str, fvk: &sapling::zip32::DiversifiableFullViewingKey, scope: Scope, value: u64, position: u64) -> (CompactSaplingOutput, sapling::Nullifier) {
     let recipient = match scope { Scope::External => fvk.default_address().1, Scope::Internal => fvk.change_address().1 };
     let note = sapling::Note::from_parts(recipient, sapling::value::NoteValue::from_raw(value), sapling::Rseed::AfterZip212(bytes(label)));
     let nf = note.nf(&fvk.to_nk(scope), position);
-    let enc = sapling::note_encryption::sapling_note_encryption(Some(fvk.to_ovk(scope)), note.clone(), [0;512], &mut LegacyRng(rand::rngs::SmallRng::seed_from_u64(0)));
+    let enc = sapling::note_encryption::sapling_note_encryption(Some(fvk.to_ovk(scope)), note.clone(), [0;512], &mut rand::rngs::SmallRng::seed_from_u64(0));
     (CompactSaplingOutput { cmu: note.cmu().to_bytes().to_vec(), ephemeral_key: sapling::note_encryption::SaplingDomain::epk_bytes(enc.epk()).0.to_vec(), ciphertext: enc.encrypt_note_plaintext()[..52].to_vec() }, nf)
 }
 fn ironwood_output(label: &str, account: u32, scope: Scope, value: u64, nf_old: orchard::note::Nullifier) -> (CompactOrchardAction, orchard::note::Nullifier) {
@@ -75,16 +66,18 @@ impl BlockSource for Corpus {
     }
 }
 pub fn generate() -> Corpus {
+    let own = key(0).to_unified_full_viewing_key();
+    let other = key(1).to_unified_full_viewing_key();
     let mut txs: Vec<CompactTx> = (0..7).map(|i| CompactTx { index: 1, txid: bytes(&format!("tx-{i}")).to_vec(), ..Default::default() }).collect();
-    let (out, snf) = sapling_output("sapling-receipt", 0, Scope::External, 50_000, 0); txs[0].outputs.push(out);
+    let (out, snf) = sapling_output("sapling-receipt", own.sapling().unwrap(), Scope::External, 50_000, 0); txs[0].outputs.push(out);
     let dummy = orchard::note::Nullifier::from_bytes(&[1;32]).unwrap();
     let (out, inf) = ironwood_output("ironwood-receipt", 0, Scope::External, 70_000, dummy); txs[1].ironwood_actions.push(out);
     txs[2].spends.push(CompactSaplingSpend { nf: snf.0.to_vec() });
-    txs[2].outputs.push(sapling_output("sapling-change", 0, Scope::Internal, 30_000, 1).0);
-    txs[2].outputs.push(sapling_output("sapling-payment", 1, Scope::External, 20_000, 2).0);
+    txs[2].outputs.push(sapling_output("sapling-change", own.sapling().unwrap(), Scope::Internal, 30_000, 1).0);
+    txs[2].outputs.push(sapling_output("sapling-payment", other.sapling().unwrap(), Scope::External, 20_000, 2).0);
     txs[3].ironwood_actions.push(ironwood_output("ironwood-change", 0, Scope::Internal, 45_000, inf).0);
     txs[3].ironwood_actions.push(ironwood_output("ironwood-payment", 1, Scope::External, 25_000, orchard::note::Nullifier::from_bytes(&[2;32]).unwrap()).0);
-    for i in 0..1025 { txs[4].outputs.push(sapling_output(&format!("irrelevant-{i}"), 1, Scope::External, 1, 3+i).0); }
+    for i in 0..1025 { txs[4].outputs.push(sapling_output(&format!("irrelevant-{i}"), other.sapling().unwrap(), Scope::External, 1, 3+i).0); }
     let (mut sapling_size, mut ironwood_size) = (0,0);
     let mut previous = vec![0;32];
     Corpus(txs.into_iter().enumerate().map(|(i, tx)| {
@@ -96,5 +89,24 @@ pub fn generate() -> Corpus {
     }).collect())
 }
 pub fn frozen() -> Corpus {
-    Corpus((START..START+7).map(|h| CompactBlock::decode(std::fs::read(format!("{}/fixtures/{h}.pb", env!("CARGO_MANIFEST_DIR"))).unwrap().as_slice()).unwrap()).collect())
+    let blocks: [&[u8];7] = [
+        include_bytes!("../fixtures/100000.pb"), include_bytes!("../fixtures/100001.pb"),
+        include_bytes!("../fixtures/100002.pb"), include_bytes!("../fixtures/100003.pb"),
+        include_bytes!("../fixtures/100004.pb"), include_bytes!("../fixtures/100005.pb"),
+        include_bytes!("../fixtures/100006.pb"),
+    ];
+    Corpus(blocks.into_iter().map(|bytes| CompactBlock::decode(bytes).unwrap()).collect())
+}
+
+/// Reference frontier construction uses only the public incremental tree append API.
+pub fn chain_state(blocks: &[CompactBlock]) -> ChainState {
+    let mut s = incrementalmerkletree::frontier::Frontier::empty();
+    let mut o = incrementalmerkletree::frontier::Frontier::empty();
+    let mut i = incrementalmerkletree::frontier::Frontier::empty();
+    for b in blocks { for tx in &b.vtx {
+        for out in &tx.outputs { assert!(s.append(sapling::Node::from_bytes(out.cmu.as_slice().try_into().unwrap()).unwrap())); }
+        for out in &tx.actions { assert!(o.append(orchard::tree::MerkleHashOrchard::from_bytes(out.cmx.as_slice().try_into().unwrap()).unwrap())); }
+        for out in &tx.ironwood_actions { assert!(i.append(orchard::tree::MerkleHashOrchard::from_bytes(out.cmx.as_slice().try_into().unwrap()).unwrap())); }
+    } }
+    blocks.last().map_or_else(initial, |b| ChainState::new(b.height(), b.hash(), s, o, i))
 }

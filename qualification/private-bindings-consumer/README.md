@@ -15,9 +15,10 @@ its bytes and explicitly update its revision and metadata digest after a real bu
 do not rerun exclusive creation over it. After a successful build:
 
 ```sh
-node qualification/private-bindings-consumer/verify.test.mjs /home/jack/zakura-bindings-network-scratch/fix-r1-packet-normal /home/jack/zakura-bindings-network-scratch
-node qualification/private-bindings-consumer/prepare.mjs /home/jack/zakura-bindings-network-scratch/fix-r1-packet-normal /home/jack/zakura-bindings-network-scratch/fix-r1-browser
-node /home/jack/zakura-bindings-network-scratch/fix-r1-browser/node.mjs /home/jack/zakura-bindings-network-scratch/fix-r1-browser
+REPRO=$(mktemp -d /home/jack/zakura-bindings-network-scratch/consumer-repro.XXXXXX)
+node qualification/private-bindings-consumer/verify.test.mjs /home/jack/zakura-bindings-network-scratch/combined-packet-1 "$REPRO"
+node qualification/private-bindings-consumer/prepare.mjs /home/jack/zakura-bindings-network-scratch/combined-packet-1 "$REPRO/package"
+node "$REPRO/package/node.mjs" "$REPRO/package"
 ```
 
 The local verifier checks the independently pinned metadata digest, revision,
@@ -43,19 +44,23 @@ certificate policy and cleanup are retained from accepted a280d31. No WebDriver
 import or security override is used. Parent owns actual browser/socket execution.
 
 The committed pin selects private revision
-`2de5fc0a0b1eed6927251157d6bfc3181515fdf9` and build metadata SHA-256
-`bcac33310a80a516da6ba22c06b5a29b581f6c086830ad19c3d37df387a498f9`.
+`9ee26e66833d6d0fbb1ca2382e0a0881ac373f33` and build metadata SHA-256
+`c9992802524c2a624b5a5f9506c485d24d5f1f3f3be98e331b94e55153c019b0`.
+Rebuild from a detached checkout of that exact revision, not a later main HEAD.
 Two fresh committed-source builds (normal Python and `-O`) match byte-for-byte.
-This pin contains the R1 build-guard fix only. HIGH review R2 (SharedArrayBuffer
-prototype-spoof admission) remains unresolved; this is not a merge-ready packet. The actual pinned Node
-consumer passes 196 cases plus 29 admission controls; all nine pin/file rejection
-controls pass. The final browser package is
-`/home/jack/zakura-bindings-network-scratch/fix-r1-browser`, with inventory digest
-`3a0a8c730ff9f2acc51241ab646a14cbd6d35b397b143391968a093c620b0f25`.
-Parent owns actual Firefox execution and independent review. Historical uncommitted
-candidate packages are preserved and are not the final pinned package. Detailed
-results and the exact browser command are under
-`/home/jack/zakura-bindings-network-logs/fixes/{checkpoint.md,REPORT.md,CLIresult.md,BROWSER-COMMAND.txt}`.
+Both original P2 findings are fixed and independently accepted: unconditional
+producer gates and intrinsic backing-store admission before generated glue.
+Actual pinned Node passes 196 cases plus 29 admissions; all nine pin/file rejection
+controls pass. Actual Firefox passes 196 cases plus 28 admissions, with complete
+session/driver/server cleanup and unchanged confinement. The verified package is
+`/home/jack/zakura-bindings-network-scratch/combined-browser`, inventory digest
+`d44e6169420ce1388edc528c26bb8f6ff5622b9035031a15e530dd581c44f0b2`.
+The commands above use a fresh reproduction output because preparation is exclusive.
+Historical failed and R1-only packets remain preserved, not selected.
+Final browser receipt: `/home/jack/zakura-bindings-network-logs/browser/firefox-1789155133656.json`,
+SHA-256 `55f48e9e003e1de954cd3d6c7472b6b670401eef4619266180ec7596e1857edd`.
+Independent final review: `/home/jack/zakura-bindings-network-logs/review/r2/REPORT.md`
+and `verdict.json`.
 
 No complete runtime profile, executable host loader, worker/ABI negotiation,
 network registration, public defineNetwork or client genesis verification is

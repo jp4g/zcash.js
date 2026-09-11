@@ -117,6 +117,60 @@ test('wire requests use POST, distinct string IDs, explicit credentials, no redi
   await assert.rejects(internal.readRpc(transport, 'getblockhash', [Number.MAX_SAFE_INTEGER + 1]), { code: 'INVALID_ARGUMENT' });
 });
 
+for (const enumerable of [true, false]) {
+  test(`header getters are captured once (enumerable=${enumerable})`, async (t) => {
+    let reads = 0;
+    const received = [];
+    const headers = Object.defineProperty({}, 'Authorization', { enumerable,
+      get() { return ++reads === 1 ? 'expected-token' : undefined; } });
+    mockFetch(t, async (_url, init) => {
+      received.push(init.headers.get('authorization'));
+      return response(JSON.parse(init.body));
+    });
+    await call(sdk.http('https://synthetic.invalid', options({ headers: async () => headers })));
+    assert.deepEqual(received, ['expected-token']);
+    assert.equal(reads, 1);
+  });
+
+  test(`parameter getters retain validated primitives across retries (enumerable=${enumerable})`, async (t) => {
+    let reads = 0;
+    let serializations = 0;
+    const params = Object.defineProperty([], '0', { enumerable,
+      get() { return ++reads === 1 ? 7 : { toJSON() { return ++serializations; } }; } });
+    const received = [];
+    mockFetch(t, async (_url, init) => {
+      const request = JSON.parse(init.body);
+      received.push(request);
+      return received.length === 1 ? new Response('', { status: 503 }) : response(request);
+    });
+    const transport = sdk.http('https://synthetic.invalid', options({ readRetry: { attempts: 2, delayMs: 0 } }));
+    await internal.readRpc(transport, 'getblockhash', params);
+    assert.deepEqual(received.map(request => request.params), [[7], [7]]);
+    assert.notEqual(received[0].id, received[1].id);
+    assert.equal(reads, 1);
+    assert.equal(serializations, 0);
+  });
+}
+
+for (const variant of ['custom iterator', 'overridden some', 'hole', 'object', 'undefined', 'null']) {
+  test(`parameter snapshot rejects ${variant} before serialization`, async (t) => {
+   let dispatches = 0;
+   let serializations = 0;
+   const unsupported = { toJSON() { serializations++; return 7; } };
+   mockFetch(t, async (_url, init) => { dispatches++; return response(JSON.parse(init.body)); });
+   const transport = sdk.http('https://synthetic.invalid', options());
+   const overriddenSome = [unsupported];
+   overriddenSome.some = () => false;
+   const customIterator = [7];
+   customIterator[Symbol.iterator] = function* () { yield unsupported; };
+   const params = { 'custom iterator': customIterator, 'overridden some': overriddenSome,
+     hole: Array(1), object: [unsupported], undefined: [undefined], null: [null] }[variant];
+   await assert.rejects(internal.readRpc(transport, 'getblockhash', params), { code: 'INVALID_ARGUMENT' });
+   assert.equal(serializations, 0);
+   assert.equal(dispatches, 0);
+  });
+}
+
 test('malformed replies and mismatched IDs never become successful/absent results', async (t) => {
   const malformed = [
     id => ({ jsonrpc: '1.0', id, result: null }), id => ({ jsonrpc: '2.0', id: `${id}x`, result: null }),

@@ -32,3 +32,8 @@ zakura-redjubjub = { version = "=1.0.0", default-features = false, features = []
 zakura-sapling-crypto = { version = "=1.0.0", default-features = false, features = [] }
 zakura-sinsemilla = { version = "=1.0.0", default-features = false, features = [] }
 rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled"] }
+
+# Initial target probe fails in getrandom 0.4.3 without this additive host feature.
+# getrandom 0.2.17 already receives `js` through existing dependency edges.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "=0.4.3", features = ["wasm_js"] }

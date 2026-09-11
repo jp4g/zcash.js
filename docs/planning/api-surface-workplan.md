@@ -20,6 +20,8 @@ The generic external signer/PCZT seam remains in v1. Concrete Ledger support is 
 
 The [transaction/query plan](transaction-query-api.md) and [WASM host plan](wasm-host-architecture.md) supply the current G2–G5 integration specification. Their source mappings and F1–F8 gates refine this workplan; source inspection is not runtime proof.
 
+D26 authorizes the recovery specification amendment and compile-only/consistency tests: opening automatically recovers the entire database inventory without an application ID store. The [normative recovery contract](../api/operations.md) and [future acceptance matrix](recovery-acceptance.md) govern bounded traversal, observation, consent, retry budgets and crash behavior. No production SDK implementation, live probes or qualification gate is authorized or passed by this amendment.
+
 ## 1. Establish scope and evidence ownership
 
 Assign a JS API owner, Rust/protocol owner, wallet/scanning owner, browser/runtime owner, and security/privacy reviewer. One person can fill several roles, but protocol correctness and usability need separate review perspectives. Record an owner and decision date for every unresolved item.

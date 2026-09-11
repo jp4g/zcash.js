@@ -15,8 +15,7 @@ declare const recipient: string;
 declare const amountInput: string; // decimal ZEC from the payment form, e.g. "0.00125"
 declare function showBalance(totalZec: string): void; // private application UI
 declare function review(proposal: Proposal): Promise<boolean>;
-declare function saveOperationId(id: string): Promise<void>; // durable private application storage
-declare function loadOperationId(): Promise<string | null>;
+declare function showOperation(state: PaymentState): void;
 declare function showRecovery(code: ErrorCode, state: PaymentState | undefined): void;
 
 // Explicit application configuration; fixture URLs/pins are not usable release assets.
@@ -66,7 +65,6 @@ const wallet = await createWalletClient(options);
 // #endregion setup
 let signer: MemorySigner | undefined;
 let binding: SignerBinding | undefined;
-let operationId: string | null = null;
 try {
   // #region onboarding
   const synced = await wallet.sync(); // establish local chain/tree state before creation
@@ -100,8 +98,6 @@ try {
   const proposal = await wallet.propose({
     accountId, to: recipient, amount: parseZec(amountInput), idempotencyKey: 'walkthrough-payment-1',
   }); // use a unique application key for each intended payment
-  operationId = proposal.operationId;
-  await saveOperationId(operationId); // persist before send; never telemetry
   // Review every step, recipient, amount, fee and expiry without modifying the proposal.
   if (await review(proposal)) {
     const pending = await wallet.send({ proposal }); // execute this exact immutable proposal
@@ -110,8 +106,6 @@ try {
   // #endregion send
 } catch (error: unknown) {
   if (!isZcashError(error)) throw error;
-  operationId = error.operationId ?? operationId;
-  if (operationId !== null) await saveOperationId(operationId);
   showRecovery(error.code, error.paymentState); // private UI; never log raw errors
 } finally {
   try { await binding?.dispose(); }
@@ -122,23 +116,23 @@ try {
 }
 
 // #region restart
-// In a later session, reopen the same database; do not create the account again.
-const savedId = await loadOperationId();
-if (savedId !== null) {
-  const reopened = await createWalletClient(options);
-  try {
-    const pending = await reopened.operations.resume({ operationId: savedId });
-    const state = await pending.snapshot(); // resume does not sign or broadcast
-    if (state.missing.length === 0) {
-      await pending.broadcast(); // reconcile first; retry only exact stored transaction bytes
-      await pending.wait({ confirmations: 3, timeoutMs: 120_000 });
-    }
-    // Otherwise show state.missing and follow explicit recovery; never rebuild or re-sign here.
-  } catch (error: unknown) {
-    if (!isZcashError(error)) throw error;
-    showRecovery(error.code, error.paymentState); // retain the saved operation ID
-  } finally {
-    await reopened.close();
-  }
+// In a later session, reopen the same database. No separately saved ID or signer.
+const reopened = await createWalletClient(options); // bounded observation; no auto rebroadcast
+try {
+  // ALL operations are already locally recovered, even if network observation timed out.
+  let cursor: string | undefined;
+  do {
+    const page = await reopened.operations.list({ ...(cursor ? { cursor } : {}), limit: 50 });
+    for (const state of page.items) showOperation(state);
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor !== undefined);
+  // If concurrent explicit work invalidates a UI cursor, refresh the listing.
+  // A selected operationId can rebind a handle via operations.resume.
+  // Broadcast is a separate explicit consent action; opening never finishes unsigned work.
+} catch (error: unknown) {
+  if (!isZcashError(error)) throw error;
+  showRecovery(error.code, error.paymentState);
+} finally {
+  await reopened.close();
 }
 // #endregion restart

@@ -114,6 +114,8 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
     }
     if (caller?.aborted) throw aborted();
     if (stopped) throw stopped;
+    // Header callbacks and processing can block the timeout timer.
+    if (performance.now() - started >= state.options.timeoutMs) throw timeout();
     // Cancel a late response even if a nonconforming injected fetch ignores abort.
     const fetching = fetch(state.url, { method: 'POST', body, headers, signal: controller.signal,
       credentials: 'omit', redirect: 'error', cache: 'no-store' }).then(value => {

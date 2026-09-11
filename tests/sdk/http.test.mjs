@@ -275,6 +275,23 @@ test('caller abort and timeout bound both headers and fetch, ignoring private ab
   await assert.rejects(pending, error => error.code === 'ABORTED' && !error.message.includes('private'));
 });
 
+test('expired synchronous header acquisition or processing never dispatches HTTP', async (t) => {
+  let calls = 0;
+  mockFetch(t, async (_url, init) => { calls++; return response(JSON.parse(init.body)); });
+  const exceedDeadline = () => {
+    const started = performance.now();
+    while (performance.now() - started < 60) { /* Keep the timeout timer from running. */ }
+  };
+  for (const headers of [
+    async () => { exceedDeadline(); return {}; },
+    async () => ({ get Authorization() { exceedDeadline(); return 'synthetic-token'; } }),
+  ]) {
+    const transport = sdk.http('https://synthetic.invalid', options({ timeoutMs: 10, headers }));
+    await assert.rejects(call(transport), { code: 'TIMEOUT' });
+    assert.equal(calls, 0);
+  }
+});
+
 test('body byte limits and UTF-8 validation apply to actual stream bytes and release the reader', async (t) => {
   let cancelled = 0;
   let mode = 'large';

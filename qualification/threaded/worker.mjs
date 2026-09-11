@@ -1,3 +1,4 @@
+import { checkThreaded } from './artifact-check.mjs';
 // Both hosts consume exactly the same unmodified generated web-target glue.
 export function install({ send, listen, context }) {
   let bindings, exports, memory, ready = false, role, fault;
@@ -8,6 +9,7 @@ export function install({ send, listen, context }) {
         role = data.role; fault = data.fault;
         if (fault === 'owner-error' && role === 'owner') throw Error('injected owner bootstrap failure');
         if (fault === 'owner-stall' && role === 'owner') return;
+        checkThreaded(data.module);
         bindings = await import(data.bindingsURL);
         if (role === 'owner') {
           exports = await bindings.default({ module_or_path: data.module });

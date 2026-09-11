@@ -16,7 +16,7 @@ fn main() {
     println!("cargo:rustc-link-arg=--error-limit=0");
     let target = std::env::var("CARGO_TARGET_DIR").unwrap();
     println!("cargo:rustc-link-arg=-Map={target}/threaded.map");
-    for name in ["rt_init", "rt_pool_check", "rt_pool_start", "rt_pool_size", "__heap_base", "__heap_end"] {
+    for name in ["__wasm_init_tls", "__tls_size", "__tls_align", "__tls_base", "rt_init", "rt_pool_check", "rt_pool_start", "rt_pool_size", "__heap_base", "__heap_end"] {
         println!("cargo:rustc-link-arg=--export={name}");
     }
 }

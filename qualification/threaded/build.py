@@ -41,7 +41,7 @@ def main():
     (stage / 'raw').mkdir()
     shutil.copyfile(target / 'wasm32-unknown-unknown/debug/issue_2_threaded_qualification.wasm', stage / 'raw/threaded.wasm')
     shutil.copyfile(target / 'threaded.map', stage / 'raw/threaded.map')
-    record['producer_objects'] = {str(p):sha(p) for pat in ['*/out/adapter.o','*/out/*sqlite3.o'] for p in (target / 'wasm32-unknown-unknown/debug/build').glob(pat)}
+    record['producer_objects'] = {str(p):sha(p) for pat in ['**/out/adapter.o','**/out/*sqlite3.o'] for p in (target / 'wasm32-unknown-unknown/debug/build').glob(pat)}
     run('generate', [str(GEN),str(stage / 'raw/threaded.wasm'),'--target','web','--out-dir',str(stage / 'web'),'--out-name','qualification','--keep-lld-exports'])
     for name in sources: assert sha(ROOT / name) == record['sources'][name], 'source changed during build'
     record['artifacts'] = {str(p.relative_to(stage)):sha(p) for p in stage.rglob('*') if p.is_file() and p.name != 'provenance.json'}; save()

@@ -1,0 +1,22 @@
+[
+  {
+    "path": "/home/jack/zcash-qualification-scratch/target/debug/issue-2-qualification",
+    "bytes": 12768000,
+    "sha256": "c077c2e62276cee6674dc8ad4e84c07949c959aa11bdf1167dee0b9d64475f43"
+  },
+  {
+    "path": "/home/jack/zcash-qualification-scratch/wasi-sdk-27.0-x86_64-linux/bin/clang",
+    "bytes": 141568,
+    "sha256": "e78c818b321d834a20df5796afa9a9329dc53fd1f0a2597166c7a283b355be77"
+  },
+  {
+    "path": "/home/jack/zcash-qualification-scratch/wasi-sdk-27.0-x86_64-linux/share/wasi-sysroot/lib/wasm32-wasi/libc.a",
+    "bytes": 2911766,
+    "sha256": "8e79a8b06402c7a8e93bbed56a17b4827c81e29451f73c3f47669a7ea7494006"
+  },
+  {
+    "path": "/home/jack/zcash-qualification-scratch/target/wasm32-unknown-unknown/debug/build/libsqlite3-sys-84e208fd302c97f1/out/c877a2978823c39d-sqlite3.o",
+    "bytes": 5697531,
+    "sha256": "7c512ac8d28bbb36aee561be28968b3b5d03893fe9475b16caec64d0ed1994e5"
+  }
+]

@@ -1,5 +1,6 @@
 // Local qualification pins only. This is not the H1 remote artifact loader.
 import { open } from 'node:fs/promises';
+import { mkdtempSync, openSync, closeSync, readFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -27,7 +28,16 @@ export async function verifyPacket(packet, pin) {
   const build = JSON.parse(raw);
   assert.equal(build.schema, 'zakura-network-build/1');
   assert.equal(build.revision, pin.revision, 'revision mismatch');
-  const git = (...args) => execFileSync('git', ['-C', pin.repository, ...args]);
+  // Regular-file capture avoids Node's socket-backed subprocess pipes here.
+  const git = (...args) => {
+    const temp = mkdtempSync('/home/jack/zakura-bindings-network-scratch/git-read-');
+    const path = join(temp, 'stdout');
+    const fd = openSync(path, 'wx');
+    try {
+      execFileSync('git', ['-C', pin.repository, ...args], { stdio: ['ignore', fd, 'inherit'] });
+      return readFileSync(path);
+    } finally { closeSync(fd); rmSync(temp, { recursive: true }); }
+  };
   assert.equal(git('rev-parse', `${pin.revision}^{commit}`).toString().trim(), pin.revision, 'Git revision mismatch');
   assert.equal(sha256(git('show', `${pin.revision}:Cargo.lock`)), build.lockSha256, 'source lock mismatch');
   assert.equal(git('rev-parse', `${pin.revision}^{tree}`).toString().trim(), build.sourceTree, 'source tree mismatch');

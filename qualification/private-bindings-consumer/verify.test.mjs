@@ -19,7 +19,7 @@ for (const name of ['build.json', ...verified.keys()]) {
   await writeFile(join(root, name), bytes);
   await assert.rejects(verifyPacket(root, pin), /hash/);
   const output = join(root, 'must-not-exist');
-  assert.throws(() => execFileSync(process.execPath, [fileURLToPath(new URL('./prepare.mjs', import.meta.url)), root, output], { stdio: 'pipe' }));
+  assert.throws(() => execFileSync(process.execPath, [fileURLToPath(new URL('./prepare.mjs', import.meta.url)), root, output], { stdio: ['ignore', 'ignore', 'ignore'] }));
   assert.equal(existsSync(output), false, 'rejection must precede executable copy/import');
   controls++;
 }

@@ -29,6 +29,12 @@ def run(label, argv, logs, timeout=900, cwd=None, env=None):
                   started=started, exit_code=code, timed_out=timed_out,
                   timeout_seconds=timeout, log=str(path),
                   sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    effective = os.environ if env is None else env
+    record['environment'] = {k: effective.get(k) for k in [
+        'CARGO_HOME', 'CARGO_TARGET_DIR', 'CARGO_BUILD_JOBS', 'CARGO_NET_RETRY',
+        'CARGO_HTTP_TIMEOUT', 'RUSTFLAGS', 'RUSTUP_TOOLCHAIN',
+        'CC_wasm32_unknown_unknown', 'AR_wasm32_unknown_unknown',
+        'CFLAGS_wasm32_unknown_unknown', 'CC_ENABLE_DEBUG_OUTPUT']}
     with (logs / 'commands.jsonl').open('a') as output:
         output.write(json.dumps(record, sort_keys=True) + '\n')
     return record

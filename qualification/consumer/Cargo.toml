@@ -37,3 +37,5 @@ rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled
 # getrandom 0.2.17 already receives `js` through existing dependency edges.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "=0.4.3", features = ["wasm_js"] }
+# UUID's wasm RNG selection is independent of getrandom's feature selection.
+uuid = { version = "=1.26.1", features = ["js"] }

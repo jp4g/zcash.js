@@ -912,6 +912,7 @@ version = "0.0.0"
 dependencies = [
  "getrandom 0.4.3",
  "rusqlite",
+ "uuid",
  "zakura-bellman",
  "zakura-bls12-381",
  "zakura-client-backend",

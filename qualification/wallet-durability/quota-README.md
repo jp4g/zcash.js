@@ -171,3 +171,26 @@ misclaims fail. A separate synthetic category control tests the standard DOM rou
 only. Package 4 is a source candidate pending a fresh host run and independent
 HIGH review. See quota logs' `checkpoint.md`, `REPORT-r4.md`, `CLIresult-r4.md`.
 Entire issue #2/F3 and other gates remain open.
+
+## Independent review fixes (package 5)
+
+The Linux host now gives both Node version and runner processes an explicit
+minimal environment (HOME, USER, LOGNAME, PATH, LANG, LC_ALL, XDG_RUNTIME_DIR plus
+owned run settings). Ambient Node/ELF loaders and browser policy variables are
+not forwarded. No browser security preference is changed.
+
+The dedicated host requires no existing children and enables Linux child-subreaper
+adoption before launch. Node has an owned session; the pinned runner still starts
+its detached geckodriver group. On interrupt or timeout the host gives Node 25
+seconds to terminate, then at most 5 seconds to join after kill. It kills and
+reaps adopted descendants, including detached group leaders, within a further
+5 seconds. Only unreaped direct children (whose IDs cannot be reused) are signal
+targets. Profiles are deleted only after the child set is empty; uncertain cleanup
+preserves them and records failure. SIGINT/SIGTERM retain failure status; repeated
+signals are ignored only during bounded cleanup. SIGKILL cannot be handled and
+leaves the profile in place. Host evidence now goes beneath quota logs `fixes/`.
+
+Run `quota-test-host.py PACKAGE` with ordinary and optimized Python for real Node
+preload, interrupt/detached-child, forced timeout and profile-preservation guards,
+in addition to package mutations. These are process controls, not Firefox quota
+evidence. The parent-run package-5 command is in `fixes/checkpoint.md`.

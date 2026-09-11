@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Freeze a quota overlay; run the accepted Firefox lifecycle with one profile pref."""
-import hashlib,json,os,shutil,subprocess,sys,time
+import ctypes,hashlib,json,os,shutil,signal,subprocess,sys,time
 from pathlib import Path
 
 ACCEPTED=Path('/home/jack/zcash-wallet-integrated-scratch/stage-4')
 PIN='cd8a03d9f5c661e0380ac9514c8a1ab90e9dce61691856c35de0a6e22295853c'
 SCRATCH=Path('/home/jack/zcash-browser-quota-scratch')
-LOGS=Path('/home/jack/zcash-browser-quota-logs')
+LOGS=Path('/home/jack/zcash-browser-quota-logs/fixes')
 HERE=Path(__file__).resolve().parent
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -75,27 +75,73 @@ export function serveStatic(base,req,res,events) {
     root.chmod(0o555)
     print(json.dumps({'package':str(root),'manifestSha256':digest(root/'quota-manifest.json')}))
 
+def children():
+    # Linux subreaper adoption keeps detached descendants owned and waitable.
+    return [int(pid) for pid in Path(f'/proc/self/task/{os.getpid()}/children').read_text().split()]
+
+def cleanup_owned(child):
+    try:
+        if child is not None and child.poll() is None:
+            child.terminate()
+            try: child.wait(timeout=25)
+            except subprocess.TimeoutExpired: child.kill();child.wait(timeout=5)
+        deadline=time.monotonic()+5
+        while children():
+            for pid in children():
+                # An unreaped direct child cannot have its PID reused. Only
+                # signal a group when this owned child is its group leader.
+                try:
+                    os.killpg(pid,signal.SIGKILL) if os.getpgid(pid)==pid else os.kill(pid,signal.SIGKILL)
+                except ProcessLookupError: pass
+                os.waitpid(pid,os.WNOHANG)
+            if time.monotonic()>=deadline: return False
+            time.sleep(.02)
+        return True
+    except Exception as e:
+        print('owned cleanup failed: '+repr(e),flush=True)
+        return False
+
 def run(root,expected):
     if digest(root/'quota-manifest.json')!=expected: raise RuntimeError('explicit quota manifest mismatch')
     manifest=verify(root)
+    # Explicit environment for version AND runner; no ambient runtime loaders,
+    # browser policy overrides, or inherited profile/storage settings.
+    env={k:os.environ[k] for k in ('HOME','USER','LOGNAME','PATH','LANG','LC_ALL','XDG_RUNTIME_DIR') if k in os.environ}
+    if children(): raise RuntimeError('host must have no pre-existing children')
+    if ctypes.CDLL(None,use_errno=True).prctl(36,1,0,0,0)!=0:
+        raise OSError(ctypes.get_errno(),'cannot own detached descendants')
     attempt=LOGS/f'host-{time.time_ns()}';attempt.mkdir()
-    owned=SCRATCH/f'run-{time.time_ns()}';owned.mkdir();profiles=owned/'profiles';profiles.mkdir()
-    env=dict(os.environ,STORAGE_BUNDLE=str(root/'bundle'),STORAGE_LOG_DIR=str(attempt),STORAGE_DRIVER_PORT='19465',QUOTA_PROFILE_ROOT=str(profiles))
-    receipt={'package':str(root),'manifestSha256':expected,'manifest':manifest,'profiles':str(profiles),'command':['node',str(root/'run-firefox.mjs')],'node':subprocess.check_output(['node','--version'],text=True).strip()}
-    (attempt/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
-    print('Quota host attempt: '+str(attempt),flush=True)
+    owned=SCRATCH/f'run-{time.time_ns()}'
+    child=None;rc=1;error=None;clean=False
+    handlers={sig:signal.getsignal(sig) for sig in (signal.SIGINT,signal.SIGTERM)}
+    def interrupted(sig,frame): raise KeyboardInterrupt()
+    for sig in handlers: signal.signal(sig,interrupted)
     try:
+        owned.mkdir();profiles=owned/'profiles';profiles.mkdir()
+        env.update(STORAGE_BUNDLE=str(root/'bundle'),STORAGE_LOG_DIR=str(attempt),STORAGE_DRIVER_PORT='19465',QUOTA_PROFILE_ROOT=str(profiles))
+        child=subprocess.Popen(['node','--version'],env=env,stdout=subprocess.PIPE,text=True,start_new_session=True)
+        version=child.communicate(timeout=5)[0].strip()
+        if child.returncode: raise RuntimeError('Node version failed')
+        receipt={'package':str(root),'manifestSha256':expected,'manifest':manifest,'profiles':str(profiles),'command':['node',str(root/'run-firefox.mjs')],'node':version,'environment':env}
+        (attempt/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
+        print('Quota host attempt: '+str(attempt),flush=True)
         with (attempt/'console.log').open('x') as log:
-            child=subprocess.Popen(receipt['command'],env=env,stdout=log,stderr=subprocess.STDOUT)
-            try: rc=child.wait(timeout=215)
-            except subprocess.TimeoutExpired:
-                child.terminate()
-                try: child.wait(timeout=25)
-                except subprocess.TimeoutExpired: child.kill();child.wait()
-                rc=124
+            child=subprocess.Popen(receipt['command'],env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
+            rc=child.wait(timeout=215)
+    except subprocess.TimeoutExpired as e: rc=124;error=str(e)
+    except KeyboardInterrupt: rc=130;error='host interrupted'
+    except Exception as e: rc=1;error=repr(e)
     finally:
-        shutil.rmtree(owned)
-    (attempt/'exit.json').write_text(json.dumps({'exitCode':rc,'profileParentRemoved':not owned.exists()})+'\n')
+        # Repeated signals cannot interrupt the bounded cleanup/exit record.
+        for sig in handlers: signal.signal(sig,signal.SIG_IGN)
+        try:
+            clean=cleanup_owned(child)
+            if not clean: rc=rc or 1
+            if clean and owned.exists(): shutil.rmtree(owned)
+        except Exception as e: rc=rc or 1;error=repr(e)
+        finally:
+            (attempt/'exit.json').write_text(json.dumps({'exitCode':rc,'error':error,'cleanupComplete':clean,'profileParentRemoved':not owned.exists()})+'\n')
+            for sig,handler in handlers.items(): signal.signal(sig,handler)
     print(json.dumps({'exitCode':rc,'logs':str(attempt)}))
     return rc
 

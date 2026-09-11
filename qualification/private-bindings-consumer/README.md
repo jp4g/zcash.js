@@ -41,10 +41,18 @@ WebDriver only to read its result. Firefox confinement, startup/execution limits
 certificate policy and cleanup are retained from accepted a280d31. No WebDriver
 import or security override is used. Parent owns actual browser/socket execution.
 
-The current candidate browser package is marked as uncommitted-source development
-evidence. It cannot stand in for the final revision-pinned package. See the external
-`/home/jack/zakura-bindings-network-logs/{checkpoint.md,REPORT.md,CLIresult.md}` and
-`finish-after-private-commit.sh` for current results and exact remaining commands.
+The committed pin selects private revision
+`33345a982d330650935c39f505c9fa2947ec9897` and build metadata SHA-256
+`5c3f7b2afde98d205c3a6a2d35533aa172115c5293144ee180ba42084c41b5d2`.
+Two fresh committed-source builds match byte-for-byte. The actual pinned Node
+consumer passes 196 cases plus 29 admission controls; all nine pin/file rejection
+controls pass. The final browser package is
+`/home/jack/zakura-bindings-network-scratch/browser-pinned-1`, with inventory digest
+`c208432bd703ff0b5e55dfd82274b42f37393cb80ffbb7223401210cc4b567a8`.
+Parent owns actual Firefox execution and independent review. Historical uncommitted
+candidate packages are preserved and are not the final pinned package. Detailed
+results and the exact browser command are under
+`/home/jack/zakura-bindings-network-logs/{checkpoint.md,REPORT.md,CLIresult.md,BROWSER-PINNED-COMMAND.txt}`.
 
 No complete runtime profile, executable host loader, worker/ABI negotiation,
 network registration, public defineNetwork or client genesis verification is

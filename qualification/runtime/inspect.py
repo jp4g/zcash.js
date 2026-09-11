@@ -3,12 +3,16 @@ import hashlib
 import json
 from pathlib import Path
 import re
+from inspection_inputs import verify_pair, inspect_bytes
 
 SCRATCH = Path('/home/jack/zcash-node-runtime-scratch')
 LOGS = Path('/home/jack/zcash-node-runtime-logs')
 artifact = SCRATCH / 'stages/adapter-link/issue_2_qualification.wasm'
 raw = artifact.read_bytes()
 assert raw[:8] == b'\0asm\x01\0\0\0'
+map_bytes = (artifact.parent / 'runtime.map').read_bytes()
+verify_pair(raw, map_bytes)
+imports, disassembly = inspect_bytes(raw)
 
 
 class Reader:
@@ -66,18 +70,13 @@ for _ in range(export_reader.uint()):
     exports.append(dict(name=name, kind=kind, index=index))
 assert export_reader.pos == len(export_reader.data)
 
-records = [json.loads(s) for s in (LOGS / 'commands.jsonl').read_text().splitlines()]
-def stage(label):
-    return next(r for r in reversed(records) if r['label'] == label)
-
-imports = json.loads(Path(stage('inspect-imports')['log']).read_text())['imports']
 assert all(i['kind'] == 'function' for i in imports)
 names = [f"{i['module']}.{i['name']}" for i in imports]
 edges = {}
 indirect = set()
 growth = []
 current = None
-for line in Path(stage('disassemble')['log']).read_text().splitlines():
+for line in disassembly.splitlines():
     m = re.match(r'^[0-9a-f]+ <(.+)>:$', line)
     if m:
         current = m[1]
@@ -119,7 +118,7 @@ for e in exports:
                                  if any(s in names[i] for s in ('memsys5', 'dlmalloc', 'sqlite3Mem'))],
         )
 
-link_map = (SCRATCH / 'stages/adapter-link/runtime.map').read_text()
+link_map = map_bytes.decode()
 libc_members = sorted(set(re.findall(r'libc\.a\(([^)]+)\)', link_map)))
 forbidden = {'malloc', 'free', 'calloc', 'realloc', 'aligned_alloc', 'posix_memalign',
              'sbrk', '__sbrk', 'dlmalloc', 'dlfree', 'dlcalloc', 'dlrealloc'}
@@ -138,6 +137,7 @@ build = SCRATCH / 'target/wasm32-unknown-unknown/debug/build'
 files += sorted(build.glob('*/out/adapter.o')) + sorted(build.glob('*/out/*sqlite3.o'))
 print(json.dumps(dict(
     artifact=str(artifact), hashes={str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files},
+    inspection_inputs='Imports/disassembly regenerated from selected bytes; map pinned to reviewed historical pair.',
     artifact_bytes=len(raw), memories=memories, imports=imports, exports=exports,
     function_count=len(names), memory_growth=growth, libc_members=libc_members,
     retained_c_heap_symbols=retained_c_heap, direct_reachability=reachability,

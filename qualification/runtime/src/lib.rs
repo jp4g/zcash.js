@@ -92,3 +92,10 @@ pub extern "C" fn rt_grow(size: u32) -> u32 {
 pub extern "C" fn rt_heap_check() -> u32 {
     HEAP.with(|slot| u32::from(slot.borrow().iter().enumerate().all(|(i, b)| *b == (i % 251) as u8)))
 }
+
+// wasm-bindgen generates both the JS wrapper and its instance export import.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn raw_exports() -> wasm_bindgen::JsValue {
+    wasm_bindgen::exports()
+}

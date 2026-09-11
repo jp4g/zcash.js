@@ -1,0 +1,25 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { attach, entropy, utc_ms, sleep, state } from './runtime-host.mjs';
+test('host fails closed before attachment and rejects a second owner', () => {
+  assert.throws(() => entropy(0, 8), /attached/);
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  attach(memory);
+  assert.throws(() => attach(memory), /already/);
+  assert.throws(() => entropy(65530, 32), /range/);
+  assert.throws(() => entropy(0, 65537), /range/);
+  assert.throws(() => entropy(-1, 1), /range/);
+  assert.throws(() => sleep(-1), /range/);
+  assert.throws(() => sleep(20001), /range/);
+  assert.throws(() => sleep(0.5), /range/);
+  assert.equal(entropy(0, 32), 32);
+  const old = memory.buffer;
+  memory.grow(1);
+  assert.equal(old.byteLength, 0);
+  assert.equal(entropy(65536, 32), 32);
+  assert(state.entropyCalls === 2);
+  assert(utc_ms() > 0);
+  assert(sleep(2000) >= 2000);
+  state.entropyAvailable = false;
+  assert.throws(() => entropy(0, 32), /entropy unavailable/);
+});

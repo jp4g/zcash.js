@@ -8,11 +8,11 @@ _Static_assert(sizeof(void*) == 4 && sizeof(int) == 4, "wasm32 scalar ABI");
 _Static_assert(sizeof(sqlite3_int64) == 8 && sizeof(double) == 8, "time ABI");
 _Static_assert(_Alignof(double) == 8, "double alignment");
 
-__attribute__((import_module("runtime_host"), import_name("entropy")))
+__attribute__((import_module("./runtime-host.mjs"), import_name("entropy")))
 extern int host_entropy(void*, int);
-__attribute__((import_module("runtime_host"), import_name("utc_ms")))
+__attribute__((import_module("./runtime-host.mjs"), import_name("utc_ms")))
 extern double host_utc_ms(void);
-__attribute__((import_module("runtime_host"), import_name("sleep")))
+__attribute__((import_module("./runtime-host.mjs"), import_name("sleep")))
 extern int host_sleep(int);
 
 #define POOL_BYTES (16 * 1024 * 1024)

@@ -29,7 +29,7 @@ def verify_pair(raw, link_map, expected=HISTORICAL_PAIR):
 def inspect_bytes(raw):
     # Both tools consume the same private snapshot, never mutable target output
     # or independently selected command logs. No instantiation/transformation.
-    with tempfile.TemporaryDirectory(dir='/home/jack/zcash-node-runtime-scratch') as directory:
+    with tempfile.TemporaryDirectory(dir='/home/jack/zcash-generated-runtime-scratch') as directory:
         snapshot = Path(directory) / 'selected.wasm'
         snapshot.write_bytes(raw)
         imports = subprocess.run(['node', '-e',

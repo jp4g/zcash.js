@@ -1,6 +1,7 @@
 // Scalar-only disposable ABI. Every test executes in a dedicated Node worker.
 const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
 const assert = require('node:assert/strict');
+const { runWorker } = require('./worker-harness.cjs');
 const fs = require('node:fs');
 const { webcrypto } = require('node:crypto');
 const artifact = '/home/jack/zcash-node-runtime-scratch/target/wasm32-unknown-unknown/debug/issue_2_qualification.wasm';
@@ -45,17 +46,11 @@ function instance(module, entropyAvailable = true) {
 
 if (isMainThread) {
   const { test } = require('node:test');
-  for (const scenario of cases) test(scenario, { timeout: 60000 }, async () => {
-    const worker = new Worker(__filename, { workerData: scenario });
-    try {
-      const result = await new Promise((resolve, reject) => {
-        worker.once('message', resolve);
-        worker.once('error', reject);
-        worker.once('exit', code => { if (code) reject(new Error(`worker exit ${code}`)); });
-      });
-      assert.equal(result.ok, true);
-      console.log(JSON.stringify(result));
-    } finally { await worker.terminate(); }
+  for (const scenario of cases) test(scenario, { timeout: 60000 }, async (t) => {
+    const result = await runWorker(new Worker(__filename, { workerData: scenario }),
+      { signal: t.signal });
+    assert.equal(result.ok, true);
+    console.log(JSON.stringify(result));
   });
 } else {
   const module = new WebAssembly.Module(fs.readFileSync(artifact));

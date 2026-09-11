@@ -4,17 +4,28 @@ import hashlib
 import json
 from pathlib import Path
 import re
-from inspection_inputs import verify_pair, inspect_bytes, LINK_PAIRS
+from inspection_inputs import verify_pair, verify_bundle, inspect_bytes, LINK_PAIRS
 
 SCRATCH = Path('/home/jack/zcash-node-runtime-scratch')
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--stage', choices=LINK_PAIRS, default='adapter-link')
+parser.add_argument('--bundle', type=Path, help='captured fresh build with provenance.json')
+parser.add_argument('--target', choices=['raw', 'web', 'nodejs'], default='raw')
 args = parser.parse_args()
-artifact = SCRATCH / 'stages' / args.stage / 'issue_2_qualification.wasm'
+if args.bundle:
+    record = verify_bundle(args.bundle)
+    artifact = args.bundle / args.target / ('issue_2_qualification.wasm' if args.target == 'raw' else 'qualification_bg.wasm')
+    map_path = args.bundle / 'raw/runtime.map'
+    # The map describes the raw producing link, never transformed function indices.
+    verify_pair((args.bundle / 'raw/issue_2_qualification.wasm').read_bytes(), map_path.read_bytes(),
+                (record['artifacts']['raw/issue_2_qualification.wasm'], record['artifacts']['raw/runtime.map']))
+else:
+    artifact = SCRATCH / 'stages' / args.stage / 'issue_2_qualification.wasm'
+    map_path = artifact.parent / 'runtime.map'
+    verify_pair(artifact.read_bytes(), map_path.read_bytes(), LINK_PAIRS[args.stage])
 raw = artifact.read_bytes()
 assert raw[:8] == b'\0asm\x01\0\0\0'
-map_bytes = (artifact.parent / 'runtime.map').read_bytes()
-verify_pair(raw, map_bytes, LINK_PAIRS[args.stage])
+map_bytes = map_path.read_bytes()
 imports, disassembly = inspect_bytes(raw)
 
 
@@ -130,21 +141,21 @@ assert not retained_c_heap
 assert not any(re.search(r'(malloc|calloc|realloc|sbrk)', member) for member in libc_members)
 assert len(growth) == 1 and 'dlmalloc' in growth[0]['function']
 
-files = [artifact, artifact.parent / 'runtime.map',
+files = [artifact, map_path,
          Path('qualification/runtime/Cargo.lock'), Path('qualification/runtime/env.sh'),
          Path('qualification/runtime/adapter.c'), Path('qualification/runtime/src/lib.rs'),
          Path('qualification/runtime/build.rs'), Path('qualification/runtime/test-runtime.cjs')]
 sdk = Path('/home/jack/zcash-qualification-scratch/wasi-sdk-27.0-x86_64-linux')
 files += [sdk / 'bin/clang', sdk / 'share/wasi-sysroot/lib/wasm32-wasi/libc.a']
-build = SCRATCH / 'target/wasm32-unknown-unknown/debug/build'
+build = (Path('/home/jack/zcash-generated-runtime-scratch') if args.bundle else SCRATCH) / 'target/wasm32-unknown-unknown/debug/build'
 files += sorted(build.glob('*/out/adapter.o')) + sorted(build.glob('*/out/*sqlite3.o'))
 print(json.dumps(dict(
     artifact=str(artifact), hashes={str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files},
-    inspection_inputs='Imports/disassembly regenerated from selected bytes; map pinned to explicitly recorded link pair.',
+    inspection_inputs='Imports/disassembly regenerated from selected bytes; raw link map bound to preserved provenance. Current source/object hashes are inventory, not producing-source proof; producing snapshots live in bundle provenance.',
     artifact_bytes=len(raw), memories=memories, imports=imports, exports=exports,
     function_count=len(names), memory_growth=growth, libc_members=libc_members,
     retained_c_heap_symbols=retained_c_heap, direct_reachability=reachability,
     limits='Direct call closure only; indirect callback paths require runtime qualification. '
            'No libc heap function/member retained anywhere, including indirect targets. '
-           'No instantiation or generated-bindings result.'
+           'Static inspection only; generated Node/browser execution is recorded separately.'
 ), indent=2, sort_keys=True))

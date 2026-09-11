@@ -39,3 +39,6 @@ rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled
 getrandom = { version = "=0.4.3", features = ["wasm_js"] }
 # UUID's wasm RNG selection is independent of getrandom's feature selection.
 uuid = { version = "=1.26.1", features = ["js"] }
+
+# Genuine generated bridge to the disposable scalar export surface.
+wasm-bindgen = "=0.2.128"

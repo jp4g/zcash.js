@@ -29,7 +29,7 @@ def verify_pair(raw, link_map, expected=HISTORICAL_PAIR):
 def inspect_bytes(raw):
     # Both tools consume the same private snapshot, never mutable target output
     # or independently selected command logs. No instantiation/transformation.
-    with tempfile.TemporaryDirectory(dir='/home/jack/zcash-node-runtime-scratch') as directory:
+    with tempfile.TemporaryDirectory(dir='/home/jack/zcash-generated-runtime-scratch') as directory:
         snapshot = Path(directory) / 'selected.wasm'
         snapshot.write_bytes(raw)
         imports = subprocess.run(['node', '-e',
@@ -38,3 +38,16 @@ def inspect_bytes(raw):
         disassembly = subprocess.run([OBJDUMP, '-d', str(snapshot)],
             check=True, capture_output=True, text=True, timeout=60)
         return json.loads(imports.stdout), disassembly.stdout
+
+
+def verify_bundle(stage):
+    """Verify captured producing inputs and outputs; not an independent trust anchor."""
+    stage = Path(stage).resolve()
+    record = json.loads((stage / 'provenance.json').read_text())
+    if record['sources_before'] != record['sources_after']:
+        raise ValueError('producing sources changed during build')
+    for name, expected in record['artifacts'].items():
+        path = (stage / name).resolve()
+        if not path.is_relative_to(stage) or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            raise ValueError('changed preserved bundle input: ' + name)
+    return record

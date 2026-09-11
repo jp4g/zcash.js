@@ -1,0 +1,50 @@
+{
+  "bundle": "/home/jack/zcash-threaded-scratch/bundle-2",
+  "manifestSha256": "213f75284f56fccb9abc5ed34530ab872d8566f213b7e4693bb2abd684838519",
+  "generatedStage": "/home/jack/zcash-threaded-scratch/build-1789137003821175868",
+  "generatedWasmSha256": "cad9e721a2eb30eef62254a735eb98a5cf7bd415692545391c062a1d34d0e509",
+  "browser": "GREEN Firefox155.0.1/geckodriver0.37.1, six foreground scenarios",
+  "scanner": "not integrated; F2 open",
+  "logs": {
+    "node-runtime-final.log": {
+      "path": "/home/jack/zcash-threaded-logs/node-runtime-final.log",
+      "sha256": "3a8ad5dc870eae2bf7fb3bcfd4ab3ddfac618f2d0da8095664a7cc2bce696f9e"
+    },
+    "node-pool-crash.log": {
+      "path": "/home/jack/zcash-threaded-logs/node-pool-crash.log",
+      "sha256": "8d29a7be341915fa1f3b343c433df6b8bf69e374916360cd7bc504bf9256df0f"
+    },
+    "memory-mismatch.log": {
+      "path": "/home/jack/zcash-threaded-logs/memory-mismatch.log",
+      "sha256": "e7f5bf525f23c13cee3f2dd14be8a6c6c2527abe5d8aeb2b74058dd9002f3cc5"
+    },
+    "node-controls-first.log": {
+      "path": "/home/jack/zcash-threaded-logs/node-controls-first.log",
+      "sha256": "a13758c13b785e5097cd859579b728394e47c9bca24de55ed2bb6db189ebcdba"
+    },
+    "domain-red.log": {
+      "path": "/home/jack/zcash-threaded-logs/domain-red.log",
+      "sha256": "3e00228283240a86309ba4cfe3055bd192182589327933bd41a6ca0d6cd6d8b8"
+    },
+    "domain-final.log": {
+      "path": "/home/jack/zcash-threaded-logs/domain-final.log",
+      "sha256": "9fa8b8ffbbcb1ab13db0bea08160e864a7c65924489c8c0b3820166fa3e71282"
+    },
+    "lifecycle-final.log": {
+      "path": "/home/jack/zcash-threaded-logs/lifecycle-final.log",
+      "sha256": "0332149235151eb7977030ff10296bdf67f38c257a5888dd40c11ece6eedcaa4"
+    },
+    "firefox-1789137395952.json": {
+      "path": "/home/jack/zcash-threaded-logs/firefox-1789137395952.json",
+      "sha256": "1b1ca5dcdca9e49a1ae94a8d97e4bcc685ef0f55e3529995d8cc1631e443f3a2"
+    },
+    "browser-audit.log": {
+      "path": "/home/jack/zcash-threaded-logs/browser-audit.log",
+      "sha256": "6501eeac980178929daf1a5efee8ebe18cabf317b07dbb9d47d9768a2594843d"
+    },
+    "build-1789137003821175868-inspection.json": {
+      "path": "/home/jack/zcash-threaded-logs/build-1789137003821175868-inspection.json",
+      "sha256": "b7fcc108e8963ea5dc61982a79080e67a032b0d938355b36afb88eb11f4c28c9"
+    }
+  }
+}

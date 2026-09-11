@@ -22,4 +22,6 @@ Rust selects inputs and computes change/fees. Unsupported scripts, maturity, poo
 
 `send` and `shield` return `PendingPayment` after creation/storage and the first ordered submission pass, including unknown or rejected attempts. They do not wait for mining. Inspect per-step state; call `wait` for checked inclusion of every required transaction. An exception after operation allocation can retain the operation ID and partial state.
 
+These explicit submission calls record consent for the finalized operation/steps and selected route. Later startup retries additionally require opt-in recovery policy; signing or finalization alone grants no such consent.
+
 For prior review use [immutable proposals](proposals.md). For interruptions use [operation recovery](operations.md); repeating the same amount is not a recovery strategy.

@@ -40,23 +40,23 @@ Review question: does the UI distinguish unavailable amounts from zero, and scan
 
 ## 4. Review, send and wait
 
-Parse the payment form’s decimal ZEC string with `parseZec` (at most 8 fractional digits, no scientific notation). Create a proposal, privately save its operation ID before execution, and ask the user to review exact effects. The application callback represents that review; no SDK approval method exists. The attached local signer uses fused execution. Pass the same immutable proposal to `send`; changes require a new proposal and fresh review.
+Parse the payment form’s decimal ZEC string with `parseZec` (at most 8 fractional digits, no scientific notation). Create a proposal and ask the user to review exact effects. Its operation identity is persisted in the wallet database. The application callback represents that review; no SDK approval method exists. The attached local signer uses fused execution. Pass the same immutable proposal to `send`; changes require a new proposal and fresh review.
 
 <<< ./examples/walkthrough.ts#send
 
-`send` returns after initial ordered attempts, including unknown/rejected outcomes. `wait` requires every transaction to meet the confirmation threshold. On timeout, typed errors retain state; the surrounding example catches them and preserves allocated operation identity. In `finally`, it disposes the binding first, then closes the wallet, then disposes the caller-owned local memory signer. Nested `finally` blocks ensure each cleanup step is attempted even if an earlier step throws.
+`send` returns after initial ordered attempts, including unknown/rejected outcomes. `wait` requires every transaction to meet the confirmation threshold. On timeout, typed errors retain state; the surrounding example catches them and shows private recovery state. In `finally`, it disposes the binding first, then closes the wallet, then disposes the caller-owned local memory signer. Nested `finally` blocks ensure each cleanup step is attempted even if an earlier step throws.
 
 ## 5. Restart and resume without another spend
 
-Reopen the **same durable database**, without repeating account imports or restoring heap handles. The application recovers its saved operation ID; after losing that record it can paginate `operations.list` and select the intended operation. Rehydration itself does not sign, broadcast or prompt.
+Reopen the **same durable database**, without repeating account imports or restoring heap handles. Opening automatically reconciles all recorded operations locally, then performs a bounded observation pass through the configured light client. No separately saved operation ID is needed. UI listing and optional handle selection are separate from recovery.
 
 <<< ./examples/walkthrough.ts#restart
 
-If material is missing, show the recovery requirement. Otherwise explicit broadcast reconciles first and retries only exact stored bytes, then wait observes inclusion. Closing and restarting after a completed payment is safe to inspect too; canonical-mined steps are skipped by default. Memory storage would not support this scenario.
+Show missing material and inspect `reopened.recovery` for incomplete startup observation. Default opening never broadcasts; explicit broadcast is a separate consent action. Optional startup rebroadcast only retries previously attempted exact bytes with stored consent and durable bounds; see the [recovery policy](operations.md). Memory storage cannot support restart recovery.
 
 ## Review the complete source
 
-The following includes imports, declared application inputs and review, persistence and recovery helpers, error handling and cleanup omitted from the shorter regions. All snippets above come from this same checked file.
+The following includes imports, declared application inputs and review and recovery display helpers, error handling and cleanup omitted from the shorter regions. All snippets above come from this same checked file.
 
 ::: details Complete compile-only scenario
 <<< ./examples/walkthrough.ts

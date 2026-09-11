@@ -4,6 +4,12 @@
 
 Read the [decision log](docs/planning/decision-log.md), [API guide](docs/api/README.md), [namespace audit](docs/planning/api-namespace-audit.md) and [workplan](docs/planning/api-surface-workplan.md) before proposing changes. Preserve decided scope. A proposed signature is not an implemented export, a source symbol is not a runtime result, and a passing TypeScript check is not wallet qualification.
 
+## Authorized recovery amendment phase
+
+The owner-authorized D26 phase permits recovery specification/declaration amendments, active examples, source mappings and synthetic compile-only/consistency tests, plus `npm ci` for the existing documentation toolchain. It does not authorize production SDK implementation or runtime dependencies. Preserve existing commits and the private documentation-only package; the coordinator owns `docs/planning/execution-ledger.md` and GitHub writes. Do not edit coordinator files.
+
+TypeScript/site checks establish specification consistency only. Keep G0–G6 and F1–F8 qualification blockers, including missing protocol, atomicity and real Node/OPFS durability evidence. No live blockchain/provider requests, funds, mining, homelab changes, publication/deployment, npm publish, license selection or deferred issues #10–12 work is included. Record exact validation commands/results and limitations; full logs stay outside the tracked tree.
+
 ## Making a reviewable change
 
 1. Describe a concrete developer journey, documentation defect or configuration ambiguity. Link the relevant local document, decision ID and declaration.
@@ -24,7 +30,7 @@ Never attach mnemonics, passphrases, seeds, spending/viewing keys, addresses, tr
 The preview command uses the Vite executable supplied by the pinned VitePress development toolchain. This VitePress release's preview server ignores `--host`; Vite preview honors the explicit loopback host and strict port. Both dev and preview must remain at base `/` and `http://127.0.0.1:4173/`.
 
 
-Install the documentation-only development dependencies with `npm ci` (or `npm install` when intentionally updating the lockfile), then run `npm run docs:typecheck` and `npm run docs:build`. Use `npm run docs:dev` to edit and `npm run docs:preview` to review the built site at `http://127.0.0.1:4173/`.
+Install the documentation-only development dependencies with `npm ci` (or `npm install` when intentionally updating the lockfile), then run `npm run docs:typecheck`, `npm run docs:check-recovery` and `npm run docs:build`. Use `npm run docs:dev` to edit and `npm run docs:preview` to review the built site at `http://127.0.0.1:4173/`.
 
 ```sh
 git diff --check

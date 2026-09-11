@@ -20,7 +20,7 @@ Excluded from v1: Sprout and legacy Orchard spending/automatic migration; mnemon
 - **Unimplemented** identifies missing product work, including all SDK examples.
 - **Requires Qualification** identifies claims that need functional evidence before support can be advertised.
 
-The [declarations](public-api.md) remain the exact signature baseline. [D01–D25](../planning/decision-log.md) govern settled scope; this book preserves them. Research and historical candidate snippets are secondary evidence, not alternate current APIs. The [host contract](host-contract.md) adds a versioned review boundary. Issue #1 freezes the authenticated `WasmArtifact` manifest declaration and clarifies that zero-birthday account creation uses coherent local database state after explicit sync, failing `SYNC_REQUIRED` before mutation when unavailable/stale.
+The [declarations](public-api.md) remain the exact signature baseline. [D01–D26](../planning/decision-log.md) govern settled scope; this book preserves them. D26 amends opening to recover all recorded operations without a separately persisted ID, under the [recovery policy](operations.md). Research and historical candidate snippets are secondary evidence, not alternate current APIs. The [host contract](host-contract.md) adds a versioned review boundary. Issue #1 freezes the authenticated `WasmArtifact` manifest declaration and clarifies that zero-birthday account creation uses coherent local database state after explicit sync, failing `SYNC_REQUIRED` before mutation when unavailable/stale.
 
 ## Review route
 

@@ -8,7 +8,7 @@ The complete declaration file is included on the [declaration page](public-api.m
 
 `defineNetwork`, `accountIndex`, `diversifierIndex`, `txId`, `blockHash` validate inputs. `parseZec(value: string): bigint` and `formatZec(zatoshis: bigint): string` convert decimal ZEC strings and exact bigint zatoshis without floating-point arithmetic. See [networks and amounts](networks-amounts.md) for `NetworkDefinition`, `Network`, `ConsensusContext`, `AccountId`, `AccountIndex`, `DiversifierIndex`, `TxId`, `BlockHash`, `Pool`, `ShieldedPool`, `ReceiverType`, `SecretInput`, `NonEmpty`, `Op` and `Disposable`.
 
-`http`, `grpc`, `createPublicClient`, `createLightClient`, `createWalletClient`, `createZcashClient` construct the proposed clients/transports. See [public](public-client.md), [light](light-client.md) and [wallet](wallet-runtime.md) chapters for `TransportOptions`, `HttpTransport`, `GrpcTransport`, `LightUnaryMethod`, `LightStreamMethod`, `CustomLightTransport`, `ObservationOptions`, `WalletOptions`, `WalletStorage`, `RuntimeOptions`, `WasmArtifact`, `ArtifactManifest`, `ArtifactFile`, `RuntimeDiagnostic`, `AssetRequirement`, `LocalProvingOptions`, `ConfirmationsPolicy` and `TransactionPolicy`. `ZcashClient` composition references existing instances without disposal ownership.
+`http`, `grpc`, `createPublicClient`, `createLightClient`, `createWalletClient`, `createZcashClient` construct the proposed clients/transports. See [public](public-client.md), [light](light-client.md) and [wallet](wallet-runtime.md) chapters for `TransportOptions`, `HttpTransport`, `GrpcTransport`, `LightUnaryMethod`, `LightStreamMethod`, `CustomLightTransport`, `ObservationOptions`, `WalletOptions`, `RecoveryPolicy`, `RecoveryReport`, `WalletStorage`, `RuntimeOptions`, `WasmArtifact`, `ArtifactManifest`, `ArtifactFile`, `RuntimeDiagnostic`, `AssetRequirement`, `LocalProvingOptions`, `ConfirmationsPolicy` and `TransactionPolicy`. `ZcashClient` composition references existing instances without disposal ownership.
 
 ## PublicClient
 
@@ -31,7 +31,7 @@ See [public client](public-client.md) for null/error distinctions, endpoint trus
 
 `pczt.export/import`: `WalletPcztApi`, `PcztExchange`, `PcztArtifact`, associated with a known wallet operation. [Signing contract](signing.md).
 
-`operations.list/get/resume`: `OperationsApi`, `OperationPage`, `PageArgs`, `PaymentState`, `PendingPayment`. List can be wallet-wide; resume has no signing/dispatch effect. [Recovery contract](operations.md).
+`operations.list/get/resume`: `OperationsApi`, `OperationPage`, `PageArgs`, `PaymentState`, `PendingPayment`. Opening automatically recovers all database operations. `wallet.recovery` reports local completion and startup observation/deferred counts. List can be wallet-wide; resume selects a handle and has no signing/dispatch effect. [Recovery contract](operations.md).
 
 ## WalletClient flat methods
 

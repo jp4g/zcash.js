@@ -1,17 +1,21 @@
-import type { PaymentState, WalletClient } from "zcash.js";
+// Compile-only specification: no SDK runtime or actual database is supplied.
+import { createWalletClient } from "zcash.js";
+import type { PaymentState, WalletOptions } from "zcash.js";
 
-declare const reopened: WalletClient; // same durable database, no signer required
-// Application selects intended operation from saved context or paginated journal.
-declare const savedOperationId: string;
+declare const options: WalletOptions; // same application-owned durable database
+// No application operation-ID store or signer is needed to recover the inventory.
 declare function render(state: PaymentState): void;
-declare function requestMissingMaterial(state: PaymentState): void;
-
-const pending = await reopened.operations.resume({ operationId: savedOperationId });
-const state = await pending.snapshot();
-render(state);
-if (state.missing.length > 0) {
-  requestMissingMaterial(state); // resume itself never prompts or rebuilds
-} else {
-  render(await pending.broadcast()); // reconcile, then exact stored bytes only
-  await pending.wait({ confirmations: 3, timeoutMs: 120_000 });
+const reopened = await createWalletClient({ ...options, recovery: { mode: 'offline' } });
+try {
+  // Recovery already covered ALL records. This pagination only renders the UI.
+  let cursor: string | undefined;
+  do {
+    const page = await reopened.operations.list({ ...(cursor ? { cursor } : {}), limit: 50 });
+    for (const state of page.items) render(state);
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor !== undefined);
+  // A UI may select any listed operationId and use operations.resume to bind a handle.
+  // Selection, missing authority and finalized bytes do not imply submission consent.
+} finally {
+  await reopened.close();
 }

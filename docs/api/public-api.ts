@@ -1,5 +1,6 @@
 /**
  * PROPOSED v1 — FROZEN FOR VALIDATION, 2026-09-04. NOT IMPLEMENTED.
+ * D26 recovery specification amendment, 2026-09-11; no runtime qualification.
  * Declaration-only design artifact; never import this file as runtime code.
  * Freeze means a review baseline, not G3–G6 approval or a shipping guarantee.
  * Normative scope/source mapping: ./README.md and ../planning/*.md.
@@ -338,12 +339,42 @@ export interface TransactionPolicy {
     readonly mode: 'catch-up'; readonly maxLagBlocks: number; readonly timeoutMs: number;
   };
 }
+/** Startup recovery policy; specification only. See operations.md.
+ * Omitted: online with a 15_000ms total pass deadline when light is supplied,
+ * otherwise offline. Both load/reconcile ALL database operations locally.
+ */
+export type RecoveryPolicy =
+  | { readonly mode: 'offline'; readonly rebroadcast?: never; readonly timeoutMs?: never }
+  | {
+    readonly mode: 'online';
+    readonly timeoutMs: number; // positive safe integer; total network pass, not per operation
+    /** Omitted = observe only. Requires light + broadcaster and stored consent.
+     * Never grants first dispatch, rebuild, signing, proving or endpoint failover.
+     */
+    readonly rebroadcast?: {
+      readonly mode: 'previously-dispatched';
+      readonly maxAttempts: number; // positive lifetime per-step ceiling; reopen cannot relax it
+      readonly minIntervalMs: number; // positive spacing; strictest adopted value persists
+    };
+  };
+/** Immutable startup summary, not payment completion or a background job handle.
+ * Counts are checked nonnegative safe integers, counting operations, not steps.
+ */
+export interface RecoveryReport {
+  readonly local: 'complete';
+  readonly operations: number; // all records in the captured database inventory
+  readonly observation: 'offline' | 'complete' | 'incomplete';
+  readonly observedOperations: number;
+  readonly deferredOperations: number;
+  readonly lastError: ErrorInfo | null; // sanitized network failure; timeout uses TIMEOUT
+}
 export interface WalletOptions extends Op {
+  readonly recovery?: RecoveryPolicy;
   readonly network: Network;
   readonly storage: WalletStorage;
   readonly runtime: RuntimeOptions;
   readonly confirmations: ConfirmationsPolicy; // applies to query accounting as well
-  /** Omitted = offline; network actions fail, never invent an endpoint. */
+  /** Omitted = no scan/startup observation route; never invent an endpoint. */
   readonly light?: LightClient;
   /** Omitted = no submission route, even if light is present. */
   readonly broadcaster?: PublicClient | LightClient;
@@ -353,7 +384,11 @@ export interface WalletOptions extends Op {
   readonly proving?: LocalProvingOptions;
   readonly observation: ObservationOptions;
 }
-/** Opens/migrates storage and initializes worker; never imports mnemonic or starts sync. */
+/** Opens/migrates and reconciles ALL operations with bounded internal pagination.
+ * Returns after complete local recovery and the finite startup network pass (if enabled).
+ * Offline/network timeout retains locally usable state; see RecoveryReport.
+ * Never imports secrets, starts general sync, rebuilds, proves or signs.
+ */
 export declare function createWalletClient(args: WalletOptions): Promise<WalletClient>;
 
 export interface ViewKeyHandle extends Disposable {
@@ -630,7 +665,8 @@ export interface PendingPayment {
   readonly operationId: string;
   snapshot(): Promise<PaymentState>; // local, no network
   events(args?: Op): AsyncIterable<PaymentState>;
-  /** Reconcile, then dispatch only immutable stored bytes, parents before children. */
+  /** Explicit submission consent; reconcile then dispatch immutable bytes, parents first.
+   * Records consent provenance for policy-approved later exact-byte retry; operations.md. */
   broadcast(args?: Op): Promise<PaymentState>;
   /** All required steps must have checked inclusion; reorg normally continues observation.
    * Timeout/abort retains latest state, never cancels a transaction or releases locks.
@@ -763,6 +799,7 @@ export interface SyncStatus {
   readonly lastError: ErrorInfo | null;
 }
 export interface WalletClient {
+  readonly recovery: RecoveryReport; // startup-only summary; current state is in operations
   readonly network: Network;
   readonly accounts: AccountsApi;
   readonly addresses: WalletAddressesApi;
@@ -774,6 +811,8 @@ export interface WalletClient {
    * fused and supports backend multi-step dependencies. Custom authority uses
    * single-step PCZT; reject multi-step before disclosure, retaining operation ID.
    * Supplied proposal executes EXACTLY that plan; never reselect/reprice/reprove on retry.
+   * Submission grants recorded consent bound to exact bytes/route; later startup
+   * retries additionally require explicit RecoveryPolicy opt-in (operations.md).
    */
   send(args: (SendIntent | { proposal: Proposal; accountId?: never; to?: never; amount?: never; payments?: never }) & ExecuteOptions): Promise<PendingPayment>;
   shield(args: ShieldIntent & ExecuteOptions): Promise<PendingPayment>;
@@ -783,6 +822,7 @@ export interface WalletClient {
   prove(args: { pczt: PcztArtifact } & Op): Promise<PcztArtifact>;
   sign(args: { pczt: PcztArtifact } & ExecuteOptions): Promise<PcztArtifact>;
   finalize(args: { pczt: PcztArtifact } & Op): Promise<PendingPayment>; // verify/store/outbox, no network
+  /** Explicit submission consent for this operation; exact-byte/route binding as pending.broadcast. */
   broadcast(args: { operationId: string } & Op): Promise<PaymentState>;
   getBalance(args: { accountId: AccountId } & Op): Promise<WalletBalance>;
   getHistory(args: { accountId: AccountId } & PageArgs & Op): Promise<HistoryPage>;

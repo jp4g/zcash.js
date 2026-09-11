@@ -47,6 +47,36 @@ class Guards(unittest.TestCase):
                 with patch.object(sys,'argv',['build-wasm.py','--stage','guard']), patch('subprocess.run',side_effect=RuntimeError('producer must not occur')), patch('subprocess.check_output',return_value='fake-head'), patch.dict(os.environ,CARGO_HOME=str(root),CARGO_TARGET_DIR=str(root)):
                     with self.assertRaisesRegex(ValueError,'input drift'): ns['main']()
                 self.assertFalse((root/'scratch/bundles/guard').exists())
+    def test_independent_inputs_and_measured_receipt(self):
+        for optimize in [0, 1, 2]:
+            for drift in ['adapter', 'host', None]:
+                with self.subTest(optimize=optimize, drift=drift), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    ns = load('build-wasm.py', optimize, root)
+                    adapter, host = root/'adapter.c', root/'host.mjs'
+                    adapter.write_bytes(ns['ADAPTER'].read_bytes())
+                    host.write_bytes(ns['HOST'].read_bytes())
+                    if drift: (adapter if drift == 'adapter' else host).write_bytes(b'CHANGED')
+                    ns.update(ROOT=HERE, SCRATCH=root/'scratch', LOGS=root/'logs', ADAPTER=adapter, HOST=host)
+                    def producer(argv, **kwargs):
+                        if argv[0] == 'cargo':
+                            raw = root/'target/wasm32-unknown-unknown/debug/issue_2_scanner.wasm'
+                            raw.parent.mkdir(parents=True); raw.write_bytes(b'CONTROL ONLY')
+                        return type('Result', (), {'returncode': 0})()
+                    with patch.object(sys, 'argv', ['build-wasm.py', '--stage', 'control']), patch('subprocess.run', side_effect=producer) as calls, patch('subprocess.check_output', return_value='control-head'), patch.dict(os.environ, CARGO_HOME=str(root), CARGO_TARGET_DIR=str(root/'target')), contextlib.redirect_stdout(io.StringIO()):
+                        if drift:
+                            with self.assertRaisesRegex(ValueError, 'input drift'): ns['main']()
+                            calls.assert_not_called()
+                            self.assertFalse((root/'scratch/bundles/control').exists())
+                        else:
+                            ns['main']()
+                            self.assertEqual(calls.call_count, 2)
+                            receipt = json.loads((root/'logs/bundles/control/provenance.json').read_text())
+                            self.assertEqual(receipt['f1_inputs'], {str(p): ns['sha'](p) for p in [adapter, host]})
+                            self.assertTrue(receipt['complete'])
+                            with self.assertRaises(FileExistsError): ns['main']()
+                            self.assertEqual(calls.call_count, 2)
+
     def test_check_rejects_changed_fixture_under_optimization(self):
         for optimize in [0,1,2]:
             with tempfile.TemporaryDirectory() as tmp:

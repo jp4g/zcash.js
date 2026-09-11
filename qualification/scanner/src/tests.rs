@@ -238,3 +238,11 @@ fn ufvk_import_and_multiple_batches_match_reference() {
     }
     assert_eq!(tree_checks(&mut reference, &corpus), tree_checks(&mut inline, &corpus));
 }
+
+#[path = "header_regression.rs"]
+mod header_regression;
+
+#[test]
+fn parsed_header_rejected_without_mutation() {
+    header_regression::check();
+}

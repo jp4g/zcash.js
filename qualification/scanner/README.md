@@ -50,3 +50,6 @@ bundle commands, Firefox lifecycle runner, and remaining limits. [REPORT.md](REP
 preserves the historical foundation results. Actual coordinator Firefox no-SAB
 and Node first replay both passed; the prior Chrome failure is not a browser blocker.
 Exact extension execution receipts are in the external scanner logs.
+
+[EXTENSION-RESULT.md](EXTENSION-RESULT.md) records the actual native14/14, Node6/6,
+and Firefox6/6 execution, observed worker destruction, exact commands and hashes.

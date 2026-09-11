@@ -12,7 +12,7 @@ Wallet opening automatically loads and reconciles ALL pending database operation
 
 | Scope | Required executed evidence | Status |
 | --- | --- | --- |
-| Recovery amendment | Independent specification review, declaration/example checks, tests; consistent issue updates | In progress |
+| Recovery amendment | Independent specification review, declaration/example checks, tests; consistent issue updates | Specification merged #15; runtime not qualified |
 | #2 F1 | Coherent Common 1.0 graph; native control; baseline/threaded final link, Node/browser execution of real SQLite/crypto | Not qualified |
 | #2 F2 | All-pool bounded scanner parity, actual threads/bootstrap/fallback | Not qualified |
 | #2 F3 | Same-instance Node filesystem/OPFS durability, crash/migration/locking/quota/reopen | Not qualified |
@@ -84,4 +84,10 @@ Partial slices never close an entire issue. Mock behavior, compilation alone and
 - Runtime worker stopped at safe boundary with no cargo/rustc children and resumed same Codex session MEDIUM to preserve/report partial evidence and finish without forbidden installation/extraction: PID 60580 / proc_a06f777fcbc6, log /home/jack/zcash-node-runtime-finalize.log. Read receipt /home/jack/zcash-node-runtime-scratch/coordinator-fetch-receipt.md; installation remains blocked. Review linked-artifact/import/allocator evidence independently before accepting even the partial slice.
 - Board reverified: #1 Done, #2 In Progress, #3–#12 Todo.
 
-Current next step: finish/review second harness fix cycle and partial runtime report; push/merge only independently accepted slices with CI. Matching generator installation requires foreground approval before any runtime continuation. All #2–#9 issue gates remain unpassed.
+## Independent acceptance of foundation slice
+
+- Final HIGH review PASS through ee0c56d: /home/jack/zcash-qualification-final-review.md. Reviewer independently ran 12 tests plus 36 rejection probes normally/optimized and verified fresh bound run c9e00fb500584650ab482a01487cbbb4. Coordinator ran 12 tests normally/optimized and independently collected the same run to /home/jack/zcash-qualification-logs/coordinator-cycle2-evidence, diff -qr against worker evidence exit 0. Accepts partial native/diagnostic-check/link-failure evidence only, not F1 or #2.
+- Runtime HIGH review /home/jack/zcash-node-runtime-review.md independently verified raw artifact hash, static allocator/import/memory conclusions and zero passes/11 import failures. Three P2s require fixes: worker timeout cleanup, inspector artifact binding, lifecycle schema-absence/actual destruction assertions. LOW fix worker PID 73808 / proc_93ea5da50768; result /home/jack/zcash-node-runtime-fix-result.md. No generator installation or runtime gate bypass authorized.
+- Coordinator independently rebuilt runtime probe exit 0, SHA-256 606a000bbb8dc51868e41d0d832285c7499862d64a2514b4110e73682ff8cecd; Node test exit 1 (zero passes, 11 before-instance failures). Logs /home/jack/zcash-node-runtime-logs/coordinator-link.log and coordinator-node.log. No Node SQL/crypto pass.
+
+Current next step: PR/CI/merge independently accepted foundation slice; finish LOW runtime review fixes and HIGH re-review separately. Matching generator installation requires foreground approval before runtime continuation. All #2–#9 issue gates remain unpassed.

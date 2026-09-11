@@ -39,6 +39,8 @@ def freeze(root):
     browser=replace(browser,"new Worker('./browser-worker.mjs'","new Worker('./quota-worker.mjs'")
     browser="import {errorDetails} from './quota-pressure.mjs';\n"+browser
     browser=replace(browser,'error:String(e.stack)','...errorDetails(e)')
+    browser=replace(browser,'const {phase}=','const {phase,quotaConfig}=')
+    browser=replace(browser,'await suite({reference,phase,root:','await suite({reference,phase,quotaConfig,barriers,root:')
     browser=replace(browser,'actualQuotaExhaustion:false','actualQuotaExhaustion:results.some(r=>r.test===\'actual-quota-populated-scan-rollback-retry\' && r.pass===true)')
     (root/'bundle/browser-test.mjs').write_text(browser)
     # No alternative server/driver lifecycle: exact pinned runner plus narrow seams.
@@ -61,7 +63,7 @@ export function serveStatic(base,req,res,events) {
     const created=events.filter(e=>e.method==='script.realmCreated' && e.params.type==='dedicated-worker').map(e=>e.params.realm);
     const destroyed=events.filter(e=>e.method==='script.realmDestroyed').map(e=>e.params.realm);
     res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-    res.end(JSON.stringify(req.url==='/wallet-phase'?{phase:'all'}:{created,destroyed}));return;
+    res.end(JSON.stringify(req.url==='/wallet-phase'?{phase:'all',quotaConfig:{fixedLimitKiB:32768}}:{created,destroyed}));return;
   }
   original(base,req,res);
 }

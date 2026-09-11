@@ -28,6 +28,12 @@ def audit(metadata):
         row = {k: p[k] for k in ['name', 'version', 'source', 'rust_version']}
         row.update(features=nodes[p['id']]['features'], dependencies=nodes[p['id']]['deps'],
                    manifest_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        consumer = tomllib.loads((ROOT / 'consumer/Cargo.toml').read_text())['package']
+        if p['source'] is None and not (
+                p['id'] == metadata['resolve']['root'] and
+                path.resolve() == (ROOT / 'consumer/Cargo.toml').resolve() and
+                p['name'] == consumer['name'] and p['version'] == consumer['version']):
+            raise ValueError(f'non-registry dependency: {p["id"]}')
         if p['source'] is not None:
             if not p['source'].startswith('registry+'):
                 raise ValueError(f'non-registry dependency: {p["id"]}')

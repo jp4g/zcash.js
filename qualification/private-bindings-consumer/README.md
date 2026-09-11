@@ -15,9 +15,9 @@ its bytes and explicitly update its revision and metadata digest after a real bu
 do not rerun exclusive creation over it. After a successful build:
 
 ```sh
-REPRO=$(mktemp -d /home/jack/zakura-bindings-network-scratch/consumer-repro.XXXXXX)
-node qualification/private-bindings-consumer/verify.test.mjs /home/jack/zakura-bindings-network-scratch/combined-packet-1 "$REPRO"
-node qualification/private-bindings-consumer/prepare.mjs /home/jack/zakura-bindings-network-scratch/combined-packet-1 "$REPRO/package"
+REPRO=$(mktemp -d /home/jack/zakura-transaction-bindings-scratch/consumer-repro.XXXXXX)
+node qualification/private-bindings-consumer/verify.test.mjs /home/jack/zakura-transaction-bindings-scratch/packet-final "$REPRO"
+node qualification/private-bindings-consumer/prepare.mjs /home/jack/zakura-transaction-bindings-scratch/packet-final "$REPRO/package"
 node "$REPRO/package/node.mjs" "$REPRO/package"
 ```
 
@@ -68,10 +68,10 @@ claimed. Wallet/storage/signing/proving/outbox remain separate gates.
 
 ## Current transaction producer and consumer
 
-This branch updates the pin only after two genuine byte-identical builds of private
-`70d1c0ec44b56333b84adf7d57e455b291cd85ff`, from accepted main `3593a67`.
-`pin.json` now selects `/home/jack/zakura-transaction-bindings` and metadata SHA256
-`d59dc6af3108dc68e70b5060e1e83b6a6dcbb7c35943724774593d53eb38fa9f`.
+This branch selects two genuine byte-identical normal/`-OO` builds of private
+`acaf7069e466c82ce1be2c45ebafb75a92b59ee9`, from accepted main `3593a67`.
+`pin.json` selects `/home/jack/zakura-transaction-bindings` and metadata SHA256
+`09ae852de689eb47fba35dfefaae81397d280f5c2542bccdee9747954efad575`.
 The old `9ee26e6`/`c9992802` pin and evidence above remain valid historically;
 exclusive `pin.mjs` creation was not used to overwrite them.
 
@@ -92,28 +92,28 @@ The full Node consumer passes 196 network cases, network admissions, 23 addition
 pre-initialization transaction admissions and six shared backing-store controls
 (ordinary/spoofed initialization, network and transaction inputs).
 
-Reproduce using new output paths:
-
-```sh
-node qualification/private-bindings-consumer/verify.test.mjs /home/jack/zakura-transaction-bindings-scratch/packet-1 /home/jack/zakura-transaction-bindings-scratch
-node qualification/private-bindings-consumer/prepare.mjs /home/jack/zakura-transaction-bindings-scratch/packet-1 /home/jack/zakura-transaction-bindings-scratch/consumer-repro
-node /home/jack/zakura-transaction-bindings-scratch/consumer-repro/node.mjs /home/jack/zakura-transaction-bindings-scratch/consumer-repro
-```
-
-The committed-source consumer package is
-`/home/jack/zakura-transaction-bindings-scratch/consumer-final`, inventory SHA256
-`607b03acf80c1219160aec0690b1045bf72db3e739496390ecf634ce993c41f3`;
+Reproduce using the fresh-output commands at the top of this page. The selected
+committed-source consumer package is
+`/home/jack/zakura-transaction-bindings-scratch/coordinator-final-1`, inventory SHA256
+`dbf2c6891e73f69ae256f1e3ce6f756b7d7a68bb67c47123fc79a5e01cd89e18`;
 runner SHA256 `f958cd5ce4d43443537e935732d8effd90a1a7b8c1f0c79a3fe9cd8dd9134dd3`.
-Actual execution was attempted and failed at `listen EPERM` before launching the
-installed packaged Firefox/geckodriver. Browser is pending; no confinement changes.
-The runner retains the ordinary page module, deadlines and cleanup. Its only
-changes are assigned log/scratch locations and the transaction result assertion.
+The earlier worker run failed at `listen EPERM` before Firefox startup and remains
+preserved. Parent execution of the final packet passed in unchanged Firefox155.0.1:
+196 network cases/28 admissions,13 transaction vectors/208 baseline adapter calls,
+1,472 truncated-prefix rejections and23 pre-init controls. SharedArrayBuffer was
+unavailable in this non-isolated browser; shared-input checks are Node evidence.
+Session deletion, driver-group disappearance and server closure all passed;
+`acceptInsecureCerts` was false. Actual raw receipt:
+`/home/jack/zakura-transaction-bindings-logs/browser/firefox-1789157899032.json`.
 
 ```sh
-node /home/jack/zakura-transaction-bindings-scratch/consumer-final/firefox.mjs 607b03acf80c1219160aec0690b1045bf72db3e739496390ecf634ce993c41f3
+node /home/jack/zakura-transaction-bindings-scratch/coordinator-final-1/firefox.mjs dbf2c6891e73f69ae256f1e3ce6f756b7d7a68bb67c47123fc79a5e01cd89e18
 ```
 
-Detailed evidence and the exact parent handoff live in
-`/home/jack/zakura-transaction-bindings-logs/{REPORT.md,CLIresult.md,checkpoint.md}`.
+Detailed worker evidence and parent runtime results live in
+`/home/jack/zakura-transaction-bindings-logs/`; the original worker ended without a
+final CLIresult and its exit status is unavailable. Parent recovered completed
+builds without restarting it. Independent review is recorded under `review/`;
+runtime success alone is not acceptance.
 No whole #3/#4/#6 acceptance, public transaction factory, consensus/proof validation,
 chain access, funds, publication or deployment is claimed.

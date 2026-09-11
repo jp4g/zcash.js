@@ -1,5 +1,5 @@
 // Local qualification pins only. This is not the H1 remote artifact loader.
-import { open } from 'node:fs/promises';
+import { open, readdir } from 'node:fs/promises';
 import { mkdtempSync, openSync, closeSync, readFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -23,14 +23,14 @@ async function bounded(path, limit) {
 export async function verifyPacket(packet, pin) {
   assert.match(pin.revision, /^[0-9a-f]{40}$/, 'invalid revision');
   assert.match(pin.buildSha256, /^[0-9a-f]{64}$/, 'invalid build hash');
-  const raw = await bounded(join(packet, 'build.json'), 32768);
+  const raw = await bounded(join(packet, 'build.json'), 131072);
   assert.equal(sha256(raw), pin.buildSha256, 'build hash mismatch');
   const build = JSON.parse(raw);
-  assert.equal(build.schema, 'zakura-network-build/1');
+  assert.equal(build.schema, 'zakura-bindings-build/1');
   assert.equal(build.revision, pin.revision, 'revision mismatch');
   // Regular-file capture avoids Node's socket-backed subprocess pipes here.
   const git = (...args) => {
-    const temp = mkdtempSync('/home/jack/zakura-bindings-network-scratch/git-read-');
+    const temp = mkdtempSync('/home/jack/zakura-transaction-bindings-scratch/git-read-');
     const path = join(temp, 'stdout');
     const fd = openSync(path, 'wx');
     try {
@@ -42,8 +42,9 @@ export async function verifyPacket(packet, pin) {
   assert.equal(sha256(git('show', `${pin.revision}:Cargo.lock`)), build.lockSha256, 'source lock mismatch');
   assert.equal(git('rev-parse', `${pin.revision}^{tree}`).toString().trim(), build.sourceTree, 'source tree mismatch');
   const limits = { 'bindings.js': 65536, 'bindings_bg.wasm': 1048576,
-    'bindings.d.ts': 16384, 'bindings_bg.wasm.d.ts': 16384, 'network.mjs': 16384 };
+    'bindings.d.ts': 16384, 'bindings_bg.wasm.d.ts': 16384, 'network.mjs': 16384, 'bytes.mjs': 16384, 'transaction.mjs': 16384 };
   assert.deepEqual(Object.keys(build.files).sort(), Object.keys(limits).sort(), 'unexpected file closure');
+  assert.deepEqual((await readdir(packet)).sort(), ['build.json', ...Object.keys(limits)].sort(), 'unexpected packet inventory');
   const files = new Map();
   for (const [name, limit] of Object.entries(limits)) {
     const bytes = await bounded(join(packet, name), limit);

@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const root = dirname(fileURLToPath(import.meta.url));
-const logs = '/home/jack/zakura-bindings-network-logs/browser';
-const scratch = '/home/jack/zakura-bindings-network-scratch';
+const logs = '/home/jack/zakura-transaction-bindings-logs/browser';
+const scratch = '/home/jack/zakura-transaction-bindings-scratch';
 const runRoot = await mkdtemp(join(scratch, 'firefox-'));
 const report = { status: 'failed', runRoot, node: process.version };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -73,6 +73,7 @@ try {
   const result = await request(`/session/${session}/execute/async`, 'POST', {
     script: "const done=arguments[arguments.length-1]; const result=window.privateBindingsResult; if (!result) done({error:'Missing page-owned private bindings entry'}); else result.then(done);", args: [] });
   assert.ok(!result.error, JSON.stringify(result)); assert.equal(result.result.cases, 196);
+  assert.equal(result.result.transactions.vectors, 13);
   assert.equal(value.capabilities.acceptInsecureCerts, false);
   report.result = result.result; report.status = 'passed';
 } catch (error) { report.error = String(error); }

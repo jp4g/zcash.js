@@ -1,7 +1,7 @@
 {
-  "name": "zcash-js-docs",
+  "name": "zcash.js",
   "private": true,
-  "description": "Documentation tooling for the proposed zcash.js API; no SDK runtime.",
+  "description": "Private initial WASM-independent SDK slice; implemented exports are listed in docs/planning/agnostic-implementation.md.",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
@@ -10,10 +10,26 @@
     "docs:build": "vitepress build docs",
     "docs:preview": "vite preview --outDir docs/.vitepress/dist --host 127.0.0.1 --port 4173 --strictPort --base /",
     "docs:typecheck": "tsc -p docs/api/examples/tsconfig.json",
-    "docs:check-recovery": "node docs/api/check-recovery-spec.mjs"
+    "docs:check-recovery": "node docs/api/check-recovery-spec.mjs",
+    "build": "tsc -p tsconfig.json",
+    "test:sdk": "npm run build && node --test tests/sdk/*.test.mjs",
+    "test": "npm run test:sdk"
   },
   "devDependencies": {
     "vitepress": "2.0.0-alpha.20",
     "typescript": "6.0.3"
-  }
+  },
+  "version": "0.0.0",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "types": "./dist/src/index.d.ts",
+  "sideEffects": false
 }

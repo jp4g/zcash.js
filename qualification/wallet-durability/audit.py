@@ -31,8 +31,16 @@ repo=Path('/home/jack/zcash-qualification-scratch/wallet')
 revision='a9142ee100b3a563b7d9ba7a8e94201d00ad8154'
 source_count=0
 for package,folder in [('zakura-client-backend-0.1.0-rc4','zcash_client_backend'),('zakura-client-sqlite-0.1.0-rc4','zcash_client_sqlite'),('zakura-pczt-0.1.0-rc2','pczt')]:
-    for p in (registry/package/'src').rglob('*.rs'):
-        relative=p.relative_to(registry/package)
+    package_dir=registry/package
+    require(package_dir.is_dir() and (package_dir/'src').is_dir(),f'wallet source directory missing: {package}')
+    prefix=f'librustzcash/{folder}/'
+    tree=subprocess.check_output(['git','-C',str(repo),'ls-tree','-r','--name-only','-z',revision,'--',prefix+'src/'])
+    expected={Path(name.decode()).relative_to(prefix) for name in tree.split(b'\0') if name and name.endswith(b'.rs')}
+    require(expected,f'wallet source inventory empty in Git pin: {package}')
+    actual={p.relative_to(package_dir) for p in (package_dir/'src').rglob('*.rs') if p.is_file()}
+    require(actual==expected,f'wallet source inventory differs from Git pin: {package}; missing={sorted(map(str,expected-actual))}; unexpected={sorted(map(str,actual-expected))}')
+    for relative in sorted(expected):
+        p=package_dir/relative
         pinned=subprocess.check_output(['git','-C',str(repo),'show',f'{revision}:librustzcash/{folder}/{relative}'])
         require(p.read_bytes()==pinned,f'wallet source differs from Git pin: {package}/{relative}')
         source_count+=1

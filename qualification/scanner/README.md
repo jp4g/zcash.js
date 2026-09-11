@@ -53,3 +53,17 @@ Exact extension execution receipts are in the external scanner logs.
 
 [EXTENSION-RESULT.md](EXTENSION-RESULT.md) records the actual native14/14, Node6/6,
 and Firefox6/6 execution, observed worker destruction, exact commands and hashes.
+
+Integration review controls retain the six-case producer and historical execution
+receipts. Run `python3 -m unittest -v test_guards test_reviewed_guards` (also with
+`python3 -O`) and `node replay/test-log-failure.mjs`. The latter substitutes only
+the browser workload with a local asynchronous wait and a cleanup request stub;
+it executes the actual scanner logger and finally block with real EISDIR and
+ENOSPC writes, without opening sockets. The genuine parsed-header regression is
+native-test-only; it verifies parsing, conflicting effective predecessor, absent
+DB predecessor metadata, rejection before stages, and unchanged raw rows.
+
+The corrected source Firefox runner requires a coordinator rerun and independent
+HIGH review before PR. The immutable `extension-reviewed-2` Node6/Firefox6
+receipt remains historical evidence for its original runner and manifest
+`65ba569ec3416c0414452fce380f1406e49c605b73eb9744b65733e53ae94eb6`.

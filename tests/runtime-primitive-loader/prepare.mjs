@@ -40,7 +40,7 @@ try {
     join(temp, 'src/runtime/primitive-loader.ts')], { cwd: temp, stdio: ['ignore', log, log] });
 } finally { closeSync(log); }
 for (const name of ['src/runtime/primitive-loader.js', 'src/runtime/artifacts.js', 'src/errors.js']) files.set(name, readFileSync(join(temp, 'compiled', name)));
-for (const name of ['browser.mjs', 'network-cases.mjs', 'transaction-cases.mjs', 'vectors.mjs', 'host.mjs']) files.set(name, readSdk('tests/runtime-primitive-loader/' + name));
+for (const name of ['loader.test.mjs', 'browser.mjs', 'network-cases.mjs', 'transaction-cases.mjs', 'vectors.mjs', 'host.mjs']) files.set(name, readSdk('tests/runtime-primitive-loader/' + name));
 const vectors = readSdk('qualification/transaction-codec/fixtures/vectors.json');
 check(sha(vectors) === '26cb21c3733ff8a57b4c99310cfb73331d6376a80a065513932349b497cfbd74', 'accepted transaction corpus');
 files.set('transaction-vectors.json', vectors); files.set('pin.json', pinBytes);

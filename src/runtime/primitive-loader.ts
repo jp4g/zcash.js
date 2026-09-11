@@ -53,8 +53,17 @@ function watch(options: PrimitiveOptions | undefined, stop: (error: ZcashError) 
     : performance.now() - start >= timeoutMs ? failure('TIMEOUT', 'runtime', 'none', 'Primitive operation timed out.') : undefined;
   const onAbort = () => { const e = error(); if (e) stop(e); };
   const timer = setTimeout(() => stop(failure('TIMEOUT', 'runtime', 'none', 'Primitive operation timed out.')), timeoutMs);
-  if (signal) add.call(signal, 'abort', onAbort);
-  return { error, clear() { clearTimeout(timer); if (signal) removeListener.call(signal, 'abort', onAbort); } };
+  let cleared = false;
+  const clear = () => {
+    if (cleared) return;
+    cleared = true; clearTimeout(timer);
+    // Native Node signal hooks can throw/reenter during removal. Cleanup must
+    // never discard the resolver already detached from the pending slot.
+    try { if (signal) removeListener.call(signal, 'abort', onAbort); } catch { /* Timer and ownership are already released. */ }
+  };
+  try { if (signal) add.call(signal, 'abort', onAbort); }
+  catch { clear(); throw invalidArgument(); }
+  return { error, clear };
 }
 
 function exact(value: any, keys: string[]): boolean {
@@ -74,12 +83,13 @@ export async function openPrimitive(artifact: WasmArtifact, options?: PrimitiveO
   let startup: Watch;
   const close = (error = closed()): Promise<void> => {
     if (closing) return closing;
-    terminal = error; startup?.clear(); acquisition.abort();
-    const call = pending; pending = undefined; call?.watch.clear();
+    terminal = error;
+    const call = pending; pending = undefined;
     // Latch before termination can produce any late exit/error/message callbacks.
     closing = Promise.resolve().then(async () => {
       try { await worker?.terminate(); } finally { remove(); }
     }).catch(() => { throw unavailable(); });
+    startup?.clear(); acquisition.abort(); call?.watch.clear();
     void closing.catch(() => {});
     void closing.then(() => { readyReject(error); call?.reject(error); }, () => { readyReject(unavailable()); call?.reject(unavailable()); });
     return closing;
@@ -99,8 +109,12 @@ export async function openPrimitive(artifact: WasmArtifact, options?: PrimitiveO
       u32(value);
       if (type === 'context' && format !== 'zcash-js-network/1') throw invalidArgument();
       const owned = bytes(raw, type === 'context' ? 256 : 2097152);
-      control = watch(options, error => { void close(error); });
+      control = watch(options, error => { if (control && pending?.watch === control) void close(error); });
       const error = control.error();
+      // Normalization and native signal registration can run caller code.
+      // Recheck after both, before assigning the sole pending resolver.
+      if (terminal) throw terminal;
+      if (pending) throw failure('RESOURCE_LIMIT', 'runtime', 'none', 'Primitive already has a request.');
       if (error) { control.clear(); throw error; } // Not admitted: owner stays usable.
       if (id === Number.MAX_SAFE_INTEGER) { control.clear(); void close(closed()); throw closed(); }
       const requestId = ++id;

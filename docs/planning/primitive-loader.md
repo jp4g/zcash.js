@@ -153,3 +153,21 @@ acceptance requires preparation after committing this correction, a committed
 source-bound package, its own Node/HTTPS/Firefox run, and independent HIGH review.
 The pre-existing untracked `node_modules` symlink is not a package input.
 No acceptance, whole H1 completion, push, merge or publication is claimed.
+
+## R1 admission correction (independent R2 pending)
+
+Caller option getters, Proxy traps and native signal registration may synchronously
+close the owner or admit another request. The shared request path now rechecks
+terminal/pending state after watch registration and its initial cancellation check.
+Only the watch actually stored in the pending slot may cancel that owner. Rejected
+admissions clear their listener/timer; failed registration also clears its watch.
+Listener cleanup is idempotent and cannot discard a detached resolver by throwing.
+Close latches its promise before invoking signal cleanup hooks.
+
+Focused Node regressions exercise both operations, getter/Proxy close and nested
+admission, native registration abort/deadline/failure, cleanup reentry/failure and
+cached close identity. Ordinary Firefox page cases add the getter/Proxy matrix
+while retaining corpus, integrity negatives, CSP and observed worker destruction.
+The source-bound preparer also snapshots the Node test runner; its corpus resolves
+from the immutable packet when packaged. No producer bytes or manifest pins change.
+This correction is a candidate for independent HIGH R2, not an acceptance claim.

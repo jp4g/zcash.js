@@ -14,6 +14,9 @@ export function fixture(t) {
   });
   return calls;
 }
+const vectorsPath = existsSync(new URL('./transaction-vectors.json', import.meta.url))
+  ? new URL('./transaction-vectors.json', import.meta.url)
+  : new URL('../../qualification/transaction-codec/fixtures/vectors.json', import.meta.url);
 const compiled = (process.env.PRIMITIVE_SDK ?? root + '/sdk') + '/src/runtime/primitive-loader.js';
 export const doc = new TextEncoder().encode('{"encoding":"regtest","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}');
 test('verified bytes execute real checked network and transaction methods in owned Node worker', async t => {
@@ -23,7 +26,7 @@ test('verified bytes execute real checked network and transaction methods in own
   const runtime = await openPrimitive(artifact);
   try {
     assert.deepEqual(await runtime.consensusContext('zcash-js-network/1', doc, 20), { height: 20, branchId: 1991772603 });
-    const vectors = JSON.parse(readFileSync('/home/jack/zcash-worktrees/verified-primitive-loader/qualification/transaction-codec/fixtures/vectors.json'));
+    const vectors = JSON.parse(readFileSync(vectorsPath));
     for (const v of vectors) {
       const raw = new Uint8Array(Buffer.from(v.hex, 'hex'));
       const result = await runtime.decodeTransaction(raw, v.branch);
@@ -181,7 +184,7 @@ test('original accepted network corpus and transaction vectors/context controls 
   try {
     const network = await import('./network-cases.mjs');
     const transaction = await import('./transaction-cases.mjs');
-    const vectors = JSON.parse(readFileSync('/home/jack/zcash-worktrees/verified-primitive-loader/qualification/transaction-codec/fixtures/vectors.json'));
+    const vectors = JSON.parse(readFileSync(vectorsPath));
     const n = await network.run(runtime.consensusContext);
     const tx = await transaction.run(runtime.decodeTransaction, vectors);
     assert.equal(n.cases, 196); assert.equal(tx.vectors, 13); assert.equal(tx.baselineAdapterCalls, 208); assert.equal(tx.truncated, 1472);
@@ -242,4 +245,114 @@ test('real bootstrap initialization failure is unavailable before readiness', as
     return original.call(this, message, ...rest);
   });
   await assert.rejects(openPrimitive(artifact), e => e.code === 'RUNTIME_UNAVAILABLE');
+});
+
+const bounded = async promise => {
+  let timer;
+  try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error('unsettled admission')), 200); })]); }
+  finally { clearTimeout(timer); }
+};
+for (const operation of ['context', 'transaction']) {
+  for (const trigger of ['signal getter', 'timeout getter', 'getPrototypeOf', 'ownKeys', 'get']) {
+    for (const action of ['close', 'reenter']) {
+      test(`admission ${operation}: ${trigger} ${action}`, async t => {
+        const { openPrimitive } = await import(pathToFileURL(compiled)); fixture(t);
+        const { Worker } = await import('node:worker_threads');
+        const original = Worker.prototype.postMessage; let posts = 0, worker;
+        t.mock.method(Worker.prototype, 'postMessage', function(m, ...rest) {
+          worker = this; if (m.type !== 'init') posts++;
+          return original.call(this, m, ...rest);
+        });
+        const runtime = await openPrimitive(artifact);
+        const invoke = options => operation === 'context' ? runtime.consensusContext('zcash-js-network/1', doc, 20, options)
+          : runtime.decodeTransaction(Uint8Array.of(1), 0, options);
+        let inner, fired = false;
+        const callback = () => { if (fired) return; fired = true; inner = action === 'close' ? runtime.close() : invoke(); inner.catch(() => {}); };
+        let options = { timeoutMs: 20 };
+        if (trigger.endsWith('getter')) Object.defineProperty(options, trigger === 'signal getter' ? 'signal' : 'timeoutMs', { get() { callback(); return trigger === 'signal getter' ? undefined : 20; } });
+        else options = new Proxy(options, { [trigger](...args) { callback(); return Reflect[trigger](...args); } });
+        try {
+          await assert.rejects(bounded(invoke(options)), e => e.code === (action === 'close' ? 'CLOSED' : 'RESOURCE_LIMIT'));
+          if (action === 'close') { await inner; assert.equal(posts, 0); assert.equal(worker.threadId, -1); }
+          else {
+            if (operation === 'context') assert.equal((await bounded(inner)).branchId, 1991772603);
+            else await assert.rejects(bounded(inner), e => e.code === 'INVALID_ARGUMENT');
+            assert.equal(posts, 1);
+            await new Promise(resolve => setTimeout(resolve, 30)); // An unadmitted deadline must not close the real owner.
+            assert.equal((await runtime.consensusContext('zcash-js-network/1', doc, 20)).branchId, 1991772603);
+          }
+        } finally { await runtime.close(); }
+      });
+    }
+  }
+}
+
+for (const operation of ['context', 'transaction']) for (const action of ['close', 'reenter', 'abort', 'throw', 'deadline']) {
+  test(`native signal registration ${operation} ${action} cannot strand or poison admission`, async t => {
+    const { openPrimitive } = await import(pathToFileURL(compiled)); fixture(t);
+    const { getEventListeners } = await import('node:events');
+    const runtime = await openPrimitive(artifact), controller = new AbortController();
+    const existing = () => {}; controller.signal.addEventListener('abort', existing);
+    const key = Object.getOwnPropertySymbols(AbortSignal.prototype).find(k => k.description === 'kNewListener');
+    assert.ok(key, 'Node native registration hook');
+    let inner;
+    Object.defineProperty(controller.signal, key, { configurable: true, value() {
+      delete controller.signal[key];
+      if (action === 'close') inner = runtime.close();
+      if (action === 'reenter') inner = runtime.consensusContext('zcash-js-network/1', doc, 20);
+      if (action === 'abort') controller.abort();
+      if (action === 'throw') throw Error('caller registration failure');
+      if (action === 'deadline') { const end = performance.now() + 25; while (performance.now() < end) {} }
+      inner?.catch(() => {});
+    } });
+    try {
+      const options = { signal: controller.signal, timeoutMs: 20 };
+      const work = operation === 'context' ? runtime.consensusContext('zcash-js-network/1', doc, 20, options)
+        : runtime.decodeTransaction(Uint8Array.of(1), 0, options);
+      await assert.rejects(bounded(work), e => e.code === ({ close: 'CLOSED', reenter: 'RESOURCE_LIMIT', abort: 'ABORTED', throw: 'INVALID_ARGUMENT', deadline: 'TIMEOUT' })[action]);
+      await inner;
+      assert.deepEqual(getEventListeners(controller.signal, 'abort'), [existing]);
+      if (action !== 'close') {
+        await new Promise(resolve => setTimeout(resolve, 30));
+        assert.equal((await runtime.consensusContext('zcash-js-network/1', doc, 20)).branchId, 1991772603);
+      }
+    } finally { await runtime.close(); }
+  });
+}
+
+for (const action of ['close', 'reenter', 'throw']) {
+  test(`native signal removal ${action} preserves resolver ownership`, async t => {
+    const { openPrimitive } = await import(pathToFileURL(compiled)); fixture(t);
+    const runtime = await openPrimitive(artifact), controller = new AbortController();
+    const key = Object.getOwnPropertySymbols(AbortSignal.prototype).find(k => k.description === 'kRemoveListener');
+    assert.ok(key);
+    let inner;
+    Object.defineProperty(controller.signal, key, { configurable: true, value() {
+      delete controller.signal[key];
+      if (action === 'close') inner = runtime.close();
+      if (action === 'reenter') inner = runtime.consensusContext('zcash-js-network/1', doc, 20);
+      if (action === 'throw') throw Error('caller cleanup failure');
+      inner?.catch(() => {});
+    } });
+    try {
+      assert.equal((await bounded(runtime.consensusContext('zcash-js-network/1', doc, 20, { signal: controller.signal }))).branchId, 1991772603);
+      if (action === 'reenter') assert.equal((await bounded(inner)).branchId, 1991772603);
+      else await inner;
+      if (action === 'throw') assert.equal((await runtime.consensusContext('zcash-js-network/1', doc, 20)).branchId, 1991772603);
+    } finally { await runtime.close(); }
+  });
+}
+
+test('close is latched before caller signal cleanup reenters it', async t => {
+  const { openPrimitive } = await import(pathToFileURL(compiled)); fixture(t);
+  const runtime = await openPrimitive(artifact), controller = new AbortController();
+  const key = Object.getOwnPropertySymbols(AbortSignal.prototype).find(k => k.description === 'kRemoveListener');
+  let inner;
+  Object.defineProperty(controller.signal, key, { value() { inner = runtime.close(); } });
+  const work = runtime.consensusContext('zcash-js-network/1', doc, 20, { signal: controller.signal });
+  const rejected = assert.rejects(bounded(work), e => e.code === 'CLOSED');
+  const closing = runtime.close();
+  await closing; await rejected;
+  assert.equal(inner, closing);
+  assert.equal(runtime.close(), closing);
 });

@@ -48,6 +48,34 @@ window.primitiveResult = (async () => {
     controller.abort('private detail'); await rejects(pending, 'ABORTED');
     await rejects(runtime.consensusContext(format, doc, 20), 'ABORTED');
   } finally { await closure(runtime); }
+  let admissionCases = 0, admissionPosts = 0;
+  window.Worker = class extends nativeWorker {
+    constructor(url, options) { super(url, options); evidence.workers.push(String(url)); }
+    postMessage(message, ...rest) { if (message.type !== 'init') admissionPosts++; return super.postMessage(message, ...rest); }
+  };
+  for (const operation of ['context', 'transaction']) for (const trigger of ['signal', 'timeoutMs', 'getPrototypeOf', 'ownKeys', 'get']) for (const action of ['close', 'reenter']) {
+    runtime = await openPrimitive(artifact);
+    const invoke = options => operation === 'context' ? runtime.consensusContext(format, encode(valid[0].text), 20, options)
+      : runtime.decodeTransaction(Uint8Array.of(1), 0, options);
+    let inner, fired = false;
+    const callback = () => { if (fired) return; fired = true; inner = action === 'close' ? runtime.close() : invoke(); inner.catch(() => {}); };
+    let options = { timeoutMs: 20 };
+    if (trigger === 'signal' || trigger === 'timeoutMs') Object.defineProperty(options, trigger, { get() { callback(); return trigger === 'signal' ? undefined : 20; } });
+    else options = new Proxy(options, { [trigger](...args) { callback(); return Reflect[trigger](...args); } });
+    const before = admissionPosts;
+    try {
+      await rejects(invoke(options), action === 'close' ? 'CLOSED' : 'RESOURCE_LIMIT');
+      if (action === 'close') { await inner; check(admissionPosts === before, 'no dispatch after close'); }
+      else {
+        if (operation === 'context') check((await inner).branchId === 1991772603, 'real inner owner result');
+        else await rejects(inner, 'INVALID_ARGUMENT');
+        check(admissionPosts === before + 1, 'one admitted request');
+        await new Promise(resolve => setTimeout(resolve, 30));
+        check((await runtime.consensusContext(format, encode(valid[0].text), 20)).branchId === 1991772603, 'unadmitted deadline cleared');
+      }
+      admissionCases++;
+    } finally { await closure(runtime); }
+  }
   const startup = new AbortController();
   // Hold initialization until the parent observes the actual worker realm, then
   // fire a native page-owned caller signal while startup is still pending.
@@ -59,9 +87,6 @@ window.primitiveResult = (async () => {
   };
   await rejects(openPrimitive(artifact, { signal: startup.signal }), 'ABORTED');
   await closure();
-  window.Worker = class extends nativeWorker {
-    constructor(url, options) { super(url, options); evidence.workers.push(String(url)); }
-  };
   window.Worker = class extends nativeWorker {
     constructor(url, options) { super(url, options); evidence.workers.push(String(url)); }
     postMessage(message, ...rest) { if (message.type === 'init') super.postMessage(message, ...rest); }
@@ -81,5 +106,5 @@ window.primitiveResult = (async () => {
   runtime = await openPrimitive(artifact);
   try { check((await runtime.consensusContext(format, encode(valid[0].text), 20)).branchId === 1991772603, 'fresh owner usable'); }
   finally { await closure(runtime); }
-  return { integrityRejections: negatives.length, network: n, transaction: tx, nativeSignals: true, nativeViews: true, evidence };
+  return { admissionCases, integrityRejections: negatives.length, network: n, transaction: tx, nativeSignals: true, nativeViews: true, evidence };
 })().then(result => ({ result }), error => ({ error: { name: error.name, message: error.message, stack: error.stack } }));

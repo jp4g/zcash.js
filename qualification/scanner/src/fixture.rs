@@ -88,6 +88,16 @@ pub fn generate() -> Corpus {
         previous = hash; b
     }).collect())
 }
+#[cfg(not(target_arch = "wasm32"))]
+pub fn frozen() -> Corpus {
+    // Read after generation so an explicit freeze run observes newly written bytes.
+    Corpus((START..START+7).map(|height| {
+        let path = format!("{}/fixtures/{height}.pb", env!("CARGO_MANIFEST_DIR"));
+        CompactBlock::decode(std::fs::read(path).unwrap().as_slice()).unwrap()
+    }).collect())
+}
+
+#[cfg(target_arch = "wasm32")]
 pub fn frozen() -> Corpus {
     let blocks: [&[u8];7] = [
         include_bytes!("../fixtures/100000.pb"), include_bytes!("../fixtures/100001.pb"),

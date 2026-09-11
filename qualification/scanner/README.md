@@ -11,7 +11,7 @@ Only this directory is owned by this worker.
 `fixture.rs` uses public Sapling and Ironwood V3 note constructors and encryption,
 with synthetic deterministic inputs. Wallet setup uses real in-memory SQLite,
 array module loading, WalletMigrator and account creation. The cached scanner
-is the reference. `inline_scan` will use public scan_block and unchanged put_blocks.
+is the reference. `inline_scan` uses public scan_block and unchanged put_blocks.
 The source TestBuilder probe could not resolve uncached ambassador; the authorized
 fetch failed DNS. That probe and full logs are preserved outside the repository.
 
@@ -28,7 +28,7 @@ real-chain identity or funds. They are intentionally public test material.
 Executed native coverage: seven tests pass, including both shielded receipt/spend/
 change paths, 1,025 irrelevant Sapling commitments, empty retained boundary,
 roots/change witnesses, full-row failure atomicity, rewind/replay, UFVK import,
-three batches, public request equality, and separate transparent receipt/parsed
+four batches (including an Ironwood-only receipt), public request equality, and separate transparent receipt/parsed
 V6 spend with idempotent replay. Compact fixtures do not discover transparent data.
 
 Cross-wallet SQL comparisons normalize only the random account UUID and row order.
@@ -44,3 +44,6 @@ under scanner scratch. `replay/node.mjs` and `replay/browser.html` provide dedic
 unshared workers with external 60-second deadlines. Browser is a no-SAB probe;
 serve the generated scratch bundle on loopback without isolation headers when
 browser execution is available. This does not provide OPFS or Node durability.
+
+See [REPORT.md](REPORT.md) for the executed acceptance matrix, exact commands,
+known limits, and browser/shared-worker work still required.

@@ -16,6 +16,10 @@ SCRATCH = Path('/home/jack/zcash-scanner-scratch')
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
+def inventory():
+    return {str(p.relative_to(ROOT)): sha(p) for p in sorted(ROOT.rglob('*'))
+            if p.is_file() and 'target' not in p.parts}
+
 def main():
     label, seconds, *cmd = sys.argv[1:]
     assert label.replace('-', '').replace('_', '').isalnum()
@@ -23,6 +27,7 @@ def main():
                CARGO_TARGET_DIR=str(SCRATCH / 'target'), TMPDIR=str(SCRATCH / 'tmp'),
                CARGO_BUILD_JOBS='2', RAYON_NUM_THREADS='2')
     LOGS.mkdir(exist_ok=True)
+    inputs = inventory()
     start = time.time()
     log = LOGS / f'{label}.log'
     assert not log.exists(), 'Evidence labels must be unique'
@@ -37,11 +42,12 @@ def main():
             rc = 124
     record = dict(label=label, command=cmd, cwd=str(ROOT), deadline_seconds=float(seconds),
                   elapsed_seconds=time.time()-start, exit=rc, output_sha256=sha(log),
-                  files={str(p.relative_to(ROOT)): sha(p) for p in sorted(ROOT.rglob('*'))
-                         if p.is_file() and 'target' not in p.parts})
+                  inputs=inputs, files=inventory(),
+                  environment={k: env.get(k) for k in ['CARGO_HOME', 'CARGO_TARGET_DIR', 'TMPDIR',
+                    'CARGO_BUILD_JOBS', 'RAYON_NUM_THREADS', 'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS']})
     with (LOGS / 'commands.jsonl').open('a') as out:
         out.write(json.dumps(record, sort_keys=True) + '\n')
-    print(json.dumps({k: v for k, v in record.items() if k != 'files'}))
+    print(json.dumps({k: v for k, v in record.items() if k not in ['files', 'inputs']}))
     print(log.read_text()[-6000:])
     return rc
 

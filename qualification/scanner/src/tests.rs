@@ -224,10 +224,14 @@ fn ufvk_import_and_multiple_batches_match_reference() {
     };
     let mut reference = imported();
     let mut inline = imported();
-    for (start, end) in [(0,2), (2,4), (4,7)] {
+    for (start, end) in [(0,1), (1,2), (2,4), (4,7)] {
         let state = chain_state(&corpus.0[..start]);
         scan_cached_blocks(&network(), &corpus, &mut wallet(&mut reference), state.block_height()+1, &state, end-start).unwrap();
-        inline_scan(&network(), &mut wallet(&mut inline), &state, &corpus.0[start..end]).unwrap();
+        let counts = inline_scan(&network(), &mut wallet(&mut inline), &state, &corpus.0[start..end]).unwrap();
+        if start == 1 {
+            assert_eq!(counts, Counts { sapling_received: 0, sapling_spent: 0, ironwood_received: 1, ironwood_spent: 0 });
+            eprintln!("Ironwood-only nonempty batch: {counts:?}");
+        }
         assert_eq!(canonical_snapshot(&reference), canonical_snapshot(&inline));
         let requests = |conn: &mut Connection| { let mut v: Vec<_> = wallet(conn).transaction_data_requests().unwrap().iter().map(|r| format!("{r:?}")).collect(); v.sort(); v };
         assert_eq!(requests(&mut reference), requests(&mut inline));

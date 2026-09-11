@@ -77,9 +77,10 @@ export async function getBlock(
   // Downstream code receives only our signal, never mutable caller methods/getters.
   const controller = caller === undefined ? undefined : new AbortController();
   const signal = controller?.signal;
-  const onAbort = () => controller!.abort();
+  const onAbort = () => { if (nativeAborted.call(caller)) controller!.abort(); };
   try {
-    if (caller !== undefined) EventTarget.prototype.addEventListener.call(caller, 'abort', onAbort, { once: true });
+    // Synthetic events neither cancel the read nor consume genuine cancellation.
+    if (caller !== undefined) EventTarget.prototype.addEventListener.call(caller, 'abort', onAbort);
   } catch { throw invalidArgument(); }
   try {
     // readRpc owns the configured byte/deadline bounds and lossless JSON decoding.

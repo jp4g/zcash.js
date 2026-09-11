@@ -59,6 +59,8 @@ export async function runBrowser() {
         if (Date.now() > until) throw Error('abort fixture deadline');
         await new Promise(resolve => setTimeout(resolve, 10));
       }
+      controller.signal.dispatchEvent(new Event('abort'));
+      check(!controller.signal.aborted, `abort-${stage}: synthetic event leaves native state active`);
       controller.abort(); await pending;
       const callbackAbort = new AbortController(); let count = 0;
       const args = { height: 1, signal: callbackAbort.signal };
@@ -87,6 +89,35 @@ export async function runBrowser() {
       try { await rejects(getBlock(context(`final-${mode}`), { height: 1, signal: controller.signal }), mode === 'throw' ? 'INVALID_ARGUMENT' : 'ABORTED', mode); }
       finally { crypto.subtle.digest = digest; }
       check(digests === 2, `${mode}: two native digests`);
+    }
+    const nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted').get;
+    for (const position of ['callback-0', 'callback-1', 'callback-2', 'digest-1', 'digest-2']) {
+      for (const realAbort of [false, true]) {
+        const mode = `synthetic-${position}-${realAbort}`;
+        const controller = new AbortController(); let callbacks = 0, digests = 0, events = 0;
+        const dispatch = () => {
+          events++;
+          controller.signal.dispatchEvent(new Event('abort'));
+          check(nativeAborted.call(controller.signal) === false, `${mode}: false native state`);
+          if (realAbort) controller.abort();
+        };
+        const digest = crypto.subtle.digest;
+        crypto.subtle.digest = async function (...args) {
+          const value = await digest.apply(this, args);
+          if (position === `digest-${++digests}`) dispatch();
+          return value;
+        };
+        try {
+          const pending = getBlock(context(mode, { headers() {
+            if (position === `callback-${callbacks++}`) dispatch();
+            return {};
+          } }), { height: 1, signal: controller.signal });
+          if (realAbort) await rejects(pending, 'ABORTED', mode);
+          else check((await pending).point.height === 1, `${mode}: success`);
+        } finally { crypto.subtle.digest = digest; }
+        check(events === 1 && nativeAborted.call(controller.signal) === realAbort, `${mode}: native outcome`);
+        check(digests === (realAbort ? (position.startsWith('callback') ? 0 : Number(position.at(-1))) : 2), `${mode}: native digests`);
+      }
     }
     check(eager.Worker === 0 && eager.WebAssembly === 0, 'no worker or WASM');
     check(typeof crypto.subtle.digest === 'function', 'native Web Crypto');
@@ -243,6 +274,13 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     for (const stage of [0, 1, 2]) {
       for (const mode of ['unsupported', 'unknown', 'oversize', 'timeout', 'abort', 'callback']) {
         assert.equal(server.calls.filter(c => c.path.endsWith(`/${mode}-${stage}`)).length, stage + (mode === 'callback' ? 0 : 1), `${mode}-${stage}`);
+      }
+    }
+    for (const position of ['callback-0', 'callback-1', 'callback-2', 'digest-1', 'digest-2']) {
+      for (const realAbort of [false, true]) {
+        const mode = `synthetic-${position}-${realAbort}`;
+        const count = realAbort && position.startsWith('callback') ? Number(position.at(-1)) : 3;
+        assert.equal(server.calls.filter(c => c.path.endsWith(`/${mode}`)).length, count, mode);
       }
     }
     report.status = 'passed';

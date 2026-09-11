@@ -153,3 +153,29 @@ requires session/group/browser/server cleanup receipts and disappearance checks.
 External `fixes/boundary/REPORT.md` records exact commands, counts and remaining
 parent gates. No whole-client or #6 acceptance is claimed; independent HIGH
 rereview follows this first correction candidate.
+
+## Second/last automatic block correction (R2-N1)
+
+Based on frozen `49d1738806636d82feccffc3b0adda48cb87d0e5`, including inherited
+A `f97a4c4`. The bridge now checks the captured native aborted getter before
+propagating cancellation and stays registered until operation teardown. A caller's
+synthetic `abort` event cannot cancel the owned signal or consume its listener.
+Descriptor capture, final native checks, downstream typed error precedence and
+unconditional listener removal are unchanged. No reflection abstraction was added.
+
+The exact independent additional suite reproduces five failures before the fix
+(13/18 pass), then passes 18/18. Previously accepted descriptor expectations pass
+37/37 unchanged. Owned boundary tests pass 21/21, including false-event then real
+abort at all three callbacks, both actual native digest completions, and all three
+active RPC streams. Ordinary-page Firefox coverage includes these event/state
+controls; actual browser execution remains pending because loopback listen is
+EPERM in this worker. Full owned Node: 24 pass, 23 socket-denied failures; HTTP:
+26 pass, one socket-denied skip. Strict build and API example typecheck pass.
+
+**A remains HELD and unaccepted** after its exhausted two correction rounds: R3
+reports stopImmediatePropagation cancellation regression and browser qualification
+gaps. This block-only event-state fix does not repair suppressed event delivery,
+change A/HTTP, or bypass that dependency gate. No whole PublicClient or #6
+acceptance follows. No third automatic block fixer will be launched.
+Fresh exact-commit ordinary Firefox and real SIGINT/SIGTERM coordinator commands,
+source hashes and outcomes are in `/home/jack/zcash-public-block-logs/fixes/r2/REPORT.md`.

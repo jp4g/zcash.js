@@ -319,3 +319,62 @@ for (const mode of ['throw', 'false-abort', 'throw-abort']) test(`boundary: fina
   await assert.rejects(adapter.getBlock(f.source, { height: 1, signal: controller.signal }), sanitized(mode === 'throw' ? 'INVALID_ARGUMENT' : 'ABORTED'));
   assert.equal(digests, 2); assert.equal(f.calls.length, 3);
 });
+
+const nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted').get;
+for (const position of ['callback-0', 'callback-1', 'callback-2', 'digest-1', 'digest-2']) {
+  for (const realAbort of [false, true]) test(`boundary: synthetic ${position}, later native abort ${realAbort}`, async t => {
+    const { getEventListeners } = await import('node:events');
+    const controller = new AbortController();
+    let callbacks = 0, digests = 0, events = 0;
+    const dispatch = () => {
+      events++;
+      controller.signal.dispatchEvent(new Event('abort'));
+      assert.equal(nativeAborted.call(controller.signal), false);
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 1);
+      if (realAbort) controller.abort();
+    };
+    const f = boundary(t, { headers() {
+      if (position === `callback-${callbacks++}`) dispatch();
+      return {};
+    } });
+    const digest = crypto.subtle.digest;
+    t.mock.method(crypto.subtle, 'digest', async function (...args) {
+      const value = await digest.apply(this, args);
+      if (position === `digest-${++digests}`) dispatch();
+      return value;
+    });
+    const pending = adapter.getBlock(f.source, { height: 1, signal: controller.signal });
+    if (realAbort) await assert.rejects(pending, sanitized('ABORTED'));
+    else assert.equal((await pending).point.height, 1);
+    assert.equal(events, 1);
+    assert.equal(nativeAborted.call(controller.signal), realAbort);
+    assert.equal(f.calls.length, realAbort && position.startsWith('callback') ? Number(position.at(-1)) : 3);
+    assert.equal(digests, realAbort ? (position.startsWith('callback') ? 0 : Number(position.at(-1))) : 2);
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  });
+}
+for (const stage of [0, 1, 2]) test(`boundary: false event then native abort of active RPC ${stage}`, async t => {
+  const { getEventListeners } = await import('node:events');
+  const controller = new AbortController();
+  let arrived, calls = 0;
+  const ready = new Promise(resolve => { arrived = resolve; });
+  const f = boundary(t, { headers() {
+    controller.signal.dispatchEvent(new Event('abort'));
+    assert.equal(nativeAborted.call(controller.signal), false);
+    return {};
+  } });
+  t.mock.method(globalThis, 'fetch', async (_url, request) => {
+    const call = JSON.parse(request.body);
+    if (calls++ !== stage) return new Response(`{"jsonrpc":"2.0","id":${JSON.stringify(call.id)},${reply(call)}}`);
+    return new Response(new ReadableStream({ start(stream) {
+      stream.enqueue(new TextEncoder().encode('{'));
+      request.signal.addEventListener('abort', () => stream.error(new DOMException('Aborted', 'AbortError')), { once: true });
+      arrived();
+    } }));
+  });
+  const pending = assert.rejects(adapter.getBlock(f.source, { height: 1, signal: controller.signal }), sanitized('ABORTED'));
+  await ready; controller.abort(); await pending;
+  assert.equal(nativeAborted.call(controller.signal), true);
+  assert.equal(calls, stage + 1);
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+});

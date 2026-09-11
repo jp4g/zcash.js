@@ -1,4 +1,15 @@
-# Disposable Node runtime qualification
+# Disposable generated runtime qualification
+
+**Real generated bindings now pass 17 Node worker cases for each of target-nodejs
+and target-web. Browser execution remains blocked by the local sandbox.**
+
+Read [the current generated runtime report](generated-report.md),
+[commands and hashes](generated-commands.md), and [browser evidence](browser/REPORT.md).
+This is partial issue #2 qualification; F1/F2/F3 and production support remain open.
+The exact generator was owner-approved and used successfully. The older generator
+approval blocker below is historical, superseded by the current report.
+
+# Historical raw-link slice
 
 **Real wasm link succeeds; Node runtime remains blocked before instantiation.**
 This is an isolated issue #2 experiment, not a production SDK. See

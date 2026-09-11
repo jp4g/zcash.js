@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Source only in this disposable experiment. Never source the old cargo-env.sh.
 export CARGO_HOME=/home/jack/zcash-node-runtime-scratch/cargo
-export CARGO_TARGET_DIR=/home/jack/zcash-node-runtime-scratch/target
+export CARGO_TARGET_DIR=/home/jack/zcash-generated-runtime-scratch/target
 export CARGO_BUILD_JOBS=2
 export CARGO_NET_RETRY=1
 export CARGO_HTTP_TIMEOUT=60
-export TMPDIR=/home/jack/zcash-node-runtime-scratch
+export TMPDIR=/home/jack/zcash-generated-runtime-scratch
 export PYTHONDONTWRITEBYTECODE=1
 export runtime_sdk=/home/jack/zcash-qualification-scratch/wasi-sdk-27.0-x86_64-linux
 export CC_wasm32_unknown_unknown="$runtime_sdk/bin/clang"

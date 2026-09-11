@@ -913,6 +913,7 @@ dependencies = [
  "getrandom 0.4.3",
  "rusqlite",
  "uuid",
+ "wasm-bindgen",
  "zakura-bellman",
  "zakura-bls12-381",
  "zakura-client-backend",

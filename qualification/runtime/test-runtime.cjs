@@ -4,46 +4,15 @@ const assert = require('node:assert/strict');
 const { runWorker } = require('./worker-harness.cjs');
 const { lifecycle, assertSchemaAbsent } = require('./lifecycle.cjs');
 const fs = require('node:fs');
-const { webcrypto } = require('node:crypto');
-const artifact = '/home/jack/zcash-node-runtime-scratch/target/wasm32-unknown-unknown/debug/issue_2_qualification.wasm';
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const target = process.env.RUNTIME_TARGET || 'nodejs';
+const bundle = process.env.RUNTIME_BINDINGS;
+if (!bundle) throw new Error('RUNTIME_BINDINGS must identify a preserved generated build');
+const artifact = path.join(bundle, target, 'qualification_bg.wasm');
 const cases = ['sql', 'pairing', 'pool', 'oom', 'growth', 'hosts', 'omitted-pool',
-  'entropy-unavailable', 'entropy-loss', 'unknown-import', 'destruction'];
-
-function inventory(module) {
-  const actual = WebAssembly.Module.imports(module).map(i => `${i.module}.${i.name}:${i.kind}`).sort();
-  assert.deepEqual(actual, ['runtime_host.entropy:function', 'runtime_host.sleep:function',
-    'runtime_host.utc_ms:function']);
-  return actual;
-}
-
-function instance(module, entropyAvailable = true) {
-  inventory(module); // No default import resolver and no WASI success stubs.
-  let wasm;
-  const state = { entropyAvailable, entropyCalls: 0, timeCalls: 0, sleepCalls: 0 };
-  const imports = { runtime_host: {
-    entropy(ptr, len) {
-      if (!state.entropyAvailable) throw new Error('entropy unavailable; discard instance');
-      ptr >>>= 0; len >>>= 0;
-      const buffer = wasm.exports.memory.buffer; // Refresh after every memory.grow.
-      assert(ptr + len <= buffer.byteLength && len <= 65536);
-      webcrypto.getRandomValues(new Uint8Array(buffer, ptr, len));
-      state.entropyCalls++;
-      return len;
-    },
-    utc_ms() { state.timeCalls++; return Date.now(); },
-    sleep(us) {
-      assert(Number.isInteger(us) && us >= 0 && us <= 20000);
-      const start = performance.now();
-      while ((performance.now() - start) * 1000 < us) { /* bounded worker-local wait */ }
-      state.sleepCalls++;
-      return Math.ceil((performance.now() - start) * 1000);
-    },
-  } };
-  wasm = new WebAssembly.Instance(module, imports);
-  assert(wasm.exports.memory.buffer instanceof ArrayBuffer);
-  assert(!(wasm.exports.memory.buffer instanceof SharedArrayBuffer));
-  return { e: wasm.exports, state };
-}
+  'entropy-unavailable', 'entropy-loss', 'unknown-import', 'destruction',
+  'interleaved', 'canary-corruption', 'heap-corruption', 'unopened-sql', 'repeat-init', 'unsupported-hosts'];
 
 if (isMainThread) {
   const { test } = require('node:test');
@@ -56,8 +25,10 @@ if (isMainThread) {
     console.log(JSON.stringify(result));
   });
 } else {
+  (async () => {
+  const { load, inventory } = await import(pathToFileURL(path.join(bundle, target, 'loader.mjs')));
   const module = new WebAssembly.Module(fs.readFileSync(artifact));
-  const { e, state } = instance(module, workerData !== 'entropy-unavailable');
+  const { e, state } = await load({ module, target, entropyAvailable: workerData !== 'entropy-unavailable' });
   let details = {};
   if (workerData === 'unknown-import') {
     assert.throws(() => new WebAssembly.Instance(module, {}));
@@ -68,6 +39,8 @@ if (isMainThread) {
     assert.throws(() => inventory(unknown));
   } else if (workerData === 'entropy-unavailable') {
     assert.throws(() => e.rt_init(1), /entropy unavailable/);
+  } else if (workerData === 'unopened-sql') {
+    assert.throws(() => e.rt_rows(), WebAssembly.RuntimeError);
   } else if (workerData === 'omitted-pool') {
     assert.notEqual(e.rt_init(0), 0);
     assert.notEqual(e.rt_open(), 0);
@@ -75,7 +48,41 @@ if (isMainThread) {
     assert.equal(e.rt_init(1), 0);
     assert.equal(e.rt_open(), 0);
     switch (workerData) {
-      case 'sql': assert.equal(e.rt_sql(), 42); assert.equal(e.rt_rows(), 2); break;
+      case 'repeat-init':
+        assert.equal(e.rt_init(1), 21);
+        assert.equal(e.rt_open(), 21);
+        break;
+      case 'unsupported-hosts': assert.equal(e.rt_unsupported_hosts(), 1); break;
+      case 'canary-corruption':
+        new Uint8Array(e.memory.buffer)[e.rt_pool_start() - 1] ^= 1;
+        assert.equal(e.rt_pool_check(), 0);
+        break;
+      case 'heap-corruption':
+        assert.equal(e.rt_grow(65536), 1);
+        new Uint8Array(e.memory.buffer)[e.rt_heap_ptr()] ^= 1;
+        assert.equal(e.rt_heap_check(), 0);
+        break;
+      case 'interleaved': {
+        assert.equal(e.rt_sql(), 42);
+        const sizes = [32, 48, 64].map(n => n * 1024 * 1024);
+        const cycles = [];
+        for (const [i, size] of sizes.entries()) {
+          const old = e.memory.buffer;
+          assert.equal(e.rt_grow(size), 1);
+          assert.notEqual(e.memory.buffer, old);
+          assert.equal(old.byteLength, 0);
+          assert.equal(e.rt_cycle(), 44 + i * 2);
+          assert.equal(e.rt_rows(), 2);
+          assert.equal(e.rt_pairing(), 1);
+          assert.equal(e.rt_hosts(), 1);
+          assert.equal(e.rt_heap_check(), 1);
+          assert.equal(e.rt_pool_check(), 1);
+          cycles.push({ rustBytes: size, memoryBytes: e.memory.buffer.byteLength });
+        }
+        details = { cycles, host: state };
+        break;
+      }
+      case 'sql': assert.equal(e.rt_sql(), 42); assert.equal(e.rt_pairing(), 1); assert.equal(e.rt_rows(), 2); break;
       case 'pairing': assert.equal(e.rt_pairing(), 1); break;
       case 'pool':
         assert.equal(e.rt_pool_check(), 1);
@@ -128,5 +135,6 @@ if (isMainThread) {
       default: throw new Error('unknown test scenario');
     }
   }
-  parentPort.postMessage({ ok: true, scenario: workerData, details });
+  parentPort.postMessage({ ok: true, scenario: workerData, target, details });
+  })().catch(error => { throw error; });
 }

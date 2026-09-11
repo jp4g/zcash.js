@@ -8,11 +8,11 @@ _Static_assert(sizeof(void*) == 4 && sizeof(int) == 4, "wasm32 scalar ABI");
 _Static_assert(sizeof(sqlite3_int64) == 8 && sizeof(double) == 8, "time ABI");
 _Static_assert(_Alignof(double) == 8, "double alignment");
 
-__attribute__((import_module("runtime_host"), import_name("entropy")))
+__attribute__((import_module("./runtime-host.mjs"), import_name("entropy")))
 extern int host_entropy(void*, int);
-__attribute__((import_module("runtime_host"), import_name("utc_ms")))
+__attribute__((import_module("./runtime-host.mjs"), import_name("utc_ms")))
 extern double host_utc_ms(void);
-__attribute__((import_module("runtime_host"), import_name("sleep")))
+__attribute__((import_module("./runtime-host.mjs"), import_name("sleep")))
 extern int host_sleep(int);
 
 #define POOL_BYTES (16 * 1024 * 1024)
@@ -145,4 +145,21 @@ double rt_time(void) {
   sqlite3_vfs *v = sqlite3_vfs_find("memdb");
   if (v->xCurrentTimeInt64(v, &time) != SQLITE_OK) return -1;
   return (double)time;
+}
+
+/* Exercise actual unsupported lower-host semantics; memdb remains real SQLite I/O. */
+int rt_unsupported_hosts(void) {
+  if (!ready) return 0;
+  sqlite3_file file = {0};
+  int out = -1;
+  char message[64] = {0};
+  char short_path[2] = {0};
+  if (lower.xOpen(&lower, "/absent", &file, SQLITE_OPEN_READWRITE, &out) != SQLITE_CANTOPEN
+      || file.pMethods != 0) return 0;
+  if (lower.xDelete(&lower, "/absent", 1) != SQLITE_IOERR_DELETE) return 0;
+  if (lower.xAccess(&lower, "/absent", SQLITE_ACCESS_EXISTS, &out) != SQLITE_OK || out != 0) return 0;
+  if (lower.xFullPathname(&lower, "/absent", sizeof(short_path), short_path) != SQLITE_CANTOPEN) return 0;
+  if (lower.xGetLastError(&lower, sizeof(message), message) != SQLITE_CANTOPEN) return 0;
+  if (strcmp(message, "host filesystem/extension unavailable") != 0) return 0;
+  return 1;
 }

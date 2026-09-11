@@ -1,40 +1,53 @@
-# Disposable Node runtime experiment
+# Disposable Node runtime qualification
 
-Owner-authorized issue #2 qualification, isolated from the production SDK and
-the existing qualification harness. Base:
-`e270ac0e46fabfe2f081ee8db8ff31ed536fdc76`; branch:
-`test/issue-2-node-runtime`.
+**Real wasm link succeeds; Node runtime remains blocked before instantiation.**
+This is an isolated issue #2 experiment, not a production SDK. See
+[REPORT.md](REPORT.md), [exact commands/exits/log hashes](commands.md), and the
+[historical output-directory failure](preflight/REPORT.md).
 
-**Blocked at output-directory preflight; no build or Node execution occurred.**
-See [REPORT.md](REPORT.md) and [commands.md](commands.md).
+The runtime crate preserves the consumer's exact manifest and lock, Common 1.0
+and wallet pins. It adds a C lower host-services VFS, real built-in SQLite memdb,
+MEMSYS5 with a 16 MiB static arena, and ZERO_MALLOC. Rust owns the growing heap.
+SQL and real Common BLS fixtures are linked into the same module. No fixture
+has executed: the Node loader rejects retained wasm-bindgen transformation imports.
 
-Resumption requires a session whose filesystem policy permits writing both
-`/home/jack/zcash-node-runtime-logs` and
-`/home/jack/zcash-node-runtime-scratch`. Creating those directories outside this
-session alone does not grant this session write access. The current policy has
-approval disabled; this is an environment capability blocker, not missing owner
-authorization. Do not redirect artifacts to another path or mutate the existing
-qualification cache to bypass it.
+The matching wasm-bindgen CLI is `0.2.128`. Worker downloads failed DNS; the
+coordinator subsequently obtained an archive, but terminal security approval
+blocked extraction and an alternative installation. **Do not extract/install
+through another path, spelling, tool or agent to bypass that gate.** No permission
+or configuration change is part of this slice. Follow-on work needs an approved
+matching generator; downloaded archive bytes are not an installed executable.
 
-After preflight succeeds, start a new bounded 30-minute experiment with two
-build jobs, a 900-second timeout per build, a separate Cargo home/cache copy and
-`CARGO_TARGET_DIR` under the runtime scratch directory. Read existing cached
-sources/SDK without mutating them. Prefer offline dependencies; only required
-dependency fetches are authorized. Match wasm-bindgen CLI to lock version
-`0.2.128` and install any missing tools only in runtime scratch.
+The executed build recipe, from the worktree root, was:
 
-The requested implementation remains SQLite MEMSYS5 with a bounded static pool,
-ZERO_MALLOC before configuration, C-side variadic configuration, and a real
-lower host-services VFS supporting SQLite's built-in memdb. Preserve Rust
-`wasm32-unknown-unknown` and the exact Common 1.0/wallet dependency identities.
-Reject retained C heap allocator ownership and unknown imports; entropy loss
-must fail closed. Static-pool configuration alone is not allocator qualification.
+```sh
+source qualification/runtime/env.sh
+python3 qualification/harness.py --logs /home/jack/zcash-node-runtime-logs --timeout 900 adapter-link cargo build --offline --locked --manifest-path qualification/runtime/Cargo.toml --target wasm32-unknown-unknown --lib
+python3 qualification/harness.py --logs /home/jack/zcash-node-runtime-logs --timeout 120 node-first node qualification/runtime/test-runtime.cjs
+```
 
-Before each adapter requirement, execute and retain its failing check. Then
-execute real SQL commit/rollback/blob/integrity and real Common BLS pairing
-equality/inequality in one Node worker module; test pool bounds/canaries/OOM,
-omitted pool, interleaved Rust allocation and memory growth, actual entropy,
-time/sleep callbacks, entropy loss, unknown imports and state loss on destruction.
-Inspect final symbols/call reachability, imports/exports, memory and ABI limits.
-Attempt browser-worker execution only in a subsequent bounded feasible slice.
-Memdb has no durability claim. F1/F2/F3 and issue #2 remain open.
+The build exited 0; the Node test command exited 1 (11 failed import checks).
+The existing recorder is reused without modification. Its environment subset
+omits SQLite allocator flags, so retain this exact `env.sh` with the evidence.
+`CARGO_HOME`, `CARGO_TARGET_DIR` and `TMPDIR` point only to runtime scratch.
+The old cache/source/SDK is read-only; only the copied Cargo cache is mutable.
+All output is under `/home/jack/zcash-node-runtime-{scratch,logs}`.
+
+With an approved generator, first verify its exact version and provenance, run
+its actual transformation, preserve both raw and generated modules, and inspect
+all generated code/imports. Adapt the worker loader to the genuine generated
+initialization/import contract. Do not simply expand the current strict import
+allowlist or stub the transformation imports. Repeat memory/allocator inspection
+on the transformed artifact, then execute and repair each red runtime check.
+
+Required follow-on checks include SQL commit/rollback/blob/integrity and pairing
+in one living instance; pool bounds/canaries/OOM/omission; Rust allocation growth
+interleaved with SQL and refreshed host memory views; entropy/time/sleep and
+entropy loss; and actual worker destruction followed by a fresh empty memdb.
+The current destruction fixture checks instance separation while both instances
+are alive, so it must be extended to actual destroy/recreate. Add meaningful
+negative checks per adapter behavior; the current red import failures do not
+provide that coverage. Browser worker execution remains a later bounded slice.
+
+Memdb is ephemeral. F1 is partial; F2 and F3 remain unresolved. Do not claim #2
+complete or use this experiment as durable storage or wallet runtime approval.

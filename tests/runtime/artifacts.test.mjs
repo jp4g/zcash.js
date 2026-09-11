@@ -1,8 +1,13 @@
-import test from 'node:test';
+import test, { beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { acquireArtifacts } from '../../dist/src/runtime/artifacts.js';
 import { isZcashError } from '../../dist/src/errors.js';
 import { fixture, canonical, encode, sha } from './artifacts-browser.mjs';
+
+const nativeFetch = globalThis.fetch;
+function assertFetchRestored() { assert.equal(globalThis.fetch, nativeFetch, 'original native fetch restored between tests'); }
+beforeEach(assertFetchRestored);
+after(assertFetchRestored);
 
 async function repin(f, text = canonical(f.manifest)) { f.bytes = encode(text); f.artifact.manifestSha256 = await sha(f.bytes); }
 function route(t, f, change = () => undefined) {
@@ -146,7 +151,7 @@ test('abort, deadline, late response cancellation and foreign failures are bound
   resolveFetch(new Response(new ReadableStream({ cancel() { canceled++; } })));
   await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(canceled, 1);
   await rejects(acquireArtifacts(f.artifact, { ...f.policy, timeoutMs: 15 }), 'TIMEOUT');
-  t.mock.method(globalThis, 'fetch', async () => { throw { get message() { throw Error('private-fixture'); } }; });
+  globalThis.fetch.mock.mockImplementation(async () => { throw { get message() { throw Error('private-fixture'); } }; });
   await rejects(acquireArtifacts(f.artifact, f.policy), 'RUNTIME_UNAVAILABLE');
 });
 
@@ -221,7 +226,7 @@ test('bad length headers, redirected responses, invalid policy and hostile input
   }
   for (const manifestUrl of ['https://fixture.invalid/a\u0000', 'https://fixture.invalid/\u0001a']) await rejects(acquireArtifacts({ ...f.artifact, manifestUrl }, f.policy), 'INVALID_ARGUMENT');
   await rejects(acquireArtifacts({ get manifestUrl() { throw Error('private-fixture'); }, manifestSha256: f.artifact.manifestSha256 }, f.policy), 'INVALID_ARGUMENT');
-  t.mock.method(globalThis, 'fetch', async () => {
+  globalThis.fetch.mock.mockImplementation(async () => {
     const response = new Response(f.bytes, { headers: { 'content-type': 'application/json' } });
     Object.defineProperty(response, 'redirected', { value: true }); return response;
   });

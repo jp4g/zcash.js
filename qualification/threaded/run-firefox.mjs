@@ -31,12 +31,20 @@ const driverPath = join(logRoot, `${id}.driver.log`);
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const events = [], results = [], records = [];
 let logWrites = Promise.resolve();
+let logFailure;
 function record(data) {
   const entry = { utc: new Date().toISOString(), ...data };
   records.push(entry);
   const line = JSON.stringify(entry) + '\n';
   process.stdout.write(line);
-  logWrites = logWrites.then(() => appendFile(logPath, line));
+  logWrites = logWrites.then(async () => {
+    if (logFailure) return;
+    try { await appendFile(logPath, line); }
+    catch (error) {
+      logFailure = error;
+      stop.abort(error);
+    }
+  });
 }
 const stop = new AbortController();
 const deadline = setTimeout(() => stop.abort(Error('Firefox suite deadline exceeded')), 180000);
@@ -46,6 +54,7 @@ const delay = ms => new Promise(resolveDelay => setTimeout(resolveDelay, ms));
 let server, driver, driverExit, socket, endpoint, session, capabilities, manifest;
 let driverText = '', driverFailure, socketFailure, exitCode = 1, serial = 0;
 const pending = new Map();
+stop.signal.addEventListener('abort', () => rejectPending(stop.signal.reason), { once: true });
 let browserIdentity;
 async function processIdentity(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
@@ -241,8 +250,12 @@ try {
   }
   if (server?.listening) { server.closeAllConnections(); await new Promise(resolveClose => server.close(resolveClose)); }
   process.removeListener('SIGTERM', onSignal); process.removeListener('SIGINT', onSignal);
+  await logWrites;
+  if (logFailure) exitCode = 1;
   record({ stage: 'cleanup', sessionDeleted, processGroupGone, browserProcessGone, loopbackServerClosed: !server?.listening, exitCode, runRoot });
   await logWrites;
+  if (logFailure) exitCode = 1;
+  process.exitCode = exitCode;
   await writeFile(driverPath, driverText);
   await writeFile(resultPath, JSON.stringify({ id, exitCode, capabilities, manifest, results, events, records,
     limits: 'Synthetic threaded runtime only. Ephemeral SQLite; scanner parity, full wallet/prover F1 and F2 remain open.' }, null, 2) + '\n');

@@ -9,10 +9,11 @@ const upgrades = ['Overwinter', 'Sapling', 'Blossom', 'Heartwood', 'Canopy', 'Nu
 export function parseNetworkParameters(input: Uint8Array, parametersFormat: string) {
   if (parametersFormat !== format || !(input instanceof Uint8Array)) throw invalidArgument();
   // Uint8Array construction copies Buffer too; Buffer.slice() would alias its input.
-  const bytes = new Uint8Array(input);
+  let bytes: Uint8Array;
   let text: string;
   let value: Record<string, unknown>;
   try {
+    bytes = new Uint8Array(input);
     text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
     value = JSON.parse(text);
   } catch { throw invalidArgument(); }

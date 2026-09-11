@@ -37,3 +37,8 @@ test('binding covers every definition field without delimiter collisions', () =>
   rejects(() => bindNetworkDefinition({ ...base, parametersFormat: format + 'x' }));
   for (const change of [{ identity: '' }, { identity: 1 }, { genesisHash: 'AA'.repeat(32) }, { extra: true }]) rejects(() => bindNetworkDefinition({ ...base, ...change }));
 });
+test('detached parameter bytes reject as a structured validation error', () => {
+  const bytes = encode(valid[0].text);
+  structuredClone(bytes.buffer, { transfer: [bytes.buffer] });
+  rejects(() => parseNetworkParameters(bytes, format));
+});

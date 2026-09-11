@@ -1,0 +1,30 @@
+{
+  "canonical_sha256": "847408401c4c392f55edb460f7fea269ae30b006b60d4cbc0346246b3d75d9ac",
+  "receipt_requests": [
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"0724ce8781585f6cb5b112fd2e9a6c635bc17377\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"141e8869bd91686fb4a4ab974739cbcde7747975\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"362af5560158cc127e8b9cfc5fb3f22eeaee1f79\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"4b1375e8a32815416a58be1c39ac837f5b25bbcf\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"4f615902f3a86cf8eccc3aff5c991aee1c0d588f\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"6648ecb460407ca426dc9f74ab5bc954ea6d8b32\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"74d1a6d961dc5f43f26e9acf331c7363d06e7e6b\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"7e0fbf3918dc5167199708839883759b50f2a7b4\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"94de5a331a430d63ed0c7da9b742e5ba3de6cbf1\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"a03d1dff2503f62088eceb484fba9d0dcb0f7064\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })"
+  ],
+  "receipt_value": 100000,
+  "requests": [
+    "Enhancement(TxId(\"82f52195b1ea093f48c118f3410d0fbdd2a15f64875886bb715094170f73b7fb\"))",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"0724ce8781585f6cb5b112fd2e9a6c635bc17377\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"141e8869bd91686fb4a4ab974739cbcde7747975\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"362af5560158cc127e8b9cfc5fb3f22eeaee1f79\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"4b1375e8a32815416a58be1c39ac837f5b25bbcf\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"4f615902f3a86cf8eccc3aff5c991aee1c0d588f\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"6648ecb460407ca426dc9f74ab5bc954ea6d8b32\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"74d1a6d961dc5f43f26e9acf331c7363d06e7e6b\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"7e0fbf3918dc5167199708839883759b50f2a7b4\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"94de5a331a430d63ed0c7da9b742e5ba3de6cbf1\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })",
+    "TransactionsInvolvingAddress(TransactionsInvolvingAddress { address: PublicKeyHash(\"a03d1dff2503f62088eceb484fba9d0dcb0f7064\"), block_range_start: BlockHeight(0), block_range_end: None, request_at: None, tx_status_filter: All, output_status_filter: Unspent })"
+  ],
+  "unspent_after_spend": false
+}

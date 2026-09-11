@@ -1,0 +1,19 @@
+{
+  "common_version": "1.0.0",
+  "common_revision": "f4526b0fa86406589732c8fb3849855fb92c43a2",
+  "scanner_revision": "fd9b3e3",
+  "sources": {
+    "/home/jack/zcash-transaction-codec-scratch/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zakura-primitives-1.0.0/Cargo.toml": "9a123bac93dc649d5712b865aa883e23d831f425224a62c05907e8f804ed9fa0",
+    "/home/jack/zcash-transaction-codec-scratch/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zakura-primitives-1.0.0/.cargo_vcs_info.json": "0d9a931fee9fb6ed115ab4283a7ced02fa74b54bfaa334b0e11b370f2935ed6f",
+    "/home/jack/zcash-transaction-codec-scratch/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zakura-primitives-1.0.0/src/transaction/mod.rs": "e3b2a89ef39bd4581099f9f5db3fcbbe36939a9f1d033a9019ae069f29afa169",
+    "/home/jack/zcash-transaction-codec-scratch/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zakura-primitives-1.0.0/src/transaction/txid.rs": "3cf7e5ce386e1270dfaf71f21ea37d1322609311a586301ed2df15f7fb0fac84",
+    "/home/jack/zcash-transaction-codec-scratch/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zakura-primitives-1.0.0/src/transaction/tests.rs": "0c61a3fdd6b52a5513f8b0576c40295fd627e8e0b9981a2b4d60ac61a2162d57",
+    "/home/jack/zcash-transaction-codec-scratch/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zakura-primitives-1.0.0/src/transaction/tests/data.rs": "97e2a2e8c108f82a0b49b5445bebef001857f3dcd9dfdc3be60e1eaa60b7a2f1",
+    "qualification/scanner/src/tests.rs": "21bbc6f6f3efa61823a9ae28450a08ea16348df80a522d20f8027c9a346ce051",
+    "qualification/scanner/fixtures/manifest.json": "a3d7ac25572ac3317a28740ee0e0da61ead03ce71325008fad7e25acd0ebf00f",
+    "qualification/scanner/fixtures/transparent-reference.json": "847408401c4c392f55edb460f7fea269ae30b006b60d4cbc0346246b3d75d9ac",
+    "qualification/scanner/fixtures/transparent-spend.bin": "4a2a2d537621a98a2776e10cf7e1428a1693bd5771f835d582e64df74036ba7e"
+  },
+  "vectors_sha256": "26cb21c3733ff8a57b4c99310cfb73331d6376a80a065513932349b497cfbd74",
+  "scope": "13 source-backed codec vectors. ZIP vectors are synthetic; scanner V6 unsigned synthetic. No proof/signature/consensus validity claim."
+}

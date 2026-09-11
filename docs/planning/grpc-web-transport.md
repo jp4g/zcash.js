@@ -36,7 +36,7 @@ and any server-advertised lightwallet protocol version.
 POST uses `application/grpc-web-text+proto` for both content type and accept.
 The response may omit `+proto`; optional `charset=utf-8` is accepted. Both
 message encoding and accepted message encoding are identity. Compressed or
-reserved frame flags, nonidentity response HTTP content coding, and unsupported
+reserved frame flags, visible nonidentity response HTTP content coding, and unsupported
 media types fail. There is no decompressor or additional dependency.
 
 Base64 decoding carries at most one quartet between reads. Independently padded
@@ -60,7 +60,9 @@ sanitized error constructors. No request is retried, including SendTransaction;
 `retryable` is false for this internal profile. Higher layers must interpret
 submission uncertainty and successful SendResponse bytes themselves.
 
-Only absolute HTTP(S) origin URLs with root path are supported. A query is
+Only absolute HTTP(S) origin URLs with an explicit `http://` or `https://`
+authority and root path are supported. Scheme matching is case-insensitive;
+single/extra slashes and backslashes are not repaired into an authority. A query is
 preserved for endpoints that require it; userinfo (including empty userinfo),
 fragments, whitespace, backslashes, and custom base paths reject. Fetch uses
 `credentials: omit`, redirect errors, no cache and no referrer. Caller header
@@ -73,6 +75,15 @@ for streams, before first `next()`. Ordinary Uint8Array views (including Node
 Buffer) are accepted through intrinsic brand/buffer access. Shared, resizable,
 detached, proxy, spoofed and wrong-element-type inputs reject. Every output
 payload has its own ordinary Uint8Array backing buffer.
+
+Signals use the native AbortSignal getter. Browser WebIDL rejects proxy receivers.
+Where a host getter accepts proxies (including Node 26), admission additionally
+uses the native `process.getBuiltinModule('node:util').types.isProxy` check.
+There is no static Node import or browser polyfill. Such a host without that
+check rejects supplied signals with INVALID_ARGUMENT before dispatch; it does
+not claim a proxy-proof brand check from the getter alone. Genuine browser
+signals remain supported; actual page-owned Firefox verification of changed
+bytes remains a coordinator acceptance requirement.
 
 ## Bounds and lifecycle
 
@@ -106,7 +117,9 @@ request encoding, Fetch, parsing, and time paused by the consumer; synchronous
 work also checks elapsed time before dispatch/delivery/completion. `return()`
 and caller abort immediately abort Fetch, cancel/release the reader and clear
 the timer/listener, including during pending reads or paused iteration. Foreign
-cancellation promises are not awaited. Late Fetch responses are cancelled.
+listener-removal failures cannot replace ABORTED/TIMEOUT or prevent owned Fetch
+and reader cancellation; removing a hook from a hostile caller-owned signal is
+best effort. Foreign cancellation promises are not awaited. Late Fetch responses are cancelled.
 Returning early produces no successful stream coverage assertion. An unstarted
 iterator has no request, timer or signal hook to release.
 
@@ -151,3 +164,12 @@ submission reports require their own implementations. Applications still need
 a compatible gRPC-Web endpoint and qualified CORS/header exposure for their
 actual origin. These same-origin localhost fixtures establish byte transport
 behavior, not deployment, live server compatibility, consensus or wallet behavior.
+
+CORS qualification must expose all relevant `grpc-*` and `Content-Encoding`
+headers: Fetch hides unexposed headers, so missing visible encoding does not
+prove identity and hidden contradictory status cannot be checked. Fetch may
+also decode HTTP content coding before delivering the body; exposed
+Content-Length may describe different bytes. The cumulative Fetch-visible
+byte limit still applies, but neither the length precheck nor same-origin
+fixtures establish rejection of hidden cross-origin compression/status or
+a raw-network memory bound. No such deployment protection is claimed.

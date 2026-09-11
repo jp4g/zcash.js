@@ -28,6 +28,16 @@ const lengthOf = Object.getOwnPropertyDescriptor(typedArray, 'byteLength')!.get!
 const bufferLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength')!.get!;
 const resizable = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'resizable')?.get;
 const signalAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
+const unsupportedSignalProxy = (() => {
+  // WebIDL rejects proxies intrinsically; Node's JS getter does not.
+  try { signalAborted.call(new Proxy(new AbortController().signal, {})); }
+  catch { return () => false; }
+  const host = globalThis as typeof globalThis & { process?: {
+    getBuiltinModule?: (name: string) => { types: { isProxy: (value: unknown) => boolean } };
+  } };
+  // No Node import in browsers. A host without a proxy-proof check fails closed.
+  return host.process?.getBuiltinModule?.('node:util').types.isProxy ?? (() => true);
+})();
 
 function record(value: unknown, keys?: readonly string[]): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || ![null, Object.prototype].includes(Object.getPrototypeOf(value))
@@ -46,7 +56,10 @@ function admit<M extends LightUnaryMethod | LightStreamMethod>(args: Args<M>, me
     if (resizable?.call(buffer)) throw invalidArgument();
     const view = new Uint8Array(buffer, offsetOf.call(request), lengthOf.call(request)); // Reject detached buffers.
     if (view.length > limits.messageBytes) throw limit();
-    if (signal !== undefined) signalAborted.call(signal);
+    if (signal !== undefined) {
+      if (unsupportedSignalProxy(signal)) throw invalidArgument();
+      signalAborted.call(signal);
+    }
     return { method, request: new Uint8Array(view), ...(signal === undefined ? {} : { signal }) };
   } catch (error) { if (isZcashError(error)) throw error; throw invalidArgument(); }
 }
@@ -131,7 +144,9 @@ function messages(url: string, args: Args<LightUnaryMethod | LightStreamMethod>,
     if (cleaned) return;
     cleaned = true;
     clearTimeout(timer);
-    if (args.signal) EventTarget.prototype.removeEventListener.call(args.signal, 'abort', onAbort);
+    // Foreign listener teardown must not replace the outcome or skip owned cancellation.
+    try { if (args.signal) EventTarget.prototype.removeEventListener.call(args.signal, 'abort', onAbort); }
+    catch { /* Best effort on a caller-owned signal. */ }
     controller.abort();
     if (reader) {
       void reader.cancel().catch(() => {});
@@ -284,7 +299,9 @@ export function createGrpcWebByteTransport(url: string, options: GrpcWebByteOpti
   let limits: Limits;
   let snapshot: GrpcWebByteOptions;
   try {
-    if (typeof url !== 'string' || /[\s\\#]/.test(url) || /^[a-z]+:\/\/[^/?]*@/i.test(url)) throw invalidArgument();
+    if (typeof url !== 'string' || /[\s\\#]/.test(url)) throw invalidArgument();
+    const authority = /^https?:\/\/([^/?]+)/i.exec(url)?.[1];
+    if (!authority || authority.includes('@')) throw invalidArgument();
     const endpoint = new URL(url);
     if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password
       || endpoint.pathname !== '/') throw invalidArgument();

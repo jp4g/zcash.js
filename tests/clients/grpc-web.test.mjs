@@ -340,3 +340,138 @@ test('HTTP content coding and even empty URL userinfo stay outside the identity-
   await assert.rejects(unary(create()), { code: 'PROTOCOL_MISMATCH' });
   assert.throws(() => create('https://@synthetic.invalid/'), { code: 'INVALID_ARGUMENT' });
 });
+
+test('reviewer signal-repro: hostile listener removal cannot leak or keep Fetch/body alive', async t => {
+  let hostile = false, cancelled = 0, fetchSignal;
+  const controller = new AbortController();
+  const signal = new Proxy(controller.signal, { get(target, key, receiver) {
+    if (hostile && String(key) === 'Symbol(kEvents)') throw Error('private-signal-secret');
+    return Reflect.get(target, key, receiver);
+  } });
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    fetchSignal = init.signal;
+    return new Response(new ReadableStream({
+      start(c) { c.enqueue(new TextEncoder().encode('AAAAAAEH')); },
+      cancel() { cancelled++; },
+    }), { headers: { 'content-type': media } });
+  });
+  let iterator;
+  try { iterator = stream(create(), signal); }
+  catch (error) {
+    assert.equal(error.code, 'INVALID_ARGUMENT');
+    assert.doesNotMatch(`${error.stack} ${JSON.stringify(error)}`, /private-signal-secret/);
+    assert.equal(fetchSignal, undefined);
+    return; // Rejecting an unsupported proxy before dispatch is also safe.
+  }
+  await iterator.next(); hostile = true;
+  await iterator.return();
+  assert.equal(cancelled, 1);
+  assert.equal(fetchSignal.aborted, true);
+});
+
+test('listener removal failure on an admitted native signal still cancels a pending read', async t => {
+  const controller = new AbortController();
+  let cancelled = 0, fetchSignal, body;
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    fetchSignal = init.signal;
+    body = new ReadableStream({
+      start(c) { c.enqueue(new TextEncoder().encode('AAAAAAEH')); },
+      cancel() { cancelled++; },
+    });
+    return new Response(body, { headers: { 'content-type': media } });
+  });
+  const iterator = stream(create(), controller.signal);
+  await iterator.next();
+  const pending = assert.rejects(iterator.next(), { code: 'ABORTED' });
+  const remove = EventTarget.prototype.removeEventListener;
+  t.mock.method(EventTarget.prototype, 'removeEventListener', function (...args) {
+    if (this === controller.signal) throw new Proxy({}, { get() { throw Error('private-signal-secret'); } });
+    return remove.apply(this, args);
+  });
+  assert.equal(await iterator.return().then(() => true, () => false), true);
+  await pending;
+  assert.equal(cancelled, 1);
+  assert.equal(fetchSignal.aborted, true);
+  assert.equal(body.locked, false);
+});
+
+test('preaborted proxy cannot suppress cancellation and dispatch SendTransaction', async t => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { calls++; return reply(); });
+  const controller = new AbortController(); controller.abort('private-signal-secret');
+  const signal = new Proxy(controller.signal, { get(target, key, receiver) {
+    if (typeof key === 'symbol' && String(key) === 'Symbol(kAborted)') return false;
+    return Reflect.get(target, key, receiver);
+  } });
+  await assert.rejects(create().unary({ method: 'SendTransaction', request: new Uint8Array(), signal }),
+    { code: 'INVALID_ARGUMENT' });
+  assert.equal(calls, 0);
+  assert.equal(controller.signal.aborted, true);
+  await assert.rejects(create().unary({ method: 'SendTransaction', request: new Uint8Array(), signal: controller.signal }),
+    { code: 'ABORTED' });
+  assert.equal(calls, 0);
+});
+
+test('URL policy checks the original HTTP(S) authority before URL normalization', async t => {
+  for (const url of [
+    'https:/@fixture.invalid/', 'https:@fixture.invalid/', 'https:///@fixture.invalid/',
+    'https:////@fixture.invalid/', 'https://@fixture.invalid/', 'https://:@fixture.invalid/',
+    'https:\\@fixture.invalid/', 'https:/\\@fixture.invalid/', 'https:\\/@@fixture.invalid/',
+    'https:\\\\@fixture.invalid/', 'https://fixture.invalid\\@other.invalid/',
+    'https:fixture.invalid/', 'https:/fixture.invalid/', 'https:///fixture.invalid/',
+    ' https://fixture.invalid/', 'https://fixture.invalid/\n', 'https://fixture.invalid/#',
+    'ftp://fixture.invalid/', '//fixture.invalid/', 'https://fixture.invalid/base',
+  ]) assert.throws(() => create(url), { code: 'INVALID_ARGUMENT' }, url);
+  const sent = [];
+  t.mock.method(globalThis, 'fetch', async url => { sent.push(String(url)); return reply(); });
+  for (const url of [
+    'https://fixture.invalid', 'HTTPS://fixture.invalid/', 'https://fixture.invalid:443/?token=@opaque',
+    'https://[::1]:8443/?a=b', 'http://127.0.0.1:1234/', 'https://bücher.invalid/',
+  ]) {
+    await unary(create(url));
+    const expected = new URL(url); expected.pathname = service + 'GetLatestBlock';
+    assert.equal(sent.at(-1), expected.href);
+  }
+});
+
+test('foreign signal hook errors are sanitized while abort and timeout retain their codes', async t => {
+  const add = EventTarget.prototype.addEventListener;
+  const remove = EventTarget.prototype.removeEventListener;
+  let current, failAdd = false, cancelled = 0, fetchSignal, calls = 0;
+  const poison = new Proxy({}, { get() { throw Error('private-signal-secret'); } });
+  t.mock.method(EventTarget.prototype, 'addEventListener', function (...args) {
+    if (this === current && failAdd) throw poison;
+    return add.apply(this, args);
+  });
+  t.mock.method(EventTarget.prototype, 'removeEventListener', function (...args) {
+    if (this === current) throw poison;
+    return remove.apply(this, args);
+  });
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    calls++; fetchSignal = init.signal;
+    return new Response(new ReadableStream({
+      start(c) { c.enqueue(new TextEncoder().encode('AAAAAAEH')); },
+      cancel() { cancelled++; },
+    }), { headers: { 'content-type': media } });
+  });
+  const cleanError = code => error => {
+    assert.equal(error.code, code);
+    assert.doesNotMatch(`${error.stack} ${JSON.stringify(error)}`, /private-signal-secret/);
+    return true;
+  };
+  current = new AbortController().signal; failAdd = true;
+  await assert.rejects(unary(create(), undefined, current), cleanError('TRANSPORT_ERROR'));
+  assert.equal(calls, 0);
+  failAdd = false;
+  for (const mode of ['abort', 'timeout']) {
+    const controller = new AbortController(); current = controller.signal;
+    const iterator = stream(create(undefined, { timeoutMs: mode === 'timeout' ? 20 : 1000 }), current);
+    await iterator.next();
+    const pending = assert.rejects(promptly(iterator.next()), cleanError(mode === 'timeout' ? 'TIMEOUT' : 'ABORTED'));
+    if (mode === 'abort') controller.abort('private-signal-secret');
+    await pending;
+    assert.equal(fetchSignal.aborted, true);
+  }
+  assert.equal(cancelled, 2);
+  assert.equal(calls, 2);
+});

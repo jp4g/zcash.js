@@ -111,8 +111,8 @@ any requested change to settled public behavior requires an explicit decision.
 
 ## Evidence and remaining acceptance
 
-See [qualification report](../../qualification/network-parameters/REPORT.md) for
-actual commands, native/Node/Firefox outcomes, source coordinates and limitations.
+See repository file `qualification/network-parameters/REPORT.md` for actual
+commands, native/Node/Firefox outcomes, source coordinates and limitations.
 The component qualifies synthetic format lowering and encoding/branch observations.
 It does not qualify live networks, clients, wallet operations, transactions, proving,
 SQLite, production registration or secure loading. There is no blanket whole-#2

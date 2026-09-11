@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { requireLifecycle } from './firefox-lifecycle.mjs';
-const options = { after: 0, wanted: 1, owner: 'page', origin: 'http://127.0.0.1:1234' };
+const options = { after: 0, wanted: 1, owner: 'page', origin: 'http://127.0.0.1:1234',
+  workerURL: 'http://127.0.0.1:1234/probe-worker.mjs' };
 const created = realm => ({ method: 'script.realmCreated', params: {
   realm, type: 'dedicated-worker', owners: ['page'], origin: options.origin,
 } });
@@ -26,4 +27,13 @@ test('rejects ambiguous counts, wrong owners and stale previous scenario events'
 test('pre-start cancellation requires no worker creation', () => {
   assert.deepEqual(requireLifecycle([], { ...options, wanted: 0 }).realms, []);
   assert.throws(() => requireLifecycle([created('a'), destroyed('a')], { ...options, wanted: 0 }), /lifecycle/);
+});
+test('Firefox full worker URL is accepted only for the exact expected script', () => {
+  const actualShape = created('a'); actualShape.params.origin = options.workerURL;
+  assert.deepEqual(requireLifecycle([actualShape, destroyed('a')], options).realms, ['a']);
+  for (const origin of [options.origin + '/wrong.mjs', options.workerURL + '?other',
+    'http://other.invalid/probe-worker.mjs']) {
+    const wrong = created('b'); wrong.params.origin = origin;
+    assert.throws(() => requireLifecycle([wrong, destroyed('b')], options), /lifecycle/);
+  }
 });

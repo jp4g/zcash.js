@@ -1,5 +1,5 @@
 // Audit externally received BiDi events, never worker self-reported termination.
-export function requireLifecycle(events, { after, wanted, owner, origin }) {
+export function requireLifecycle(events, { after, wanted, owner, origin, workerURL }) {
   if (!Number.isInteger(after) || after < 0 || after > events.length || ![0, 1].includes(wanted)) {
     throw new Error('lifecycle invalid audit bounds');
   }
@@ -8,7 +8,11 @@ export function requireLifecycle(events, { after, wanted, owner, origin }) {
   if (creations.length !== wanted) throw new Error(`lifecycle creation count ${creations.length}; required ${wanted}`);
   const records = creations.map(created => {
     const { realm, owners } = created.params;
-    if (typeof realm !== 'string' || created.params.origin !== origin ||
+    // Firefox 155 reports the script URL here; preserve its raw value and only
+    // accept the exact expected script URL in addition to the standard origin.
+    const originMatches = created.params.origin === origin ||
+      (typeof workerURL === 'string' && created.params.origin === workerURL);
+    if (typeof realm !== 'string' || !originMatches ||
         !Array.isArray(owners) || owners.length !== 1 || owners[0] !== owner) {
       throw new Error('lifecycle worker ownership/origin mismatch');
     }

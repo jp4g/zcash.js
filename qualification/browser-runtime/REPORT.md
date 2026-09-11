@@ -1,5 +1,9 @@
 # Browser runtime qualification report
 
+Historical checkpoint at commit 1543132. Preserved failures below describe that
+checkpoint. [The Firefox continuation](FIREFOX-REPORT.md) records subsequent
+coordinator browser execution and the new runner's current status.
+
 **Browser execution is blocked before localhost startup; zero browser passes.**
 The installed Chrome executable is real, but this sandbox rejects socket creation
 with `PermissionError: [Errno 1] Operation not permitted`. Browser support remains

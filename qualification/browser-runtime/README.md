@@ -6,10 +6,17 @@ The baseline requires a secure loopback page and worker with
 and non-shared WASM memory. The same generated instance must execute bundled
 SQLite transaction/blob/integrity fixtures and Common 1.0 BLS pairing.
 
-Current execution blocker: this implementer's sandbox rejects socket creation
-with `EPERM` before localhost binding. No browser runtime pass is claimed.
-Installed Chrome for Testing reports version 151.0.7922.34. Foreground execution
-is required; no permission or sandbox bypass is part of this harness.
+The coordinator has executed real Firefox 155.0.1 with packaged geckodriver
+0.37.1 under unchanged security policy. The earlier Firefox subset used older
+fresh artifacts and lacked independent worker-destruction evidence. The current
+runner executes all 14 runtime and 5 harness scenarios from `fresh-3`, requiring
+external BiDi realm creation/destruction before every replacement worker.
+See [Firefox evidence and status](FIREFOX-REPORT.md).
+
+This implementer's sandbox still rejects sockets. Chromium on the foreground
+host separately fails with “No usable sandbox”; Firefox is the supported
+execution path being qualified. No security policy changes or sandbox-disabling
+flags are used.
 
 Memdb is ephemeral. This does not qualify OPFS durability, scanner liveness,
 threading, F1 as a whole, or issue #2 completion. Host adapter unit tests and
@@ -24,21 +31,22 @@ fresh build `build-1789135187453484355`; generated JS/WASM remain byte-identical
 Our worker-local host adapter adds bounded time/sleep loss controls. No generated
 internals or alternate SQLite module are supplied.
 
-Run from this worktree in the coordinator's foreground environment with normal
+Run Firefox from this worktree in the coordinator's foreground environment with normal
 localhost/browser access (no package installation needed):
 
 ```sh
-node qualification/browser-runtime/run.mjs --artifacts /home/jack/zcash-browser-runtime-scratch/fresh-3 --logs /home/jack/zcash-browser-runtime-logs --scratch /home/jack/zcash-browser-runtime-scratch --chrome /home/jack/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome
+node qualification/browser-runtime/run-firefox.mjs --artifacts /home/jack/zcash-browser-runtime-scratch/fresh-3 --logs /home/jack/zcash-browser-runtime-logs --scratch /home/jack/zcash-browser-runtime-scratch --geckodriver /snap/bin/geckodriver
 ```
 
-The runner preserves Chromium's sandbox, uses a fresh scratch profile and a
-loopback-only ephemeral port, and closes the server/browser in `finally`.
-DevTools uses a pipe, with no debugging TCP port. It logs Chrome's actual version,
-page/worker secure/isolation/SAB flags, asset hashes and per-worker target
-destruction. The original worker must have a CDP `Target.targetDestroyed` event
-before the fresh worker's successful schema-absence query. A termination request
-alone cannot pass. Foreground execution may reveal browser-specific harness
-defects; that code has not executed here.
+The runner owns a fresh Firefox profile, session, localhost geckodriver endpoint,
+BiDi socket and asset server. It freezes and verifies assets before binding.
+The original worker must have matching `script.realmCreated` and
+`script.realmDestroyed` events from Firefox before a replacement worker starts;
+`script.getRealms` must independently show no live dedicated workers. Missing
+creation/destruction capability fails closed. Context flags are checked in both
+page and worker. A 180-second outer deadline and bounded protocol/worker deadlines
+lead to `finally` cleanup, with explicit resource outcomes in the evidence.
+The historical Chromium `run.mjs` is retained, including its original failures.
 
 The 14 runtime scenarios include same-instance SQL/pairing, pool bounds/canaries,
 OOM, live Rust growth interleaved with SQL mutations, host services/loss, omitted
@@ -51,6 +59,7 @@ Independent checks that do not start a browser:
 
 ```sh
 node qualification/browser-runtime/test-host.mjs
+node qualification/browser-runtime/test-firefox-lifecycle.mjs
 node qualification/browser-runtime/test-package.mjs /home/jack/zcash-browser-runtime-scratch/fresh-3
 node qualification/browser-runtime/diagnostic-node.mjs /home/jack/zcash-browser-runtime-scratch/fresh-3
 ```

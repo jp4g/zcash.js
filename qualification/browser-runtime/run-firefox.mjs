@@ -7,6 +7,7 @@ import { join, resolve, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { requireLifecycle } from './firefox-lifecycle.mjs';
+import { firefoxOptions } from './firefox-options.mjs';
 
 const args = process.argv.slice(2);
 function option(name, fallback) {
@@ -18,7 +19,7 @@ function option(name, fallback) {
 const root = resolve(option('--artifacts'));
 const logRoot = resolve(option('--logs'));
 const scratch = resolve(option('--scratch'));
-const firefox = resolve(option('--firefox', '/snap/bin/firefox'));
+const firefox = args.includes('--firefox') ? resolve(option('--firefox')) : undefined;
 const geckodriver = resolve(option('--geckodriver', '/snap/bin/geckodriver'));
 await mkdir(logRoot, { recursive: true });
 await mkdir(scratch, { recursive: true });
@@ -111,7 +112,10 @@ try {
   record({ stage: 'inputs', argv: process.argv, node: process.version, root, runRoot,
     manifestSha256: sha(manifestBytes), manifest,
     runnerSha256: sha(await readFile(fileURLToPath(import.meta.url))),
-    lifecycleAuditSha256: sha(await readFile(join(here, 'firefox-lifecycle.mjs'))), firefox, geckodriver, binaryHashes });
+    lifecycleAuditSha256: sha(await readFile(join(here, 'firefox-lifecycle.mjs'))),
+    optionsSha256: sha(await readFile(join(here, 'firefox-options.mjs'))),
+    firefox: firefox || 'packaged-geckodriver-default', geckodriver, binaryHashes });
+  const browserOptions = firefoxOptions(firefox);
   server = createServer((req, res) => {
     const path = req.url === '/' ? '/index.html' : req.url;
     const bytes = assets.get(path);
@@ -142,7 +146,7 @@ try {
   await request('/status', 'GET', undefined, { timeout: 5000 });
   const value = await request('/session', 'POST', { capabilities: { alwaysMatch: {
     browserName: 'firefox', webSocketUrl: true,
-    'moz:firefoxOptions': { binary: firefox, args: ['-headless'] },
+    'moz:firefoxOptions': browserOptions,
   } } });
   session = value.sessionId; capabilities = value.capabilities;
   browserIdentity = await processIdentity(capabilities['moz:processID']);
@@ -192,11 +196,12 @@ try {
     record({ stage: 'scenario-start', scenario, after });
     const result = await execute("const scenario=arguments[0], manifest=arguments[1], done=arguments[arguments.length-1]; import('./controller.mjs').then(m => m.runScenario(scenario,manifest)).then(result => done({success:true,result}), e => done({success:false,error:String(e),stack:e.stack}));", [scenario, manifest]);
     const wanted = scenario === 'cancel-before-start' ? 0 : 1;
-    const lifecycle = await waitFor(() => requireLifecycle(events, { after, wanted, owner, origin }), 8000, `worker lifecycle ${scenario}`);
+    const workerURL = origin + (result.category === 'harness-control' ? '/control-worker.mjs' : '/probe-worker.mjs');
+    const lifecycle = await waitFor(() => requireLifecycle(events, { after, wanted, owner, origin, workerURL }), 8000, `worker lifecycle ${scenario}`);
     // Independent live-realm inventory also acts as a protocol fence for queued events.
     const live = await bidi('script.getRealms', { type: 'dedicated-worker' });
     if (!Array.isArray(live.realms) || live.realms.length) throw Error(`worker still present: ${JSON.stringify(live)}`);
-    requireLifecycle(events, { after, wanted, owner, origin });
+    requireLifecycle(events, { after, wanted, owner, origin, workerURL });
     if (!result.ok || result.scenario !== scenario) throw Error('unexpected scenario result');
     results.push({ ...result, lifecycle });
     record({ stage: 'scenario-pass', ...result, lifecycle });

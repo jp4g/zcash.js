@@ -5,6 +5,17 @@ import { fileURLToPath } from 'node:url';
 import { start } from './node-harness.mjs';
 const root = fs.mkdtempSync('/home/jack/zcash-storage-scratch/process-');
 const processes = new Set(), workers = new Set();
+// GNU timeout sends SIGTERM before SIGKILL. Synchronous exit cleanup also covers
+// uncaught exceptions, so detached fixture children cannot outlive this runner.
+process.on('exit', () => {
+  for (const child of processes) {
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+    }
+  }
+});
+process.on('SIGTERM', () => process.exit(143));
+process.on('SIGINT', () => process.exit(130));
 function launch(mode) {
   const result = `${root}/${mode}.json`;
   const log = fs.openSync(`${root}/${mode}.log`, 'wx');

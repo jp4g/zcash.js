@@ -52,6 +52,7 @@ function attempt(op, file, fallback, fn) {
     const f = state.fault;
     if (f && f.op === op && (!f.file || f.file === file) && --f.nth === 0) {
       state.fault = null;
+      if (f.code === 'QuotaExceededError') throw new DOMException('injected host error', f.code);
       throw Object.assign(Error('injected host error'), { code: f.code });
     }
     const rc = fn();

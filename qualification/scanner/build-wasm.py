@@ -98,12 +98,17 @@ def main():
             'raw_sha256':sha(raw),'cases':['transparent','effects-trees','imported-batches','failures','rollback','rewind'],
             'files':inventory(web)}
         (web/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
-        provenance.update(complete=True,raw_sha256=sha(raw),manifest_sha256=sha(web/'manifest.json'),artifacts=inventory(web))
         if inventory(source) != inputs:
             raise ValueError('build mutated source snapshot')
         pointer = {'bundle':str(bundle),'web':str(web),'manifest_sha256':sha(web/'manifest.json'),'evidence':str(evidence)}
+        # Complete only after final source and artifact validation has succeeded.
+        provenance.update(raw_sha256=sha(raw),manifest_sha256=pointer['manifest_sha256'],artifacts=inventory(web))
+        provenance['complete'] = True
         (LOGS/'latest-extension-bundle.json').write_text(json.dumps(pointer,indent=2)+'\n')
         print(json.dumps(pointer),flush=True)
+    except Exception as error:
+        provenance.update(complete=False, failure_reason=f'{type(error).__name__}: {error}')
+        raise
     finally:
         for dest in [bundle/'provenance.json',evidence/'provenance.json']:
             dest.write_text(json.dumps(provenance,indent=2)+'\n')

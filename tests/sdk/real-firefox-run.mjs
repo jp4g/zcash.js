@@ -6,7 +6,7 @@ import { readFile, writeFile, mkdir, mkdtemp, readdir, rm } from 'node:fs/promis
 import { openSync, closeSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build } from 'vite';
+import { bundle } from './real-firefox-build.mjs';
 import { firefoxOptions } from '../../qualification/browser-runtime/firefox-options.mjs';
 import { sha, verifyAssets, verifyResult } from './real-firefox-support.mjs';
 
@@ -82,13 +82,10 @@ try {
   assert.equal(manifest.dependencies, undefined);
   const entry = join(consumer, 'entry.mjs');
   await writeFile(entry, "import * as sdk from 'zcash.js';\nimport { readRpc } from './node_modules/zcash.js/dist/src/http.js';\nexport { sdk, readRpc };\n");
-  const bundled = await build({ configFile: false, logLevel: 'silent', root: consumer, build: {
-    write: false, minify: false, target: 'es2022', lib: { entry, formats: ['es'], fileName: 'bundle' } } });
-  const outputs = (Array.isArray(bundled) ? bundled : [bundled]).flatMap(result => result.output);
-  assert.equal(outputs.length, 1); assert.equal(outputs[0].type, 'chunk');
+  const code = await bundle(consumer, stop.signal);
   const assets = new Map([
     ['/', Buffer.from('<!doctype html><meta charset="utf-8"><title>SDK Firefox qualification</title><link rel="icon" href="data:,">')],
-    ['/bundle.mjs', Buffer.from(outputs[0].code)],
+    ['/bundle.mjs', Buffer.from(code)],
     ['/probe.mjs', await readFile(new URL('./real-firefox-browser.mjs', import.meta.url))],
     ['/negative-eager.mjs', Buffer.from("new Worker('/forbidden-worker.mjs');")],
     ['/negative-unsupported.mjs', Buffer.from("import { createPublicClient } from '/package/dist/src/index.js'; export { createPublicClient };")],
@@ -102,7 +99,7 @@ try {
   await collect(join(packageRoot, 'dist'), '/package/dist');
   report.inputs = { sourceCommit, acceptedCommit, tarballSha256: sha(await readFile(join(runRoot, pack.filename))),
     manifest, files: Object.fromEntries([...assets].map(([name, bytes]) => [name, { sha256: sha(bytes), bytes: bytes.length }])),
-    harness: Object.fromEntries(await Promise.all(['run', 'browser', 'support'].map(async name => [name,
+    harness: Object.fromEntries(await Promise.all(['run', 'browser', 'support', 'build'].map(async name => [name,
       sha(await readFile(new URL(`./real-firefox-${name}.mjs`, import.meta.url)))]))),
     optionsSha256: sha(await readFile(new URL('../../qualification/browser-runtime/firefox-options.mjs', import.meta.url))) };
   verifyAssets(report.inputs, assets);
@@ -227,14 +224,15 @@ try {
   const browserProcessGone = !await alive(browserIdentity);
   for (const timer of timers) clearTimeout(timer);
   if (server?.listening) { server.closeAllConnections(); await new Promise(done => server.close(done)); }
+  // Finish fallible consumer removal before publishing the final status.
+  if (report.status === 'passed') try { await rm(join(runRoot, 'consumer'), { recursive: true, force: true }); }
+  catch (error) { cleanupErrors.push(String(error)); }
   report.cleanup = { sessionDeleted, processGroupGone, browserProcessGone, serverClosed: !server?.listening, cleanupErrors };
   if (!sessionDeleted || !processGroupGone || !browserProcessGone || cleanupErrors.length) report.status = 'failed';
   report.requests = requests; report.unexpected = unexpected;
   report.finished = new Date().toISOString();
   await writeFile(resultPath.replace(/\.json$/, '.driver.log'), driverText);
   await writeFile(resultPath, JSON.stringify(report, null, 2) + '\n');
-  // Keep artifacts/evidence; remove only this run's temporary consumer and browser profiles on success.
-  if (report.status === 'passed') await rm(join(runRoot, 'consumer'), { recursive: true, force: true });
   process.removeListener('SIGINT', onSignal); process.removeListener('SIGTERM', onSignal);
   console.log(JSON.stringify({ status: report.status, resultPath, error: report.error, hostCommand: report.hostCommand }));
   process.exitCode = ['passed', 'prepared-only'].includes(report.status) ? 0 : 1;

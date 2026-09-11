@@ -26,3 +26,85 @@ test('no-eager gate restores globals and detects even swallowed accesses', async
   assert.doesNotThrow(() => verifyResult(valid));
   assert.throws(() => verifyResult({ ...valid, eager: { ...counts, Worker: 1 } }));
 });
+
+import { sanitized } from './real-firefox-browser.mjs';
+import { failure, isZcashError } from '../../dist/src/errors.js';
+import { readFile, writeFile, mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+test('sanitization rejects branded private message/stack and enumerable data', () => {
+  const clean = failure('METHOD_NOT_SUPPORTED', 'transport', 'correct-input', 'Fixed text.');
+  const leaked = failure('METHOD_NOT_SUPPORTED', 'transport', 'correct-input', 'private-fixture');
+  assert.ok(isZcashError(leaked));
+  assert.equal(Object.getOwnPropertyDescriptor(leaked, 'message').enumerable, false);
+  assert.equal(JSON.stringify(leaked).includes('private-fixture'), false); // old gate stayed green
+  assert.doesNotThrow(() => sanitized(clean));
+  assert.throws(() => sanitized(leaked), /sanitized/);
+  assert.throws(() => sanitized({ message: 'Fixed', stack: 'private-fixture' }), /sanitized/);
+  assert.throws(() => sanitized({ message: 'Fixed', data: 'private-fixture' }), /sanitized/);
+});
+
+// Execute the runner's actual finalization, with only OS operations substituted.
+async function receipt(status, removalError) {
+  const source = await readFile(new URL('./real-firefox-run.mjs', import.meta.url), 'utf8');
+  const body = source.slice(source.lastIndexOf('} finally {') + 11, source.lastIndexOf('}'));
+  const writes = [];
+  const process = { removeListener() {} };
+  const env = { deadline: undefined, clearTimeout, session: undefined, driverIdentity: undefined,
+    browserIdentity: undefined, alive: async () => false, timers: [], server: undefined,
+    report: { status }, requests: [], unexpected: [], driverText: '', resultPath: '/fixture/result.json',
+    runRoot: '/fixture', join, onSignal() {}, process, console: { log() {} },
+    rm: async () => { if (removalError) throw Error('consumer rm EACCES'); },
+    writeFile: async (path, bytes) => { if (path.endsWith('.json')) writes.push(JSON.parse(bytes)); },
+  };
+  await new (Object.getPrototypeOf(async () => {}).constructor)(...Object.keys(env), body)(...Object.values(env));
+  assert.equal(writes.length, 1);
+  return { report: writes[0], exitCode: process.exitCode };
+}
+test('consumer removal failure is accounted before the final receipt', async () => {
+  const good = await receipt('passed', false);
+  assert.equal(good.report.status, 'passed'); assert.equal(good.exitCode, 0);
+  const bad = await receipt('passed', true);
+  assert.equal(bad.report.status, 'failed'); assert.equal(bad.exitCode, 1);
+  assert.match(bad.report.cleanup.cleanupErrors.join(), /EACCES/);
+});
+
+test('stalled Vite build is destroyed on deadline and interruption, then records failure', { timeout: 15000 }, async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'firefox-stalled-'));
+  try {
+    // A real Vite buildStart hook holds a live handle and never resolves.
+    const source = (await readFile(new URL('./real-firefox-build.mjs', import.meta.url), 'utf8'))
+      .replace("import('vite')", `import(${JSON.stringify(import.meta.resolve('vite'))})`)
+      .replace("configFile: false,", `plugins: [{ name: 'stalled-control', async buildStart() {
+        const { writeFile } = await import('node:fs/promises');
+        await writeFile(join(consumer, 'started'), String(process.pid));
+        setInterval(() => {}, 1000);
+        await new Promise(() => {});
+      } }], configFile: false,`);
+    const helper = join(folder, 'real-firefox-build.mjs');
+    await writeFile(helper, source);
+    const { bundle } = await import(pathToFileURL(helper));
+    for (const reason of ['suite deadline', 'interrupted']) {
+      const consumer = join(folder, reason); await mkdir(consumer);
+      await writeFile(join(consumer, 'entry.mjs'), 'export const value = 1;');
+      const controller = new AbortController();
+      const result = bundle(consumer, controller.signal);
+      const rejected = assert.rejects(result, new RegExp(reason));
+      const until = Date.now() + 5000;
+      let pid;
+      while (!pid) {
+        try { pid = Number(await readFile(join(consumer, 'started'), 'utf8')); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+        assert.ok(Date.now() < until, 'stalled build started');
+        await new Promise(done => setTimeout(done, 20));
+      }
+      controller.abort(Error(reason));
+      await rejected;
+      assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+      const failed = await receipt('failed', false);
+      assert.equal(failed.report.status, 'failed'); assert.equal(failed.exitCode, 1);
+    }
+  } finally { await rm(folder, { recursive: true, force: true }); }
+});

@@ -18,6 +18,9 @@ export async function guarded(load) {
   }
   return counts;
 }
+export function sanitized(error) {
+  check(!JSON.stringify([error.message, error.stack, error]).includes('private-fixture'), 'sanitized structured error');
+}
 export async function run() {
   const policy = { sourceId: 'firefox-synthetic', timeoutMs: 2000,
     readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4096 };
@@ -62,7 +65,7 @@ export async function run() {
     try { await read(mode, signal, t); throw Error(`unexpected success ${mode}`); }
     catch (error) {
       check(bundled.sdk.isZcashError(error) && error.code === code, `${mode}: ${error.code}`);
-      check(!JSON.stringify(error).includes('private-fixture'), 'sanitized structured error');
+      sanitized(error);
       check(performance.now() - start < 5000, `${mode} exceeded bound`);
       errors[mode] = { code: error.code, retryable: error.retryable, elapsedMs: performance.now() - start };
     }

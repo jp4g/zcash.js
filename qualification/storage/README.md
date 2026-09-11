@@ -86,8 +86,22 @@ STORAGE_BUNDLE=/home/jack/zcash-storage-scratch/NEW-STAGE/bundle timeout --kill-
 
 The runner creates its own loopback-only server and WebDriver session, requires
 secure non-isolated no-SAB workers, records BiDi realm creation/destruction,
-enforces 15s request and 180s whole-suite deadlines, and closes its session/server.
+enforces 20s request and 180s whole-suite deadlines, and closes its session/server.
 Its driver port defaults to 19445 (`STORAGE_DRIVER_PORT` may select a free port).
+Before sending HTTP requests, the runner requires the spawned driver's own
+listening announcement; a bind failure never probes or adopts the existing
+endpoint. Shutdown joins bounded startup before deleting any returned session,
+and checks cancellation before opening a socket, subscribing, or navigating.
+Cleanup failures make an otherwise successful run exit nonzero; signal failure
+codes are preserved. Driver readiness and socket opening each have a 10s bound.
+`STORAGE_LOG_DIR` selects the output directory (which must already exist).
+
+No-socket lifecycle regressions (all external effects simulated):
+
+```sh
+timeout --kill-after=2s 10s node --experimental-vm-modules qualification/storage/test-firefox-lifecycle.mjs
+```
+
 `run-browser.mjs` is the installed Chrome alternative; Chrome's current host
 sandbox failure must not be bypassed with `--no-sandbox` or policy changes.
 

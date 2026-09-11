@@ -2,6 +2,7 @@
 const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
 const assert = require('node:assert/strict');
 const { runWorker } = require('./worker-harness.cjs');
+const { lifecycle, assertSchemaAbsent } = require('./lifecycle.cjs');
 const fs = require('node:fs');
 const { webcrypto } = require('node:crypto');
 const artifact = '/home/jack/zcash-node-runtime-scratch/target/wasm32-unknown-unknown/debug/issue_2_qualification.wasm';
@@ -47,8 +48,10 @@ function instance(module, entropyAvailable = true) {
 if (isMainThread) {
   const { test } = require('node:test');
   for (const scenario of cases) test(scenario, { timeout: 60000 }, async (t) => {
-    const result = await runWorker(new Worker(__filename, { workerData: scenario }),
-      { signal: t.signal });
+    const createWorker = scenario => new Worker(__filename, { workerData: scenario });
+    const result = scenario === 'destruction'
+      ? await lifecycle(createWorker, { signal: t.signal, deadlineMs: 25000 })
+      : await runWorker(createWorker(scenario), { signal: t.signal });
     assert.equal(result.ok, true);
     console.log(JSON.stringify(result));
   });
@@ -116,14 +119,12 @@ if (isMainThread) {
       case 'destruction': {
         assert.equal(e.rt_sql(), 42);
         assert.equal(e.rt_rows(), 2);
-        // Separate memory from the same compiled code cannot inherit memdb state.
-        const fresh = instance(module).e;
-        assert.equal(fresh.rt_init(1), 0);
-        assert.equal(fresh.rt_open(), 0);
-        assert.equal(fresh.rt_rows(), -1);
-        assert.equal(e.rt_rows(), 2);
+
         break;
       }
+      case 'destruction-fresh':
+        assertSchemaAbsent(e.rt_fixture_schema_count());
+        break;
       default: throw new Error('unknown test scenario');
     }
   }

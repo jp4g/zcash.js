@@ -48,6 +48,14 @@ pub extern "C" fn rt_rows() -> i32 {
         .query_row("SELECT count(*) FROM fixture", [], |r| r.get(0)).unwrap_or(-1))
 }
 
+// A successful zero count proves absence; SQL errors trap, never mean empty.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_fixture_schema_count() -> i32 {
+    DB.with(|slot| slot.borrow().as_ref().unwrap()
+        .query_row("SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='fixture'",
+                   [], |r| r.get(0)).expect("fixture schema query failed"))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_pairing() -> u32 {
     let two = Scalar::from(2u64);

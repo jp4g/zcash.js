@@ -1,8 +1,18 @@
 # Contributing
 
-`jp4g/zcash.js` is a private project in API planning and validation. There is no production SDK or SDK build/test workflow yet; the documentation website has its own tooling. Contributions at this stage should improve requirements, declarations, source traceability, examples, and repository documentation.
+`jp4g/zcash.js` is a private project in API planning and validation. There is no production SDK or SDK build/test workflow yet; the documentation website has its own tooling. Contributions follow the authorized qualification and gated implementation phase below.
 
 Read the [decision log](docs/planning/decision-log.md), [API guide](docs/api/README.md), [namespace audit](docs/planning/api-namespace-audit.md) and [workplan](docs/planning/api-surface-workplan.md) before proposing changes. Preserve decided scope. A proposed signature is not an implemented export, a source symbol is not a runtime result, and a passing TypeScript check is not wallet qualification.
+
+## Owner-authorized delivery phase and D26 slice
+
+The owner authorizes private issues #2–9 qualification and subsequent gated implementation, including isolated #2 experiments and their required dependency/source fetches, tools and coherent locked Common 1.0.0 graph. Preserve G0–G6 and F1–F8 requirements: #2 must qualify F1 linking/execution, F2 scanner/thread behavior and F3 real Node/OPFS durability; #3 transaction/protocol/atomicity qualification depends on #2; #4 host implementation depends on #2/#3; #5 storage/accounts/recovery on #4; #6 transport/sync/query on #4/#5; #7 transaction/signers/operations on #5/#6; #8 packaging on #4–7; #9 conformance on #8 and the implementation gates. Production implementation follows the applicable evidence gates and G6 approval of the concrete specification and accepted limitations. Compile-only evidence does not pass them.
+
+Work in isolated owned worktrees with small descriptive commits and independent review. The coordinator owns PRs, qualified merges, GitHub writes and `docs/planning/execution-ledger.md`; workers do not edit that ledger. Existing owner authorization covers the phase's dependencies/tools and gated implementation without redundant authorization requests.
+
+This D26 recovery amendment slice is documentation-only: specifications/declarations, active examples, source mappings, synthetic compile-only/consistency checks and the existing documentation toolchain. It introduces no production SDK implementation or runtime dependencies. Preserve existing commits and the private package. TypeScript/site checks establish specification consistency only; protocol, atomicity and real Node/OPFS durability remain qualification blockers.
+
+Across the authorized phase, no live blockchain/provider requests, funds, mining, homelab changes, publication/deployment, npm publish, license selection or deferred issues #10–12 work is included. Record exact validation commands/results and limitations; full logs stay outside the tracked tree.
 
 ## Making a reviewable change
 
@@ -11,7 +21,7 @@ Read the [decision log](docs/planning/decision-log.md), [API guide](docs/api/REA
 3. Record source provenance with immutable revision, path/symbol and evidence level. Separate inspected source from compiled, executed and independently validated behavior. Do not claim a future gate passed.
 4. State what changed, why, checks run and remaining limitations in the review description. Use synthetic data in examples and reproducible checks.
 
-Production runtime work, dependencies, package/workspace manifests, live endpoint probes, funded experiments, release automation and project setup need their own explicitly agreed scope. Disposable functional experiments follow the workplan's bounded hypotheses and F1–F8 gates; their results do not become production code automatically. Do not mix Common 1.1.0 crates into the selected coherent 1.0.0 graph. Do not select a license as part of an unrelated contribution; none is chosen here.
+Runtime work, dependencies, tools and package/workspace setup within #2–9 follow the authorization and gates above. Work outside that scope needs explicit owner authorization; the phase exclusions still apply. Disposable functional experiments follow the workplan's bounded hypotheses and F1–F8 gates; their results do not become production code automatically. Do not mix Common 1.1.0 crates into the selected coherent 1.0.0 graph. Do not select a license as part of an unrelated contribution; none is chosen here.
 
 ## Safe reports
 
@@ -24,7 +34,7 @@ Never attach mnemonics, passphrases, seeds, spending/viewing keys, addresses, tr
 The preview command uses the Vite executable supplied by the pinned VitePress development toolchain. This VitePress release's preview server ignores `--host`; Vite preview honors the explicit loopback host and strict port. Both dev and preview must remain at base `/` and `http://127.0.0.1:4173/`.
 
 
-Install the documentation-only development dependencies with `npm ci` (or `npm install` when intentionally updating the lockfile), then run `npm run docs:typecheck` and `npm run docs:build`. Use `npm run docs:dev` to edit and `npm run docs:preview` to review the built site at `http://127.0.0.1:4173/`.
+Install the documentation-only development dependencies with `npm ci` (or `npm install` when intentionally updating the lockfile), then run `npm run docs:typecheck`, `npm run docs:check-recovery` and `npm run docs:build`. Use `npm run docs:dev` to edit and `npm run docs:preview` to review the built site at `http://127.0.0.1:4173/`.
 
 ```sh
 git diff --check

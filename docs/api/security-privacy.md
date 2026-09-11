@@ -25,3 +25,5 @@ Protocol validation, timing behavior, RNG wiring, asset integrity, storage recov
 :::
 
 For issue reports use synthetic fixtures only. Never include real endpoints with credentials, addresses, txids, keys, wallet/operation identifiers, database backups, PCZTs, raw transaction bytes or sensitive logs. Follow the [contribution privacy policy](../contributing.md).
+
+D26 startup observation discloses recorded transaction queries to the configured light endpoint by default when present; select `recovery: { mode: 'offline' }` to prevent recovery network requests. Startup rebroadcast is separately opt-in and binds stored consent to exact bytes and route identity, with durable retry limits. No startup path requests secrets, signer authorization or proving material. See [recovery consent](operations.md#consent-dispatch-and-ambiguity).

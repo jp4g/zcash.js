@@ -1,0 +1,206 @@
+import type { HttpTransport, TransportOptions, ZcashError } from '../docs/api/public-api.js';
+import { failure, invalidArgument, isZcashError } from './errors.js';
+import { JsonNumber, parseJson, protocolError } from './json.js';
+import type { Json } from './json.js';
+
+interface State {
+  readonly url: string;
+  readonly options: TransportOptions;
+  nextId: bigint;
+}
+const transports = new WeakMap<HttpTransport, State>();
+const readMethods = new Set(['getblockchaininfo', 'getblockhash', 'getblock', 'getblockheader',
+  'getrawtransaction', 'getrawmempool', 'getaddressutxos', 'z_gettreestate', 'z_getsubtreesbyindex']);
+
+function record(value: unknown, keys: readonly string[]): asserts value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).some(key => typeof key !== 'string' || !keys.includes(key))) {
+    throw invalidArgument();
+  }
+}
+function integer(value: unknown, minimum: number): asserts value is number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum) throw invalidArgument();
+}
+
+export function http(url: string, options: TransportOptions): HttpTransport {
+  let endpoint: URL;
+  try {
+    if (typeof url !== 'string' || url.trim() !== url) throw invalidArgument();
+    endpoint = new URL(url);
+    if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password
+      || url.includes('#')) throw invalidArgument();
+    record(options, ['sourceId', 'timeoutMs', 'readRetry', 'maxResponseBytes', 'headers']);
+    if (typeof options.sourceId !== 'string' || options.sourceId.trim().length === 0) throw invalidArgument();
+    integer(options.timeoutMs, 1);
+    integer(options.maxResponseBytes, 1);
+    record(options.readRetry, ['attempts', 'delayMs']);
+    integer(options.readRetry.attempts, 1);
+    integer(options.readRetry.delayMs, 0);
+    if (options.headers !== undefined && typeof options.headers !== 'function') throw invalidArgument();
+    const snapshot: TransportOptions = Object.freeze({ ...options, readRetry: Object.freeze({ ...options.readRetry }) });
+    const transport = Object.freeze({}) as HttpTransport;
+    transports.set(transport, { url: endpoint.href, options: snapshot, nextId: 0n });
+    return transport;
+  } catch { throw invalidArgument(); }
+}
+
+function aborted(): ZcashError {
+  return failure('ABORTED', 'transport', 'none', 'Request aborted.');
+}
+function timeout(): ZcashError {
+  return failure('TIMEOUT', 'transport', 'none', 'Request timed out.', true);
+}
+function transportError(retryable = true): ZcashError {
+  return failure('TRANSPORT_ERROR', 'transport', 'configure', 'HTTP JSON-RPC request failed.', retryable);
+}
+function resourceLimit(): ZcashError {
+  return failure('RESOURCE_LIMIT', 'transport', 'configure', 'Response exceeds configured byte limit.');
+}
+
+// Chunk long timers so valid safe-integer durations cannot overflow host timers.
+function schedule(ms: number, callback: () => void): () => void {
+  const start = performance.now();
+  let timer: ReturnType<typeof setTimeout>;
+  const tick = () => {
+    const remaining = ms - (performance.now() - start);
+    if (remaining <= 0) callback();
+    else timer = setTimeout(tick, Math.min(remaining, 2_147_483_647));
+  };
+  timer = setTimeout(tick, Math.min(ms, 2_147_483_647));
+  return () => clearTimeout(timer);
+}
+
+/** One deadline includes the header callback, dispatch, body and parsing. */
+async function attempt(state: State, body: string, id: string, caller?: AbortSignal): Promise<Json> {
+  if (caller?.aborted) throw aborted();
+  const controller = new AbortController();
+  let stopped: ZcashError | undefined;
+  let rejectStop: (error: ZcashError) => void = () => {};
+  const stopPromise = new Promise<never>((_resolve, reject) => { rejectStop = reject; });
+  const stop = (error: ZcashError) => {
+    if (stopped) return;
+    stopped = error;
+    controller.abort();
+    rejectStop(error);
+  };
+  const onAbort = () => stop(aborted());
+  caller?.addEventListener('abort', onAbort, { once: true });
+  const cancelTimer = schedule(state.options.timeoutMs, () => stop(timeout()));
+  const started = performance.now();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let response: Response | undefined;
+  const bounded = <T>(promise: Promise<T>) => Promise.race([promise, stopPromise]);
+  try {
+    const headers = new Headers({ 'content-type': 'application/json', accept: 'application/json' });
+    if (state.options.headers) {
+      let supplied: Readonly<Record<string, string>>;
+      try {
+        supplied = await bounded(Promise.resolve().then(() => state.options.headers!()));
+        if (typeof supplied !== 'object' || supplied === null || Array.isArray(supplied)) throw invalidArgument();
+        for (const key of Reflect.ownKeys(supplied)) {
+          if (typeof key !== 'string' || typeof supplied[key] !== 'string') throw invalidArgument();
+          headers.set(key, supplied[key]);
+        }
+        headers.set('content-type', 'application/json');
+        headers.set('accept', 'application/json');
+      } catch { throw stopped ?? invalidArgument(); }
+    }
+    if (caller?.aborted) throw aborted();
+    if (stopped) throw stopped;
+    // Cancel a late response even if a nonconforming injected fetch ignores abort.
+    const fetching = fetch(state.url, { method: 'POST', body, headers, signal: controller.signal,
+      credentials: 'omit', redirect: 'error', cache: 'no-store' }).then(value => {
+      if (stopped) void value.body?.cancel().catch(() => {});
+      return value;
+    });
+    response = await bounded(fetching);
+    if (!response.ok) throw transportError([408, 429, 500, 502, 503, 504].includes(response.status));
+    const declared = response.headers.get('content-length');
+    if (declared !== null) {
+      if (!/^[0-9]+$/.test(declared)) throw protocolError();
+      if (BigInt(declared) > BigInt(state.options.maxResponseBytes)) throw resourceLimit();
+    }
+    if (!response.body) throw protocolError();
+    reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+    const chunks: string[] = [];
+    let bytes = 0;
+    for (;;) {
+      const chunk = await bounded(reader.read());
+      if (chunk.done) break;
+      if (chunk.value.byteLength > state.options.maxResponseBytes - bytes) throw resourceLimit();
+      bytes += chunk.value.byteLength;
+      try { chunks.push(decoder.decode(chunk.value, { stream: true })); }
+      catch { throw protocolError(); }
+    }
+    try { chunks.push(decoder.decode()); }
+    catch { throw protocolError(); }
+    const result = parseEnvelope(chunks.join(''), id);
+    // Synchronous parsing cannot be interrupted by a timer; check elapsed time.
+    if (performance.now() - started >= state.options.timeoutMs) throw timeout();
+    return result;
+  } catch (error) {
+    if (stopped) throw stopped;
+    if (isZcashError(error)) throw error;
+    throw transportError();
+  } finally {
+    cancelTimer();
+    caller?.removeEventListener('abort', onAbort);
+    // Never await a foreign stream's cancellation promise past the deadline.
+    if (reader) {
+      void reader.cancel().catch(() => {});
+      reader.releaseLock();
+    } else if (response) void response.body?.cancel().catch(() => {});
+    controller.abort();
+  }
+}
+
+function object(value: Json): value is { [key: string]: Json } {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof JsonNumber);
+}
+function parseEnvelope(text: string, id: string): Json {
+  const envelope = parseJson(text);
+  if (!object(envelope) || envelope.jsonrpc !== '2.0' || envelope.id !== id
+    || Object.keys(envelope).some(key => !['jsonrpc', 'id', 'result', 'error'].includes(key))
+    || Object.hasOwn(envelope, 'result') === Object.hasOwn(envelope, 'error')) throw protocolError();
+  if (Object.hasOwn(envelope, 'result')) return envelope.result!;
+  const error = envelope.error!;
+  if (!object(error) || !(error.code instanceof JsonNumber) || typeof error.message !== 'string'
+    || !/^-?(?:0|[1-9][0-9]*)$/.test(error.code.text)
+    || !Number.isSafeInteger(Number(error.code.text))
+    || Object.keys(error).some(key => !['code', 'message', 'data'].includes(key))) throw protocolError();
+  if (error.code.text === '-32601') {
+    throw failure('METHOD_NOT_SUPPORTED', 'transport', 'configure', 'RPC method is not supported.');
+  }
+  throw transportError(false);
+}
+
+async function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw aborted();
+  if (ms === 0) return;
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => { cancel(); signal?.removeEventListener('abort', onAbort); reject(aborted()); };
+    const cancel = schedule(ms, () => { signal?.removeEventListener('abort', onAbort); resolve(); });
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/** Internal read engine; no public raw-RPC escape hatch or broadcast replay. */
+export async function readRpc(transport: HttpTransport, method: string, params: readonly (string | number | boolean)[], signal?: AbortSignal): Promise<Json> {
+  const state = transports.get(transport);
+  if (!state || !readMethods.has(method) || !Array.isArray(params)
+    || params.some(value => !['string', 'boolean'].includes(typeof value)
+      && !(typeof value === 'number' && Number.isSafeInteger(value)))
+    || (signal !== undefined && !(signal instanceof AbortSignal))) throw invalidArgument();
+  for (let index = 0; index < state.options.readRetry.attempts; index++) {
+    const id = (++state.nextId).toString();
+    const body = JSON.stringify({ jsonrpc: '2.0', id, method, params });
+    try { return await attempt(state, body, id, signal); }
+    catch (error) {
+      if (!isZcashError(error) || !error.retryable || index + 1 >= state.options.readRetry.attempts) throw error;
+      await delay(state.options.readRetry.delayMs, signal);
+    }
+  }
+  throw invalidArgument();
+}

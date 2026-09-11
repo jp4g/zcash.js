@@ -36,6 +36,11 @@ export async function fixture(mode = 'baseline') {
   return { manifest, policy, assets, bytes, artifact: { manifestUrl: 'https://fixture.invalid/release/manifest.json', manifestSha256: await sha(bytes) } };
 }
 
+export function assertSanitized(error, targetUrl) {
+  const serialized = JSON.stringify([error, error.message, error.stack, error.cause]);
+  if ([targetUrl, new URL('.', targetUrl).pathname, 'private-fixture'].some(marker => serialized.includes(marker))) throw Error('URL or foreign error detail leaked');
+}
+
 // Shared real-network checks. Node uses its native fetch; Firefox uses browser fetch.
 export async function networkChecks(acquireArtifacts, origin) {
   const check = (value, label) => { if (!value) throw Error(label); };
@@ -58,7 +63,7 @@ export async function networkChecks(acquireArtifacts, origin) {
       throw Error(`${scenario} unexpectedly accepted`);
     } catch (error) {
       check(error.code === code && error.stage === (code === 'INVALID_ARGUMENT' ? 'validation' : 'runtime'), `${scenario}: ${error.code}`);
-      check(!JSON.stringify([error, error.message, error.stack]).includes(origin), 'URL leaked');
+      assertSanitized(error, `${origin}/release/${scenario}/manifest.json`);
       check(performance.now() - start < 4000, 'deadline exceeded');
       observed.push(scenario);
     } finally { clearTimeout(timer); }
@@ -88,11 +93,20 @@ export async function serveFixture({ cert, key, hostname = 'localhost' }) {
     ['/dist/src/runtime/artifacts.js', new URL('../../dist/src/runtime/artifacts.js', import.meta.url)],
     ['/dist/src/errors.js', new URL('../../dist/src/errors.js', import.meta.url)],
   ].map(async ([path, file]) => [path, await readFile(file)])));
+  // The ordinary page module owns imports, fixtures and structuredClone's realm.
+  // Dynamic import reports dependency/module evaluation failures in the receipt.
+  routes.set('/artifact-page-entry.mjs', `
+    window.artifactPageResult = import('/tests/runtime/artifacts-browser.mjs')
+      .then(m => m.run()).then(value => ({ value }), e => ({
+        error: String(e).slice(0, 1024), name: String(e?.name ?? '').slice(0, 256),
+        message: String(e?.message ?? '').slice(0, 1024), stack: String(e?.stack ?? '').slice(0, 4096)
+      }));
+  `);
   const requests = [], unexpected = [];
   const server = createServer({ cert: await readFile(cert), key: await readFile(key) }, (req, res) => {
     if (req.url === '/') {
       res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': "default-src 'none'; script-src 'self'; connect-src 'self'; worker-src 'none'; object-src 'none'; img-src data:" });
-      res.end('<!doctype html><meta charset="utf-8"><title>Artifact acquisition</title><link rel="icon" href="data:,">'); return;
+      res.end('<!doctype html><meta charset="utf-8"><title>Artifact acquisition</title><link rel="icon" href="data:,"><script type="module" src="/artifact-page-entry.mjs"></script>'); return;
     }
     if (routes.has(req.url)) { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(routes.get(req.url)); return; }
     const match = /^\/release\/([a-z-]+)\/(.+)$/.exec(req.url);
@@ -154,7 +168,8 @@ if (typeof process !== 'undefined' && process.argv[1] && import.meta.url === new
     if (created.capabilities.browserName !== 'firefox' || created.capabilities.acceptInsecureCerts !== false) throw Error('Firefox TLS verification required');
     await request(`/session/${session}/timeouts`, 'POST', { script: 20000, pageLoad: 15000 });
     await request(`/session/${session}/url`, 'POST', { url: server.origin });
-    const probe = await request(`/session/${session}/execute/async`, 'POST', { script: "const done=arguments[arguments.length-1]; import('/tests/runtime/artifacts-browser.mjs').then(m=>m.run()).then(value=>done({value}),e=>done({error:String(e).slice(0,1024),name:String(e?.name??'').slice(0,256),message:String(e?.message??'').slice(0,1024),stack:String(e?.stack??'').slice(0,4096)}));", args: [] });
+    const probe = await request(`/session/${session}/execute/async`, 'POST', { script: "const done=arguments[arguments.length-1]; const receipt=window.artifactPageResult; if (!receipt || typeof receipt.then !== 'function') done({error:'Page module entry failed to initialize'}); else receipt.then(done, e=>done({error:String(e).slice(0,1024)}));", args: [] });
+    result.pageReceipt = probe;
     if (probe.error) throw Error(probe.error);
     result.probe = probe.value;
     if (server.unexpected.length || server.requests.some(r => r.cookie || r.authorization || r.referer)) throw Error('Unexpected or credential-bearing acquisition request');

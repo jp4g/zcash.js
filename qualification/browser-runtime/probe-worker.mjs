@@ -53,6 +53,15 @@ self.onmessage = async ({ data: { scenario, manifest } }) => {
           check(e.rt_pool_start() + e.rt_pool_size() <= Number(e.__heap_base.value), 'pool below Rust heap');
           details = { poolStart: e.rt_pool_start(), poolBytes: e.rt_pool_size(), heapBase: Number(e.__heap_base.value) };
           break;
+        case 'canary-corruption':
+          new Uint8Array(e.memory.buffer)[e.rt_pool_start() - 1] ^= 1;
+          equal(e.rt_pool_check(), 0, 'actual pool canary corruption detected');
+          break;
+        case 'heap-corruption':
+          equal(e.rt_grow(1024 * 1024), 1, 'Rust allocation before corruption');
+          new Uint8Array(e.memory.buffer)[e.rt_heap_ptr()] ^= 1;
+          equal(e.rt_heap_check(), 0, 'actual Rust heap corruption detected');
+          break;
         case 'oom':
           equal(e.rt_sql(), 42, 'SQL fixture');
           equal(e.rt_oom(), 1, 'SQLite OOM and integrity');
@@ -67,6 +76,8 @@ self.onmessage = async ({ data: { scenario, manifest } }) => {
           check(e.memory.buffer !== old, 'Rust allocation must grow memory');
           equal(old.byteLength, 0, 'old views detached');
           equal(e.rt_rows(), 2, 'SQL after Rust growth');
+          equal(e.rt_cycle(), 44, 'SQL commit rollback blob integrity with live Rust allocation');
+          equal(e.rt_cycle(), 46, 'repeat SQL mutation with live Rust allocation');
           equal(e.rt_hosts(), 1, 'host calls after growth');
           equal(state.lastEntropyMemoryBytes, e.memory.buffer.byteLength, 'entropy refreshed view');
           equal(e.rt_heap_check(), 1, 'Rust bytes after host calls');
@@ -81,6 +92,7 @@ self.onmessage = async ({ data: { scenario, manifest } }) => {
           const julian = e.rt_time();
           check(julian >= before + 210866760000000 && julian <= Date.now() + 210866760000000, 'Julian time range');
           check(state.entropyCalls >= 2 && state.timeCalls >= 2 && state.sleepCalls >= 1, 'host callback counts');
+          equal(e.rt_unsupported_hosts(), 1, 'unsupported lower host operations fail explicitly');
           details = { julian, ...state };
           break;
         }

@@ -47,7 +47,7 @@ const imports = WebAssembly.Module.imports(module);
 const exports = WebAssembly.Module.exports(module);
 const required = ['memory', '__heap_base', 'rt_init', 'rt_open', 'rt_sql', 'rt_pairing',
   'rt_rows', 'rt_fixture_schema_count', 'rt_pool_start', 'rt_pool_size', 'rt_pool_check',
-  'rt_oom', 'rt_grow', 'rt_heap_check', 'rt_hosts', 'rt_time'];
+  'rt_oom', 'rt_grow', 'rt_heap_check', 'rt_heap_ptr', 'rt_cycle', 'rt_unsupported_hosts', 'rt_hosts', 'rt_time'];
 for (const name of required) {
   if (!exports.some(e => e.name === name)) throw new Error(`missing generated export ${name}; regenerate with --keep-lld-exports`);
 }

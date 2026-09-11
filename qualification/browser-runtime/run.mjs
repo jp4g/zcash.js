@@ -142,7 +142,7 @@ try {
   const context = await evaluate(`import('./controller.mjs').then(m => m.context)`);
   record({ stage: 'page-context', context });
   if (!context.secure || context.isolated || context.sab !== 'undefined') throw new Error('page baseline context rejected');
-  const scenarios = ['same-instance', 'pool', 'oom', 'growth', 'hosts', 'omitted-pool',
+  const scenarios = ['same-instance', 'pool', 'canary-corruption', 'heap-corruption', 'oom', 'growth', 'hosts', 'omitted-pool',
     'entropy-unavailable', 'entropy-loss', 'time-loss', 'sleep-loss',
     'destruction-original', 'destruction-fresh', 'bootstrap-timeout', 'bootstrap-error',
     'cancel-active', 'cancel-before-start', 'malformed-result'];
@@ -167,7 +167,7 @@ try {
       method: 'Worker.terminate + CDP Target.targetDestroyed', targetIds: created.map(t => t.targetId),
     } });
   }
-  record({ stage: 'complete', runtimePasses: 12, harnessControlPasses: 5,
+  record({ stage: 'complete', runtimePasses: 14, harnessControlPasses: 5,
     limitations: 'Ephemeral memdb only; no OPFS durability, scanner, threads, full F1 or issue #2 completion.' });
   exitCode = 0;
   }

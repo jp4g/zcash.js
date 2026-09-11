@@ -25,12 +25,15 @@ const oldBytes = old.byteLength;
 assert.equal(e.rt_grow(32 * 1024 * 1024), 1);
 assert.notEqual(e.memory.buffer, old);
 assert.equal(old.byteLength, 0);
+assert.equal(e.rt_cycle(), 44);
+assert.equal(e.rt_cycle(), 46);
 assert.equal(e.rt_hosts(), 1);
 assert.equal(host.state.lastEntropyMemoryBytes, e.memory.buffer.byteLength);
 assert.equal(e.rt_heap_check(), 1);
 assert.equal(e.rt_oom(), 1);
 assert.equal(e.rt_rows(), 2);
 assert.equal(e.rt_pool_check(), 1);
+assert.equal(e.rt_unsupported_hosts(), 1);
 assert.equal(e.rt_pairing(), 1);
 console.log(JSON.stringify({ category: 'node-diagnostic-not-browser', ok: true,
   node: process.version, root, sql: 42, rows: 2, pairing: 1, oldBytes,

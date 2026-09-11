@@ -85,9 +85,12 @@ Injected transport faults are not Rust behavior. A separate actual diagnostic
 WASM unreachable trap after a real codec call proves the private wrapper's fatal
 state; it does not prove a production Rust panic trigger or recovery.
 
-Actual Node HTTPS and ordinary page-owned Firefox execution remain blocked here:
-`listen EPERM: operation not permitted 127.0.0.1`. No Firefox was started. The
-immutable parent package is
+The original implementer could not bind local sockets. The parent subsequently
+passed actual Node HTTPS and ordinary page-owned Firefox execution using the
+original snapshot: `/home/jack/zcash-primitive-loader-logs/host-1789162225002.json`,
+process `proc_31918c08fa85` exited 0. That evidence belongs only to the original
+truthfully uncommitted snapshot; it is not evidence for a fresh committed package.
+The preserved immutable parent package is
 `/home/jack/zcash-primitive-loader-scratch/host-package-final-r3`, inventory digest
 `2e812bbc0f32a3697aaaac80c1c2614f06046cc5cb5dc3ad5eda37b137f820e4`.
 Its runner SHA256 is
@@ -117,7 +120,8 @@ connect-src 'self'; base-uri 'none'; object-src 'none'`. Separate cases deny wor
 and WASM compilation. Failure must be observed truthfully. BiDi subscribes before
 navigation and requires the exact Blob script URLs, page ownership, and observed
 destruction before acknowledging close and permitting a replacement worker.
-None of these browser/CSP/realm assertions have passed in this worker sandbox.
+The parent host report above records these browser/CSP/realm assertions for the
+original package. A fresh package requires its own parent host run.
 
 Reproduce the local non-socket SDK check (no package/config edits):
 
@@ -127,18 +131,25 @@ node /home/jack/zcash.js/node_modules/typescript/bin/tsc -p tsconfig.json \
 node --test --test-isolation=none tests/runtime-primitive-loader/loader.test.mjs
 ```
 
-Preparation accepts the selected private packet and a nonexistent output:
-`node tests/runtime-primitive-loader/prepare.mjs PACKET OUTPUT`. It snapshots the
-three needed SDK production sources plus frozen API types, compiles from those
-snapshots using installed TypeScript, checks the accepted transaction corpus hash,
-and records source fingerprints. The selected immutable package's exact compiled
-loader also passed all 13 Node tests via `PRIMITIVE_SDK=.../host-package-final-r3`.
+Preparation accepts the selected private packet and a nonexistent output whose
+parent directory exists:
+`node tests/runtime-primitive-loader/prepare.mjs PACKET OUTPUT`. Compile scratch
+is created beside the output. It resolves one actual SDK Git commit and compares
+captured input bytes directly with that commit's blobs before using them. This
+covers the preparer, pin, four production/type sources, five copied test/host
+modules, and transaction fixture; missing or modified inputs fail. Unrelated
+working-tree files are not claimed clean. Compilation uses the verified source
+buffers and installed TypeScript; the accepted transaction corpus hash remains
+required. Provenance records `sdkRevision`, per-input `sdkInputHashes`, the existing
+production `sourceHashes`, SDK base and private revision. Every output byte remains
+covered by the existing strict inventory. The selected original package's exact
+compiled loader also passed all 13 Node tests via
+`PRIMITIVE_SDK=.../host-package-final-r3`.
 
-SDK changes are currently **uncommitted**: this environment denies Git's
-`/home/jack/zcash.js/.git/worktrees/verified-primitive-loader/index.lock` as a
-read-only filesystem despite the requested reservation. Provenance truthfully
-records SDK base `cf1a82dc5c7ec4a0bcfc1d6997b372fbc201013b` plus exact source
-hashes, not a fabricated SDK commit. The pre-existing untracked `node_modules`
-symlink is not part of these changes. Parent must commit only the assigned new
-loader/tests/document, independently review HIGH, run the immutable host package,
-then decide paired integration. No push, merge or publication occurred.
+The initial loader implementation is committed as
+`c1497b4e50c6de8586c028dc162975d04a340b84`. The original package retains its
+truthful uncommitted-state provenance and must never be relabeled. Fresh parent
+acceptance requires preparation after committing this correction, a committed
+source-bound package, its own Node/HTTPS/Firefox run, and independent HIGH review.
+The pre-existing untracked `node_modules` symlink is not a package input.
+No acceptance, whole H1 completion, push, merge or publication is claimed.

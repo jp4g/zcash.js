@@ -12,6 +12,24 @@ Effective model effort has no independent tool attestation in this session.
 The resumed slice started at 05:16 UTC and was stopped for the approval blocker
 within its 30-minute budget. No build exceeded 900 seconds; Cargo jobs were 2.
 
+## Current-source compile verification (same first review-fix cycle)
+
+The changed Rust schema query now compiles and links offline with the existing
+toolchain/cache (exit 0). The new raw artifact is preserved separately in
+`scratch/stages/review-fix-link/`, SHA-256
+`15a9b851e8dcd4d1855f9a9a697b35045148841db5ebcc5fc9417f5233e7519a`;
+map SHA-256 `57ba35ac05385715be8a99f430e514082abbee024f85e8353c1a75895857429b`.
+Fresh selected-byte static inspection passes and confirms the new schema export.
+The strict Node run exits 1: 0 passes, 11 import-validation failures before
+instantiation. Real schema absence and WASM teardown/recreation remain unexecuted.
+No runtime/crypto acceptance is claimed; the generator remains approval-blocked.
+
+[Review-fix evidence](review-fix.md) records exact commands, hashes, current
+inventory and synthetic controls. The artifact/inventory numbers in the original
+sections below describe the preserved historical adapter-link, which is unchanged.
+The current raw link has 88 exports and 5,083 functions (12,943,355 bytes), with
+unchanged import and memory-limit characteristics. No ledger or graph changes.
+
 ## Executed results
 
 | Check | Exit/result | What it establishes |

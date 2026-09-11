@@ -1,17 +1,20 @@
 """Read-only inventory of this linked module and LLVM disassembly; not runtime proof."""
+import argparse
 import hashlib
 import json
 from pathlib import Path
 import re
-from inspection_inputs import verify_pair, inspect_bytes
+from inspection_inputs import verify_pair, inspect_bytes, LINK_PAIRS
 
 SCRATCH = Path('/home/jack/zcash-node-runtime-scratch')
-LOGS = Path('/home/jack/zcash-node-runtime-logs')
-artifact = SCRATCH / 'stages/adapter-link/issue_2_qualification.wasm'
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--stage', choices=LINK_PAIRS, default='adapter-link')
+args = parser.parse_args()
+artifact = SCRATCH / 'stages' / args.stage / 'issue_2_qualification.wasm'
 raw = artifact.read_bytes()
 assert raw[:8] == b'\0asm\x01\0\0\0'
 map_bytes = (artifact.parent / 'runtime.map').read_bytes()
-verify_pair(raw, map_bytes)
+verify_pair(raw, map_bytes, LINK_PAIRS[args.stage])
 imports, disassembly = inspect_bytes(raw)
 
 
@@ -127,7 +130,7 @@ assert not retained_c_heap
 assert not any(re.search(r'(malloc|calloc|realloc|sbrk)', member) for member in libc_members)
 assert len(growth) == 1 and 'dlmalloc' in growth[0]['function']
 
-files = [artifact, SCRATCH / 'stages/adapter-link/runtime.map',
+files = [artifact, artifact.parent / 'runtime.map',
          Path('qualification/runtime/Cargo.lock'), Path('qualification/runtime/env.sh'),
          Path('qualification/runtime/adapter.c'), Path('qualification/runtime/src/lib.rs'),
          Path('qualification/runtime/build.rs'), Path('qualification/runtime/test-runtime.cjs')]
@@ -137,7 +140,7 @@ build = SCRATCH / 'target/wasm32-unknown-unknown/debug/build'
 files += sorted(build.glob('*/out/adapter.o')) + sorted(build.glob('*/out/*sqlite3.o'))
 print(json.dumps(dict(
     artifact=str(artifact), hashes={str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files},
-    inspection_inputs='Imports/disassembly regenerated from selected bytes; map pinned to reviewed historical pair.',
+    inspection_inputs='Imports/disassembly regenerated from selected bytes; map pinned to explicitly recorded link pair.',
     artifact_bytes=len(raw), memories=memories, imports=imports, exports=exports,
     function_count=len(names), memory_growth=growth, libc_members=libc_members,
     retained_c_heap_symbols=retained_c_heap, direct_reachability=reachability,

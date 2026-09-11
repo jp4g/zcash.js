@@ -5,12 +5,20 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-# Independently reviewed preserved adapter-link pair; a new link needs a new
-# explicitly reviewed identity, never implicit selection by a latest-log label.
+# Explicit preserved link identities, never selection by latest-log label.
+# Historical pair was independently reviewed; review-fix pair is captured from
+# the recorded offline build (see review-fix.md), pending HIGH review.
 HISTORICAL_PAIR = (
     '606a000bbb8dc51868e41d0d832285c7499862d64a2514b4110e73682ff8cecd',
     '4b84176c323095479688f2464e35a8340c89b1edd5b6318b0d54648a6aa13901',
 )
+LINK_PAIRS = {
+    'adapter-link': HISTORICAL_PAIR,
+    'review-fix-link': (
+        '15a9b851e8dcd4d1855f9a9a697b35045148841db5ebcc5fc9417f5233e7519a',
+        '57ba35ac05385715be8a99f430e514082abbee024f85e8353c1a75895857429b',
+    ),
+}
 OBJDUMP = '/home/jack/zcash-qualification-scratch/wasi-sdk-27.0-x86_64-linux/bin/llvm-objdump'
 
 def verify_pair(raw, link_map, expected=HISTORICAL_PAIR):

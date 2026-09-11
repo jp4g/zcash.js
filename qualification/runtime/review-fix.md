@@ -3,7 +3,8 @@
 Bounded qualification/runtime-only slice. No production, graph, ledger, network,
 generator, transformation, stub-import or agent changes. Runtime remains
 approval-blocked by the coordinator receipt. No runtime acceptance or crypto
-qualification was attempted or established by these controls.
+qualification was established by these controls. The follow-up below also ran
+the strict real Node loader, which failed before instantiation.
 
 - `ce01456`: worker ownership helper rejects every premature exit (including 0),
   handles test cancellation and a separate deadline, and awaits termination on
@@ -23,7 +24,8 @@ RED runs preceded each implementation and exited 1 because the new helper module
 was absent. These establish test-first sequencing, not mutation testing of every
 old implementation. Green controls exercise the new helpers, not real SQL/WASM.
 
-The revised Rust export is source-only: no rebuild or runtime test was run.
+At the initial fix commit, the revised Rust export was source-only. The offline
+compile follow-up below supersedes that compile status.
 The preserved historical artifact remains SHA-256
 `606a000bbb8dc51868e41d0d832285c7499862d64a2514b4110e73682ff8cecd`
 and its map remains
@@ -31,8 +33,8 @@ and its map remains
 It does not contain the new schema export. Fresh static inspection succeeded on
 that historical artifact; hashes of current sources in inspection output are
 inventory only, not a claim those sources produced the historical link.
-Real schema query behavior, compilation of the new export, and WASM lifecycle
-acceptance remain pending an authorized later qualification slice. F1/F2/F3
+Compilation of the new export is now verified by the follow-up. Real schema query
+behavior and WASM lifecycle acceptance remain pending runtime qualification. F1/F2/F3
 remain unpassed; browser support remains required and unqualified.
 
 Commands ran from the worktree root. Python used
@@ -64,3 +66,105 @@ runtime versus consumer Cargo.toml/Cargo.lock, and `git diff --check` exited 0.
 - `fix-p2-worker-direct.log`: `ada780cd2330a13a0954f236a5c5f9b545b9545d23f6a19db53498ce3d7d673c`
 - `fix-p2-worker-green.log`: `4534a75c4c4bb17869d30b106e316e3114b40c4ffad6b3333579ff3c4dc2af58`
 - `fix-p2-worker-red.log`: `99e0c0695b26054ff96280654c91db99241ce0548494843ed49ab12e02e9667d`
+
+
+## Offline compile follow-up — same LOW cycle
+
+The authorized offline raw link succeeded (exit 0, Cargo reported 0.55 seconds,
+900-second recorder bound, two jobs). The existing env/cache/tools were used;
+no generator, dependency installation, extraction, network or transformation.
+`rt_fixture_schema_count` is present in the new raw WASM export inventory.
+This establishes compilation/linking of the changed Rust query, not SQL execution.
+
+New preserved pair in `/home/jack/zcash-node-runtime-scratch/stages/review-fix-link/`:
+
+- `issue_2_qualification.wasm`: 12,943,355 bytes; SHA-256
+  `15a9b851e8dcd4d1855f9a9a697b35045148841db5ebcc5fc9417f5233e7519a`.
+- `runtime.map`: SHA-256
+  `57ba35ac05385715be8a99f430e514082abbee024f85e8353c1a75895857429b`.
+
+After the successful link, Python `shutil.copyfile` copied the target WASM and
+scratch/runtime.map to the newly created stage (exit 0). Historical stage bytes
+were not overwritten; both historical hashes above were rechecked unchanged.
+The Node loader's target artifact was verified byte-identical to the new preserved
+WASM after its run. Runtime/consumer manifests and locks remain byte-identical.
+
+`inspect.py --stage review-fix-link` selects the new explicitly pinned pair;
+default selection remains historical adapter-link. Both fresh inspections passed.
+The new pair is build-captured evidence pending HIGH review, not independently
+reviewed provenance. Current inspection has 88 exports, 5,083 functions, the same
+seven function imports (four unprocessed bindgen imports, no WASI), one non-shared
+275-page memory with no maximum, one Rust dlmalloc memory.grow, and no retained
+C heap symbols or forbidden libc heap members under the existing static checks.
+
+Strict `node qualification/runtime/test-runtime.cjs` exited 1: **0 passes,
+11 failures, all in inventory() before WebAssembly.Instance**. No timeouts.
+Consequently the schema query, SQL, crypto and actual WASM recreation assertions
+remain unexecuted. Generator/runtime approval remains blocked. No acceptance gate
+passes. Synthetic inspector controls still pass (2 tests); these are not runtime
+or crypto qualification.
+
+Exact recorded follow-up commands (worktree root, after
+`source qualification/runtime/env.sh`) and evidence follow. Each command used
+`python3 qualification/harness.py --logs /home/jack/zcash-node-runtime-logs
+--timeout <bound> <label> <argv...>`; the recorder remained unchanged.
+
+### fix-p2-raw-link
+
+Bound 900.0 seconds; exit 0; timed_out=False.
+
+```json
+["cargo", "build", "--offline", "--locked", "--manifest-path", "qualification/runtime/Cargo.toml", "--target", "wasm32-unknown-unknown", "--lib"]
+```
+
+Log: `/home/jack/zcash-node-runtime-logs/fix-p2-raw-link-1789105429216153982.log`
+
+SHA-256: `0aa6f009e65f574011e732c6035835476c3e47a831b57c41691618cbcd9eeb82`
+
+### fix-p2-current-inspection
+
+Bound 120.0 seconds; exit 0; timed_out=False.
+
+```json
+["python3", "qualification/runtime/inspect.py", "--stage", "review-fix-link"]
+```
+
+Log: `/home/jack/zcash-node-runtime-logs/fix-p2-current-inspection-1789105458255548709.log`
+
+SHA-256: `225cf930b8f221d33317a4d018b815b2eee9ed0dec1358ec27b13414192a1cf4`
+
+### fix-p2-current-node
+
+Bound 120.0 seconds; exit 1; timed_out=False.
+
+```json
+["node", "qualification/runtime/test-runtime.cjs"]
+```
+
+Log: `/home/jack/zcash-node-runtime-logs/fix-p2-current-node-1789105461755214492.log`
+
+SHA-256: `48c3fd49c57cbdc803d783a115c07de45d563ba0c30cac5e48cb02e42d4289af`
+
+### fix-p2-selector-controls
+
+Bound 120.0 seconds; exit 0; timed_out=False.
+
+```json
+["python3", "-m", "unittest", "discover", "-s", "qualification/runtime", "-p", "test_inspection_inputs.py"]
+```
+
+Log: `/home/jack/zcash-node-runtime-logs/fix-p2-selector-controls-1789105481130230769.log`
+
+SHA-256: `3d38282c751732c9af3f486d091e6fa34e0ebb84d1c7f998396144e5ec25a4f7`
+
+### fix-p2-historical-reinspection
+
+Bound 120.0 seconds; exit 0; timed_out=False.
+
+```json
+["python3", "qualification/runtime/inspect.py"]
+```
+
+Log: `/home/jack/zcash-node-runtime-logs/fix-p2-historical-reinspection-1789105481349107588.log`
+
+SHA-256: `a9870595cc06d9f87536d49b2f75e7f73776f67dc47a0e06eaadfe8a25cb7645`

@@ -46,7 +46,7 @@ interleaved with SQL and refreshed host memory views; entropy/time/sleep and
 entropy loss; and actual worker destruction followed by a fresh empty memdb.
 The revised destruction fixture awaits original worker termination before creating
 a replacement and requires a successful schema-absence query. Its Rust export
-has not been rebuilt or executed; see [first review-fix cycle](review-fix.md). Add meaningful
+has been rebuilt offline but remains unexecuted; see [first review-fix cycle](review-fix.md). Add meaningful
 negative checks per adapter behavior; the current red import failures do not
 provide that coverage. Browser worker execution remains a later bounded slice.
 

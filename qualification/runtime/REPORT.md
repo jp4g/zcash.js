@@ -1,3 +1,5 @@
+> Historical raw-link/first-fix report. The [generated runtime follow-up](generated-report.md) supersedes its generator blocker and zero-runtime-result status. Browser support remains mandatory.
+
 # Node runtime partial slice — 2026-09-11
 
 **The real same-module SQLite/Common probe links. Node execution is blocked by

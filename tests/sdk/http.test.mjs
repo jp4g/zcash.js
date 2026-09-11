@@ -154,20 +154,20 @@ for (const enumerable of [true, false]) {
 
 for (const variant of ['custom iterator', 'overridden some', 'hole', 'object', 'undefined', 'null']) {
   test(`parameter snapshot rejects ${variant} before serialization`, async (t) => {
-   let dispatches = 0;
-   let serializations = 0;
-   const unsupported = { toJSON() { serializations++; return 7; } };
-   mockFetch(t, async (_url, init) => { dispatches++; return response(JSON.parse(init.body)); });
-   const transport = sdk.http('https://synthetic.invalid', options());
-   const overriddenSome = [unsupported];
-   overriddenSome.some = () => false;
-   const customIterator = [7];
-   customIterator[Symbol.iterator] = function* () { yield unsupported; };
-   const params = { 'custom iterator': customIterator, 'overridden some': overriddenSome,
-     hole: Array(1), object: [unsupported], undefined: [undefined], null: [null] }[variant];
-   await assert.rejects(internal.readRpc(transport, 'getblockhash', params), { code: 'INVALID_ARGUMENT' });
-   assert.equal(serializations, 0);
-   assert.equal(dispatches, 0);
+    let dispatches = 0;
+    let serializations = 0;
+    const unsupported = { toJSON() { serializations++; return 7; } };
+    mockFetch(t, async (_url, init) => { dispatches++; return response(JSON.parse(init.body)); });
+    const transport = sdk.http('https://synthetic.invalid', options());
+    const overriddenSome = [unsupported];
+    overriddenSome.some = () => false;
+    const customIterator = [7];
+    customIterator[Symbol.iterator] = function* () { yield unsupported; };
+    const params = { 'custom iterator': customIterator, 'overridden some': overriddenSome,
+      hole: Array(1), object: [unsupported], undefined: [undefined], null: [null] }[variant];
+    await assert.rejects(internal.readRpc(transport, 'getblockhash', params), { code: 'INVALID_ARGUMENT' });
+    assert.equal(serializations, 0);
+    assert.equal(dispatches, 0);
   });
 }
 

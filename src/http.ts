@@ -105,8 +105,10 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
         supplied = await bounded(Promise.resolve().then(() => state.options.headers!()));
         if (typeof supplied !== 'object' || supplied === null || Array.isArray(supplied)) throw invalidArgument();
         for (const key of Reflect.ownKeys(supplied)) {
-          if (typeof key !== 'string' || typeof supplied[key] !== 'string') throw invalidArgument();
-          headers.set(key, supplied[key]);
+          if (typeof key !== 'string') throw invalidArgument();
+          const value = supplied[key];
+          if (typeof value !== 'string') throw invalidArgument();
+          headers.set(key, value);
         }
         headers.set('content-type', 'application/json');
         headers.set('accept', 'application/json');
@@ -207,10 +209,10 @@ async function delay(ms: number, signal?: AbortSignal): Promise<void> {
 export async function readRpc(transport: HttpTransport, method: string, params: readonly (string | number | boolean)[], signal?: AbortSignal): Promise<Json> {
   const state = transports.get(transport);
   if (!state || !readMethods.has(method) || !Array.isArray(params)
-    || params.some(value => !['string', 'boolean'].includes(typeof value)
-      && !(typeof value === 'number' && Number.isSafeInteger(value)))
     || (signal !== undefined && !(signal instanceof AbortSignal))) throw invalidArgument();
   const parameters = [...params];
+  if (parameters.some(value => !['string', 'boolean'].includes(typeof value)
+    && !(typeof value === 'number' && Number.isSafeInteger(value)))) throw invalidArgument();
   for (let index = 0; index < state.options.readRetry.attempts; index++) {
     const id = (++state.nextId).toString();
     const body = JSON.stringify({ jsonrpc: '2.0', id, method, params: parameters });

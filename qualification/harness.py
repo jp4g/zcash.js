@@ -9,8 +9,13 @@ import signal
 import subprocess
 import time
 
+from fingerprints import sources, artifacts
+
 
 def run(label, argv, logs, timeout=900, cwd=None, env=None):
+    effective = os.environ if env is None else env
+    run_id = effective.get('QUALIFICATION_RUN_ID')
+    before = sources() if run_id else None
     logs = Path(logs).resolve()
     logs.mkdir(parents=True, exist_ok=True)
     path = logs / f'{label}-{time.time_ns()}.log'
@@ -35,6 +40,9 @@ def run(label, argv, logs, timeout=900, cwd=None, env=None):
         'CARGO_HTTP_TIMEOUT', 'RUSTFLAGS', 'RUSTUP_TOOLCHAIN',
         'CC_wasm32_unknown_unknown', 'AR_wasm32_unknown_unknown',
         'CFLAGS_wasm32_unknown_unknown', 'CC_ENABLE_DEBUG_OUTPUT']}
+    if run_id:
+        record.update(run_id=run_id, sources_before=before, sources_after=sources(),
+                      artifacts_after=artifacts())
     with (logs / 'commands.jsonl').open('a') as output:
         output.write(json.dumps(record, sort_keys=True) + '\n')
     return record

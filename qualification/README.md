@@ -16,7 +16,7 @@ bash qualification/prepare.sh
 source qualification/cargo-env.sh
 source qualification/wasi-diagnostic-env.sh
 python3 qualification/run_slice.py
-python3 qualification/collect_evidence.py
+QUALIFICATION_RUN_ID='ID-printed-by-run_slice' python3 qualification/collect_evidence.py
 ```
 
 `run_slice.py` currently exits **101**, preserving the failed final-link gate.
@@ -47,3 +47,8 @@ features` logs are indexed separately. Cargo metadata's features can include
 cross-target unification, so do not interpret a filtered metadata node as proof
 of a feature being compiled into a particular artifact. Full build logs and
 binaries are deliberately outside git.
+
+Collection requires the explicit run ID printed by the repeat and matching command,
+audit, source and artifact fingerprints. Legacy records cannot be recollected with
+current source hashes. The checked-in evidence remains the historical pre-review
+snapshot; it does not fingerprint the corrected harness.

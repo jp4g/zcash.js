@@ -8,11 +8,13 @@ import tarfile
 import tomllib
 
 from harness import audit_packages
+from fingerprints import sources
 
 ROOT = Path(__file__).resolve().parent
 
 
 def audit(metadata):
+    before = sources()
     baseline = tomllib.loads((ROOT / 'evidence/wallet-Cargo.lock').read_text())
     expected = {p['name']: p['version'] for p in baseline['package']
                 if p['name'].startswith('zakura-') and p['name'] != 'zakura-wallet-lib'}
@@ -60,7 +62,10 @@ def audit(metadata):
                 if row.get('vcs', {}).get('git', {}).get('sha1') != 'f4526b0fa86406589732c8fb3849855fb92c43a2':
                     raise ValueError('Common 1.0 source revision mismatch')
         rows.append(row)
-    return {'status': 'audited registry archive and extracted files',
+    if sources() != before:
+        raise ValueError('sources changed during audit')
+    return {'run_id': os.environ.get('QUALIFICATION_RUN_ID'), 'sources': before,
+            'status': 'audited registry archive and extracted files',
             'lock_sha256': hashlib.sha256((ROOT / 'consumer/Cargo.lock').read_bytes()).hexdigest(),
             'packages': sorted(rows, key=lambda p: (p['name'], p['version']))}
 

@@ -135,3 +135,49 @@ Full logs and binaries remain outside the tracked tree. All executed fixture
 data is synthetic; no keys, wallet records or live endpoints were used. No
 blockchain/provider access, funds, mining, deployment, publication, license
 selection, GitHub writes or deferred #10–12 work occurred.
+
+## Review fixes — harness scope only
+
+The three P2 review findings are corrected: only the exact resolved consumer
+root (manifest path, name and version) may omit a registry source; integrity
+checks raise unconditional `ValueError`s, including under Python optimization;
+and evidence collection requires an explicit run ID with matching before/after
+source fingerprints, audit run/source/lock identities, log digests and the last
+command's artifact snapshot. Collection validates the complete output set before
+its first write. `run_slice.py` prints the run ID required by the collector.
+
+The tracked `evidence/` files are deliberately unchanged historical evidence.
+Their source checksum list describes the pre-review harness, not these corrected
+scripts. No current successful build/run is asserted or manufactured. New audits
+below recheck retained metadata against local registry archives; they are not a
+new Cargo resolution, native execution, wasm check or link attempt.
+
+TDD reproduced each bug before its fix (`python3 -m unittest discover -s
+qualification -p test_review.py`, exit 1): four provenance bypass cases, six
+optimized integrity cases, and four stale/legacy collection cases. Red logs are
+`/home/jack/zcash-qualification-logs/fix-p2-{1,2,3}-red.log`.
+The final checks, from the repository root, were:
+
+```sh
+python3 -m unittest discover -s qualification -p 'test*.py'
+PYTHONOPTIMIZE=1 python3 -m unittest discover -s qualification -p 'test*.py'
+python3 qualification/verify_sources.py
+PYTHONOPTIMIZE=1 python3 qualification/verify_sources.py
+CARGO_HOME=/home/jack/zcash-qualification-scratch/cargo python3 qualification/audit.py /home/jack/zcash-qualification-logs/repeat-metadata-x86_64-unknown-linux-gnu-1789102822385103078.log
+CARGO_HOME=/home/jack/zcash-qualification-scratch/cargo python3 qualification/audit.py /home/jack/zcash-qualification-logs/repeat-metadata-wasm32-unknown-unknown-1789102824485918080.log
+git diff --check
+```
+
+All exit 0. Both test modes pass eight tests, including synthetic collection
+success and rejection before writes for source, lock, audit/command run, artifact,
+log and failed-audit mismatches, plus command fingerprint capture. Verification
+matches all four retained source files and the SDK archive. Audits retain
+236 native / 240 wasm packages and the unchanged consumer lock hash above.
+Logs are `fix-final-tests.log`, `fix-final-optimized.log`,
+`fix-source-verification.log`, `fix-optimized-sources.log`,
+`fix-native-audit.json` and `fix-wasm-audit.json` in the external logs directory.
+
+Issue #2 remains open at the previously observed SQLite OS/VFS and libc/ABI
+boundary. Runtime, storage, scanners, threading and protocol/proofs remain
+unqualified. A future explicitly bound run is required to replace historical
+evidence; these harness corrections do not supply that run.

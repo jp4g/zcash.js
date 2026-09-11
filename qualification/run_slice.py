@@ -7,8 +7,12 @@ import json
 import os
 from pathlib import Path
 import sys
+import uuid
 
 from harness import run
+
+os.environ['QUALIFICATION_RUN_ID'] = uuid.uuid4().hex
+print('Evidence run ID:', os.environ['QUALIFICATION_RUN_ID'], flush=True)
 
 logs = Path('/home/jack/zcash-qualification-logs')
 manifest = ['--locked', '--manifest-path', 'qualification/consumer/Cargo.toml']
@@ -25,7 +29,7 @@ def stage(label, argv):
 
 
 for label, command in [
-    ('repeat-tests', ['python3', '-m', 'unittest', 'discover', '-s', 'qualification', '-p', 'test_harness.py']),
+    ('repeat-tests', ['python3', '-m', 'unittest', 'discover', '-s', 'qualification', '-p', 'test*.py']),
     ('repeat-sources', ['python3', 'qualification/verify_sources.py']),
     ('repeat-native', ['cargo', 'run', *manifest]),
 ]:

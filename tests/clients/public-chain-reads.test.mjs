@@ -286,3 +286,83 @@ test('source serialization permits non-4 versions and the full uint32 timestamp/
     assert.deepEqual(f.calls.at(-2).params, ['4294967295', true]);
   }
 });
+
+// Native Response fixtures exercise admission without requiring localhost sockets.
+async function admissionFixture(t) {
+  const { genesis } = await import('./public-chain-reads-fixtures.mjs');
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const call = JSON.parse(init.body); calls.push(call);
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: call.id, result:
+      call.method === 'getblockchaininfo' ? { blocks: 0, bestblockhash: genesis.verbose.hash }
+        : call.params[1] ? genesis.verbose : genesis.raw }));
+  });
+  return { calls, source: { sourceId, transport: http('http://127.0.0.1:1/rpc', transportOptions) } };
+}
+
+test('admission snapshots each source descriptor once without proxy property rereads', async t => {
+  const f = await admissionFixture(t);
+  for (const method of [adapter.getTip, adapter.getBlockHeader]) {
+    const reads = { sourceId: 0, transport: 0 }; let gets = 0;
+    const source = new Proxy(f.source, {
+      getOwnPropertyDescriptor(target, key) {
+        const descriptor = Reflect.getOwnPropertyDescriptor(target, key);
+        if (++reads[key] > 1) descriptor.value = { private: 'private-sentinel' };
+        return descriptor;
+      },
+      get(target, key) { gets++; return gets <= 2 ? Reflect.get(target, key) : { private: 'private-sentinel' }; },
+    });
+    const observation = await method(source, method === adapter.getTip ? {} : { height: 0 });
+    assert.equal(observation.sourceId, sourceId);
+    assert.deepEqual(reads, { sourceId: 1, transport: 1 });
+    assert.equal(gets, 0);
+  }
+});
+
+test('admission normalizes source and options reflection failures without dispatch', async t => {
+  const { isZcashError } = await import(`${build}/src/errors.js`);
+  const f = await admissionFixture(t);
+  const invalid = error => {
+    assert.ok(isZcashError(error));
+    assert.equal(error.code, 'INVALID_ARGUMENT');
+    assert.equal(error.message, 'Invalid argument.');
+    assert.equal(error.cause, undefined);
+    assert.doesNotMatch(String(error.stack), /private-sentinel/);
+    return true;
+  };
+  for (const method of [adapter.getTip, adapter.getBlockHeader]) {
+    const options = method === adapter.getTip ? {} : { height: 0 };
+    for (const location of ['source', 'options']) {
+      for (const trap of ['getPrototypeOf', 'ownKeys', 'getOwnPropertyDescriptor', 'revoked']) {
+        const target = location === 'source' ? f.source : options;
+        let proxy;
+        if (trap === 'revoked') {
+          const revocable = Proxy.revocable(target, {}); revocable.revoke(); proxy = revocable.proxy;
+        } else proxy = new Proxy(target, { [trap]() { throw Error('private-sentinel'); } });
+        await assert.rejects(method(location === 'source' ? proxy : f.source,
+          location === 'options' ? proxy : options), invalid, `${method.name} ${location} ${trap}`);
+      }
+    }
+    for (const trap of ['getPrototypeOf', 'get', 'revoked']) {
+      const target = new AbortController().signal;
+      let signal;
+      if (trap === 'revoked') {
+        const revocable = Proxy.revocable(target, {}); revocable.revoke(); signal = revocable.proxy;
+      } else signal = new Proxy(target, { [trap]() { throw Error('private-sentinel'); } });
+      await assert.rejects(method(f.source, { ...options, signal }), invalid, `${method.name} signal ${trap}`);
+    }
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('admission uses data descriptors without invoking throwing source or options get traps', async t => {
+  const f = await admissionFixture(t);
+  for (const method of [adapter.getTip, adapter.getBlockHeader]) {
+    let gets = 0;
+    const handler = { get() { gets++; throw Error('private-sentinel'); } };
+    const observation = await method(new Proxy(f.source, handler),
+      new Proxy(method === adapter.getTip ? {} : { height: 0 }, handler));
+    assert.equal(observation.sourceId, sourceId);
+    assert.equal(gets, 0);
+  }
+});

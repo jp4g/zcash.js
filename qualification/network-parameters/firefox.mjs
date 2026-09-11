@@ -6,7 +6,7 @@ import { dirname, join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 const root = dirname(fileURLToPath(import.meta.url));
-const logs = '/home/jack/zcash-network-parameters-logs';
+const logs = '/home/jack/zcash-network-parameters-logs/page-realm';
 const scratch = '/home/jack/zcash-network-parameters-scratch';
 const runRoot = await mkdtemp(join(scratch, 'firefox-'));
 const report = { status: 'failed', runRoot, node: process.version };
@@ -27,7 +27,11 @@ async function request(path, method = 'GET', body, cleanup = false) {
 try {
   const files = (await readFile(join(root, 'SHA256SUMS'), 'utf8')).trim().split('\n').map(line => line.slice(66));
   const assets = new Map(await Promise.all(files.map(async file => ['/' + file, await readFile(join(root, file))])));
-  assets.set('/', Buffer.from('<!doctype html><title>Network parameter qualification</title>'));
+  assets.set('/', Buffer.from(`<!doctype html><title>Network parameter qualification</title>
+<script type="module">
+  window.networkParametersResult = import('/browser.mjs').then(m => m.run()).then(
+    result => ({ result }), error => ({ error: String(error), stack: error.stack }));
+</script>`));
   server = createServer((req, res) => {
     const bytes = assets.get(req.url);
     if (req.method !== 'GET' || !bytes) { res.writeHead(404).end(); return; }
@@ -52,7 +56,7 @@ try {
   await request(`/session/${session}/timeouts`, 'POST', { script: 30000, pageLoad: 15000, implicit: 0 });
   await request(`/session/${session}/url`, 'POST', { url: `http://127.0.0.1:${server.address().port}/` });
   const result = await request(`/session/${session}/execute/async`, 'POST', {
-    script: "const done=arguments[arguments.length-1]; import('/browser.mjs').then(m=>m.run()).then(result=>done({result}),e=>done({error:String(e),stack:e.stack}));", args: [] });
+    script: "const done=arguments[arguments.length-1]; const result=window.networkParametersResult; if (!result) done({error:'Missing page-owned network parameters entry'}); else result.then(done);", args: [] });
   assert.ok(!result.error, JSON.stringify(result)); assert.ok(result.result.cases > 100);
   report.result = result.result; report.status = 'passed';
 } catch (error) { report.error = String(error); }

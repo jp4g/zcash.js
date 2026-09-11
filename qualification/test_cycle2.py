@@ -54,7 +54,7 @@ class Cycle2Tests(unittest.TestCase):
                                     label='repeat-audit-' + target, exit_code=0, log=str(path),
                                     sha256=hashlib.sha256(path.read_bytes()).hexdigest(), artifacts_after=[]))
             (root / 'commands.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in records))
-            with patch('collect_evidence.sources', return_value=current), patch('collect_evidence.artifacts', return_value=[]), patch.object(Path, 'write_text') as write:
+            with patch('collect_evidence.sources', return_value=current), patch('collect_evidence.producer_artifacts', return_value=[]), patch.object(Path, 'write_text') as write:
                 with self.assertRaises(ValueError): collect(root, root, 'run')
                 write.assert_not_called()
 
@@ -74,6 +74,67 @@ class Cycle2Tests(unittest.TestCase):
                     if mutation in ['missing', 'wrong-target']:
                         with self.assertRaises(ValueError): fingerprints.producer_artifacts(record, [message])
                     else:
-                        result = fingerprints.producer_artifacts(record, [] if mutation == 'failed' else [message])
+                        result = fingerprints.producer_artifacts(record, [dict(reason='build-finished', success=False), dict(reason='compiler-message', message={'message': 'linking with rust-lld failed'})] if mutation == 'failed' else [message])
                         self.assertEqual(result[0]['path'], str(wasm))
                         self.assertEqual(result[0]['status'], 'expected failed-link absence' if mutation == 'failed' else 'present')
+
+    def test_complete_collection_and_mutations_before_writes(self):
+        from contracts import commands
+        from fingerprints import producer_artifacts, messages
+        for mutation in [None, 'metadata-input', 'target-label', 'manifest', 'missing', 'wrong-path', 'historical', 'snapshot']:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / 'qualification'
+                root.mkdir()
+                target_dir = Path(tmp) / 'run'
+                binary = target_dir / 'debug/issue-2-qualification'
+                obj = target_dir / 'wasm32-unknown-unknown/debug/build/libsqlite3-sys-fixture/out/sqlite3.o'
+                for p in [binary, obj]:
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_bytes(b'fixture')
+                current = {'consumer/Cargo.lock': 'lock', 'consumer/Cargo.toml': 'js'}
+                records = []
+                for label, argv in commands().items():
+                    path = root / (label + '.log')
+                    data = []
+                    if label == 'repeat-native':
+                        data = [dict(reason='compiler-artifact', filenames=[str(binary)])]
+                    if label == 'repeat-wasm-check':
+                        data = [dict(reason='build-script-executed', package_id='libsqlite3-sys', out_dir=str(obj.parent))]
+                    if label in ['repeat-wasm-link', 'repeat-wasm-libc-diagnostic']:
+                        data = [dict(reason='build-finished', success=False), dict(reason='compiler-message', message={'message': 'linking with rust-lld failed'})]
+                    if argv is None:
+                        producer = records[-1]
+                        platform = label.removeprefix('repeat-audit-')
+                        argv = ['python3', 'qualification/audit.py', producer['log'], platform]
+                        data = [dict(run_id='run', sources=current, lock_sha256='lock', packages=[],
+                                     metadata_input=dict(log=producer['log'], sha256=producer['sha256'], target=platform,
+                                                         run_id='run', sources=current, argv=producer['argv']))]
+                    path.write_text('\n'.join(json.dumps(x) for x in data) or '{}')
+                    r = dict(run_id='run', label=label, argv=argv, cwd=str(root.parent), log=str(path),
+                             sha256=hashlib.sha256(path.read_bytes()).hexdigest(), sources_before=current.copy(),
+                             sources_after=current.copy(), environment={'CARGO_TARGET_DIR': str(target_dir)},
+                             target_existed_before=False, exit_code=101 if label in ['repeat-wasm-link', 'repeat-wasm-libc-diagnostic'] else 0,
+                             timed_out=False)
+                    r['artifacts_after'] = producer_artifacts(r, messages(path))
+                    records.append(r)
+                if mutation == 'metadata-input':
+                    r = records[4]
+                    data = json.loads(Path(r['log']).read_text())
+                    data['metadata_input']['sha256'] = 'stale'
+                    Path(r['log']).write_text(json.dumps(data))
+                    r['sha256'] = hashlib.sha256(Path(r['log']).read_bytes()).hexdigest()
+                if mutation == 'target-label': records[3]['argv'][-1] = 'wasm32-unknown-unknown'
+                if mutation == 'manifest': current['consumer/Cargo.toml'] = 'no-js'
+                if mutation == 'missing': binary.unlink()
+                if mutation == 'wrong-path':
+                    for r in records: r['environment']['CARGO_TARGET_DIR'] = str(Path(tmp) / 'other/run')
+                if mutation == 'historical': records[2]['target_existed_before'] = True
+                if mutation == 'snapshot': binary.write_bytes(b'stale changed binary')
+                (root / 'commands.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in records))
+                with patch('collect_evidence.sources', return_value=current), patch.object(Path, 'write_text') as write:
+                    if mutation:
+                        with self.assertRaises(ValueError): collect(root, root, 'run')
+                        write.assert_not_called()
+                    else:
+                        collect(root, root, 'run')
+                        self.assertEqual(write.call_count, 5)

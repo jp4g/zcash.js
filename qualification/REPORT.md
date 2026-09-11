@@ -138,12 +138,14 @@ selection, GitHub writes or deferred #10–12 work occurred.
 
 ## Review fixes — harness scope only
 
-The three P2 review findings are corrected: only the exact resolved consumer
+The initial fixes addressed three P2 findings, but rereview found that metadata
+and artifact provenance remained incomplete. The initial implementation allowed: only the exact resolved consumer
 root (manifest path, name and version) may omit a registry source; integrity
 checks raise unconditional `ValueError`s, including under Python optimization;
-and evidence collection requires an explicit run ID with matching before/after
+and evidence collection required an explicit run ID with matching before/after
 source fingerprints, audit run/source/lock identities, log digests and the last
-command's artifact snapshot. Collection validates the complete output set before
+command's artifact snapshot. Those checks were insufficient to bind producers.
+Collection validated the complete output set before
 its first write. `run_slice.py` prints the run ID required by the collector.
 
 The tracked `evidence/` files are deliberately unchanged historical evidence.

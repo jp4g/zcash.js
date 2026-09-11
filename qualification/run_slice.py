@@ -15,10 +15,12 @@ os.environ['QUALIFICATION_RUN_ID'] = uuid.uuid4().hex
 print('Evidence run ID:', os.environ['QUALIFICATION_RUN_ID'], flush=True)
 
 logs = Path('/home/jack/zcash-qualification-logs')
-manifest = ['--locked', '--manifest-path', 'qualification/consumer/Cargo.toml']
-target = ['--lib', '--target', 'wasm32-unknown-unknown']
-sdk = Path('/home/jack/zcash-qualification-scratch/wasi-sdk-27.0-x86_64-linux')
-if os.environ.get('CARGO_BUILD_JOBS') != '2' or os.environ.get('CC_wasm32_unknown_unknown') != str(sdk / 'bin/clang'):
+from contracts import commands, SDK
+os.environ['CARGO_NET_OFFLINE'] = 'true'
+os.environ['CARGO_TARGET_DIR'] = '/home/jack/zcash-qualification-scratch/cycle2-targets/' + os.environ['QUALIFICATION_RUN_ID']
+if Path(os.environ['CARGO_TARGET_DIR']).exists():
+    sys.exit('Run target directory already exists')
+if os.environ.get('CARGO_BUILD_JOBS') != '2' or os.environ.get('CC_wasm32_unknown_unknown') != SDK + '/bin/clang':
     sys.exit('Source cargo-env.sh and wasi-diagnostic-env.sh before running this slice.')
 
 
@@ -28,35 +30,17 @@ def stage(label, argv):
     return result
 
 
-for label, command in [
-    ('repeat-tests', ['python3', '-m', 'unittest', 'discover', '-s', 'qualification', '-p', 'test*.py']),
-    ('repeat-sources', ['python3', 'qualification/verify_sources.py']),
-    ('repeat-native', ['cargo', 'run', *manifest]),
-]:
+previous = None
+for label, command in commands().items():
+    if label == 'repeat-wasm-libc-diagnostic' and linked['exit_code'] == 0:
+        break
+    if command is None:
+        command = ['python3', 'qualification/audit.py', previous['log'], label.removeprefix('repeat-audit-')]
     result = stage(label, command)
-    if result['exit_code']:
+    if label == 'repeat-wasm-link':
+        linked = result
+    elif result['exit_code'] and label != 'repeat-wasm-libc-diagnostic':
         sys.exit(result['exit_code'])
-
-for platform in ['x86_64-unknown-linux-gnu', 'wasm32-unknown-unknown']:
-    result = stage('repeat-metadata-' + platform,
-                   ['cargo', 'metadata', *manifest, '--format-version', '1', '--filter-platform', platform])
-    if result['exit_code']:
-        sys.exit(result['exit_code'])
-    result = stage('repeat-audit-' + platform, ['python3', 'qualification/audit.py', result['log']])
-    if result['exit_code']:
-        sys.exit(result['exit_code'])
-    result = stage('repeat-features-' + platform, ['cargo', 'tree', *manifest, '-e', 'features', '--target', platform])
-    if result['exit_code']:
-        sys.exit(result['exit_code'])
-
-result = stage('repeat-wasm-check', ['cargo', 'check', *manifest, *target])
-if result['exit_code']:
-    sys.exit(result['exit_code'])
-linked = stage('repeat-wasm-link', ['cargo', 'build', *manifest, *target])
-if linked['exit_code']:
-    stage('repeat-wasm-libc-diagnostic', ['cargo', 'rustc', *manifest, *target, '--',
-          '-C', 'link-arg=' + str(sdk / 'share/wasi-sysroot/lib/wasm32-wasi/libc.a'),
-          '-C', 'link-arg=--error-limit=0'])
-    print('Node/browser instantiation, module imports/memory, scanning, storage and threading: NOT QUALIFIED; final link failed.')
-    sys.exit(linked['exit_code'])
-print('Final link passed; runtime/import/memory qualification must still be executed separately.')
+    previous = result
+print('Slice finished; runtime, storage, scanning and threading remain NOT QUALIFIED.')
+sys.exit(linked['exit_code'])

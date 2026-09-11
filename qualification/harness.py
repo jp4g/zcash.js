@@ -9,13 +9,14 @@ import signal
 import subprocess
 import time
 
-from fingerprints import sources, artifacts
+from fingerprints import sources, producer_artifacts, messages
 
 
 def run(label, argv, logs, timeout=900, cwd=None, env=None):
     effective = os.environ if env is None else env
     run_id = effective.get('QUALIFICATION_RUN_ID')
     before = sources() if run_id else None
+    target_existed = Path(effective.get('CARGO_TARGET_DIR', '.')).exists()
     logs = Path(logs).resolve()
     logs.mkdir(parents=True, exist_ok=True)
     path = logs / f'{label}-{time.time_ns()}.log'
@@ -42,7 +43,8 @@ def run(label, argv, logs, timeout=900, cwd=None, env=None):
         'CFLAGS_wasm32_unknown_unknown', 'CC_ENABLE_DEBUG_OUTPUT']}
     if run_id:
         record.update(run_id=run_id, sources_before=before, sources_after=sources(),
-                      artifacts_after=artifacts())
+                      target_existed_before=target_existed)
+        record['artifacts_after'] = producer_artifacts(record, messages(path))
     with (logs / 'commands.jsonl').open('a') as output:
         output.write(json.dumps(record, sort_keys=True) + '\n')
     return record

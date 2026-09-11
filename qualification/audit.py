@@ -70,5 +70,32 @@ def audit(metadata):
             'packages': sorted(rows, key=lambda p: (p['name'], p['version']))}
 
 
+def metadata_input(path, target):
+    from contracts import commands
+    path = Path(path).resolve()
+    run_id = os.environ.get('QUALIFICATION_RUN_ID')
+    records = [json.loads(line) for line in (path.parent / 'commands.jsonl').read_text().splitlines()]
+    matches = [r for r in records if r.get('run_id') == run_id and r.get('log') == str(path)]
+    if not run_id or len(matches) != 1:
+        raise ValueError('missing or duplicate same-run metadata producer')
+    record = matches[0]
+    current = sources()
+    label = 'repeat-metadata-' + target
+    data = path.read_bytes()
+    if (record.get('label') != label or record.get('argv') != commands().get(label)
+            or record.get('cwd') != str(ROOT.parent) or record.get('exit_code') != 0
+            or record.get('timed_out') is not False
+            or record.get('sources_before') != current or record.get('sources_after') != current
+            or record.get('sha256') != hashlib.sha256(data).hexdigest()):
+        raise ValueError('metadata producer/input/target/source mismatch')
+    return json.loads(data), dict(log=str(path), sha256=record['sha256'], target=target,
+                                  run_id=run_id, sources=current, argv=record['argv'])
+
+
 if __name__ == '__main__':
-    print(json.dumps(audit(json.loads(Path(sys.argv[1]).read_text())), indent=2, sort_keys=True))
+    metadata, binding = metadata_input(sys.argv[1], sys.argv[2])
+    result = audit(metadata)
+    if result['sources'] != binding['sources']:
+        raise ValueError('metadata sources changed before audit')
+    result['metadata_input'] = binding
+    print(json.dumps(result, indent=2, sort_keys=True))

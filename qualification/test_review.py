@@ -103,14 +103,10 @@ class EvidenceBindingTests(unittest.TestCase):
                 if mutation == 'log': records[0]['sha256'] = 'wrong'
                 (root / 'commands.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in records))
                 with patch('collect_evidence.sources', return_value=current), \
-                        patch('collect_evidence.artifacts', return_value=['changed'] if mutation == 'artifact' else []), \
+                        patch('collect_evidence.producer_artifacts', return_value=['changed'] if mutation == 'artifact' else []), \
                         patch.object(Path, 'write_text') as write:
-                    if mutation:
-                        with self.assertRaises(ValueError): collect(root, root, 'run')
-                        write.assert_not_called()
-                    else:
-                        collect(root, root, 'run')
-                        self.assertEqual(write.call_count, 5)
+                    with self.assertRaises(ValueError): collect(root, root, 'run')
+                    write.assert_not_called()
 
     def test_recorder_binds_before_after_and_artifacts(self):
         import os
@@ -119,7 +115,7 @@ class EvidenceBindingTests(unittest.TestCase):
         from harness import run
         with tempfile.TemporaryDirectory() as tmp, \
                 patch('harness.sources', side_effect=[{'source': 'before'}, {'source': 'after'}]), \
-                patch('harness.artifacts', return_value=[{'sha256': 'artifact'}]):
+                patch('harness.producer_artifacts', return_value=[{'sha256': 'artifact'}]):
             result = run('fixture', [sys.executable, '-c', 'pass'], tmp,
                          env=dict(os.environ, QUALIFICATION_RUN_ID='fixture-run'))
             self.assertEqual(result['run_id'], 'fixture-run')

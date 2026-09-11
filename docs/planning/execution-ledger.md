@@ -43,4 +43,12 @@ Partial slices never close an entire issue. Mock behavior, compilation alone and
 - Qualification worktree /home/jack/zcash-worktrees/qualification, branch test/issue-2-wasm-qualification. Owns qualification experiments/evidence, not shared API documents.
 - Transient full logs remain outside tracked repository. Each milestone records exact commands, exit codes, reviewer disposition, commit/PR and next gate here or linked qualification evidence.
 
-Current next step: recovery specification amendment and initial #2 pinned dependency/target qualification independently; review separately and independently rerun checks before push/PR/merge.
+## Active slice checkpoint
+
+- Recovery worker: PID 23336, Hermes proc_a8bb7348414e, Codex 01a08eca-ac8e-71f0-be6f-69041565f588, gpt-6-astra medium/workspace-write. Prompt /home/jack/zcash-recovery-worker.md; log /home/jack/zcash-recovery-worker.log; final /home/jack/zcash-recovery-result.md. Useful repository inspection observed.
+- Qualification worker: PID 23416, Hermes proc_22360b30e539, Codex 01a08eca-ad47-7fb0-8513-c8f19246bebe, gpt-6-astra medium/workspace-write. Prompt /home/jack/zcash-qualification-worker.md; log /home/jack/zcash-qualification-worker.log; final /home/jack/zcash-qualification-result.md. Useful repository inspection observed.
+- Coordinator independently ran primary baseline npm run docs:typecheck, npm run docs:build and git diff --check: exit 0. Existing Vite chunk-size warning, not a new regression.
+- #2 board read-back confirms In Progress. #1 remains closed; #3–#9 remain open with gates intact.
+- Posted and read back the exact owner amendment comments: #1 comment 5629631059; #3 5629631202; #4 5629631320; #5 5629631437; #7 5629631563; #8 5629631677; #9 5629631784. Each records database-owned all-operation recovery, exact-byte/consent limits, no secret reacquisition, remaining qualification, and no publication/deployment authority.
+
+Current next step: monitor bounded workers, independently review completed slices with gpt-6-astra high, fix findings with low, rerun checks, then push/PR/verify CI/qualified merge. Do not duplicate workers on coordinator interruption.

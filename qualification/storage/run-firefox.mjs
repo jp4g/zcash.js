@@ -3,7 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import { serveStatic } from './serve-static.mjs';
 import { spawn } from 'node:child_process';
-const base = process.env.STORAGE_BUNDLE ?? '/home/jack/zcash-storage-scratch/stage-1/bundle';
+const base = process.env.STORAGE_BUNDLE ?? '/home/jack/zcash-storage-scratch/stage-5/bundle';
 const logs = '/home/jack/zcash-storage-logs';
 const stamp = Date.now();
 const output = fs.openSync(`${logs}/firefox-driver-${stamp}.log`, 'wx');

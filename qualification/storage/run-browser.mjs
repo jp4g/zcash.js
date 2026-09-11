@@ -3,7 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import { serveStatic } from './serve-static.mjs';
 import { spawn } from 'node:child_process';
-const base = '/home/jack/zcash-storage-scratch/bundle';
+const base = '/home/jack/zcash-storage-scratch/stage-5/bundle';
 const log = '/home/jack/zcash-storage-logs';
 const profile = fs.mkdtempSync('/home/jack/zcash-storage-scratch/chrome-');
 const chromeLog = fs.openSync(`${log}/browser-chrome-${Date.now()}.log`, 'wx');

@@ -6,7 +6,7 @@ import { dispatch } from './dispatch.mjs';
 let host, runtime, failure;
 try {
   host = acquire(workerData.root, { create: workerData.create, crash: v => parentPort.postMessage(v) });
-  const bundle = workerData.bundle ?? '/home/jack/zcash-storage-scratch/bundle';
+  const bundle = workerData.bundle ?? '/home/jack/zcash-storage-scratch/stage-5/bundle';
   const { load } = await import(pathToFileURL(`${bundle}/load.mjs`));
   runtime = await load(readFileSync(`${bundle}/storage_bg.wasm`), host);
 } catch (e) { host?.release(); failure = { error: e.message, code: e.code ?? e.name }; }

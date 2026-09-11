@@ -17,6 +17,14 @@ export async function browserChecks() {
   const unary = (transport, request = new Uint8Array([8, 1]), method = 'GetLatestBlock') => transport.unary({ method, request });
   const stream = (transport, signal) => transport.stream({ method: 'GetBlockRange', request: new Uint8Array(), ...(signal ? { signal } : {}) });
   const collect = async iterator => { const values = []; for await (const value of iterator) values.push([...value]); return values; };
+  const nativeOptions = structuredClone({ timeoutMs: 2000 });
+  const nativeArgs = structuredClone({ method: 'GetLatestBlock', request: new Uint8Array([8, 1]) });
+  nativeArgs.signal = new AbortController().signal;
+  equal([...await createGrpcWebByteTransport(location.origin, nativeOptions).unary(nativeArgs)], [8, 1]);
+  const preaborted = new AbortController(); preaborted.abort();
+  await rejects(() => create().unary({ ...nativeArgs, signal: preaborted.signal }), 'ABORTED');
+  await rejects(() => create().unary({ ...nativeArgs, signal: {} }), 'INVALID_ARGUMENT');
+  claims.push('page-native-record-bytes-signal');
   document.cookie = 'private-secret=cookie; SameSite=Strict; path=/';
   if (!document.cookie.includes('private-secret')) throw Error('cookie control missing');
   for (const method of unaryMethods) equal([...await unary(create(), undefined, method)], [8, 1]);
@@ -60,86 +68,172 @@ export async function browserChecks() {
 }
 
 async function runFirefox() {
-  const { readFile, writeFile, mkdir, mkdtemp } = await import('node:fs/promises');
+  const { readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync } = await import('node:fs');
   const { spawn } = await import('node:child_process');
+  const { createHash } = await import('node:crypto');
   const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
   const assert = (await import('node:assert/strict')).default;
-  const logs = '/home/jack/zcash-grpc-web-logs', scratch = '/home/jack/zcash-grpc-web-scratch';
-  await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true });
-  const run = await mkdtemp(scratch + '/firefox-');
-  const assets = new Map([
-    ['/', '<!doctype html><meta charset="utf-8"><title>gRPC-Web fixture</title><link rel="icon" href="data:,">'],
-    ['/grpc-web-browser.mjs', await readFile(new URL('./grpc-web-browser.mjs', import.meta.url))],
-    ['/grpc-web-fixtures.mjs', await readFile(new URL('./grpc-web-fixtures.mjs', import.meta.url))],
-    ['/src/clients/grpc-web.js', await readFile(new URL('../../dist/src/clients/grpc-web.js', import.meta.url))],
-    ['/src/errors.js', await readFile(new URL('../../dist/src/errors.js', import.meta.url))],
-  ]);
-  const fixture = await serveFixtures(assets);
-  let driver, endpoint, session, driverLog = '', browser, leader;
-  const report = { ok: false, run, started: new Date().toISOString(), cleanup: {} };
+  const logs = process.env.GRPC_WEB_LOGS ?? '/home/jack/zcash-grpc-web-logs/fixes/lifecycle';
+  const scratch = process.env.GRPC_WEB_SCRATCH ?? '/home/jack/zcash-grpc-web-scratch/fixes/lifecycle';
+  const report = { ok: false, started: new Date().toISOString(), runnerPid: process.pid,
+    node: process.versions.node, cleanup: { errors: [] }, trace: [], identities: {} };
+  let receipt, run, fixture, driver, endpoint, session, leader, browser, driverError, driverLog = '';
+  const stop = new AbortController();
+  const onInt = () => { report.error ??= 'Error: SIGINT'; stop.abort(Error('SIGINT')); };
+  const onTerm = () => { report.error ??= 'Error: SIGTERM'; stop.abort(Error('SIGTERM')); };
+  process.on('SIGINT', onInt); process.on('SIGTERM', onTerm);
+  const deadline = setTimeout(() => stop.abort(Error('whole-run timeout')), 90000);
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const identity = async pid => {
-    try { const fields = (await readFile(`/proc/${pid}/stat`, 'utf8')).split(') ').at(-1).split(' '); return { pid, start: fields[19], state: fields[0] }; }
+  const save = () => { if (receipt) writeFileSync(receipt, JSON.stringify(report, null, 2) + '\n'); };
+  const trace = event => { report.trace.push({ event, at: new Date().toISOString() }); save(); };
+  // Race even dependencies that fail to settle on abort; no subsequent acquisition runs after this rejects.
+  const bounded = async (action, signal = stop.signal) => {
+    signal.throwIfAborted();
+    let abort;
+    const cancelled = new Promise((_, reject) => { abort = () => reject(signal.reason); signal.addEventListener('abort', abort, { once: true }); });
+    try { return await Promise.race([Promise.resolve().then(action), cancelled]); }
+    finally { signal.removeEventListener('abort', abort); }
+  };
+  const identity = pid => {
+    if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+    try { const fields = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ').at(-1).split(' ');
+      return { pid, group: Number(fields[2]), start: fields[19], state: fields[0] }; }
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   };
-  const alive = async owned => { const now = owned && await identity(owned.pid); return !!now && now.start === owned.start && now.state !== 'Z'; };
-  const command = async (path, method = 'GET', body) => {
-    const response = await fetch(endpoint + path, { method, headers: { 'content-type': 'application/json' },
-      signal: AbortSignal.timeout(45000), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    const data = await response.json(); assert.ok(response.ok && !data.value?.error, JSON.stringify(data)); return data.value;
+  const alive = owned => { const now = owned && identity(owned.pid); return !!now && now.start === owned.start && now.state !== 'Z'; };
+  const members = new Map();
+  const captureGroup = () => {
+    if (!leader) return [];
+    const current = identity(leader.pid);
+    if (current && current.start !== leader.start) throw Error('owned driver PID was reused');
+    const group = readdirSync('/proc').filter(name => /^\d+$/.test(name)).map(name => identity(Number(name)))
+      .filter(item => item && item.group === leader.pid && item.state !== 'Z');
+    // The original leader or a previously captured member must still anchor ownership.
+    if (group.length && !alive(leader) && ![...members.values()].some(alive)) throw Error('driver group ownership unavailable');
+    for (const item of group) members.set(item.pid, item);
+    report.identities.groupMembers = [...members.values()];
+    return group;
+  };
+  const command = async (path, method = 'GET', body, cleanup = false) => {
+    const signal = cleanup ? AbortSignal.timeout(5000) : AbortSignal.any([stop.signal, AbortSignal.timeout(45000)]);
+    return bounded(async () => {
+      const response = await fetch(endpoint + path, { method, headers: { 'content-type': 'application/json' }, signal,
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+      const data = await response.json(); assert.ok(response.ok && !data.value?.error, JSON.stringify(data)); return data.value;
+    }, signal);
+  };
+  const cleanup = async (name, action) => {
+    const limit = new AbortController();
+    const timer = setTimeout(() => limit.abort(Error('cleanup timeout')), 5000);
+    try { await bounded(action, limit.signal); report.cleanup[name] = true; }
+    catch (error) { report.cleanup[name] = false; report.cleanup.errors.push(`${name}: ${String(error)}`); }
+    finally { clearTimeout(timer); }
   };
   try {
+    // Publish an incomplete, unique receipt before any asset, server, driver or session acquisition.
+    mkdirSync(logs, { recursive: true });
+    const receiptDir = mkdtempSync(logs + '/firefox-');
+    receipt = receiptDir + '/receipt.json'; report.receipt = receipt;
+    report.run = receiptDir; trace('started');
+    mkdirSync(scratch, { recursive: true }); run = mkdtempSync(scratch + '/firefox-'); report.run = run;
+    const assets = new Map([
+      ['/', `<!doctype html><meta charset="utf-8"><title>gRPC-Web fixture</title><link rel="icon" href="data:,">
+<script type="module">
+import { browserChecks } from '/grpc-web-browser.mjs';
+try { window.grpcWebResult = await browserChecks(); }
+catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: error.name, message: error.message, stack: error.stack }; }
+</script>`],
+      ['/grpc-web-browser.mjs', readFileSync(new URL('./grpc-web-browser.mjs', import.meta.url))],
+      ['/grpc-web-fixtures.mjs', readFileSync(new URL('./grpc-web-fixtures.mjs', import.meta.url))],
+      ['/src/clients/grpc-web.js', readFileSync(new URL('../../dist/src/clients/grpc-web.js', import.meta.url))],
+      ['/src/errors.js', readFileSync(new URL('../../dist/src/errors.js', import.meta.url))],
+    ]);
+    const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+    report.assets = Object.fromEntries([...assets].map(([path, bytes]) => [path, hash(bytes)]));
+    report.sources = {};
+    for (const path of ['src/clients/grpc-web.ts', 'src/errors.ts', 'tsconfig.json', 'package.json',
+      'qualification/browser-runtime/firefox-options.mjs']) {
+      report.sources[path] = hash(readFileSync(new URL('../../' + path, import.meta.url)));
+    }
+    trace('assets-read');
+    await bounded(() => serveFixtures(assets, { signal: stop.signal, onCreate: owned => { fixture = owned; trace('server-created'); } }));
+    report.origin = fixture.origin; trace('server-listening');
+    stop.signal.throwIfAborted();
     driver = spawn('/snap/bin/geckodriver', ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', run],
       { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    let launchError;
-    driver.on('error', error => { launchError = error; });
-    leader = await identity(driver.pid);
+    driver.on('error', error => { driverError = error; stop.abort(error); });
+    driver.on('exit', (code, signal) => { driverError = Error(`driver exit ${code}/${signal}`); stop.abort(driverError); });
     for (const stream of [driver.stdout, driver.stderr]) stream.on('data', bytes => { driverLog += bytes; });
+    leader = identity(driver.pid); report.identities.driver = leader;
+    if (driver.pid) assert.ok(leader && leader.group === driver.pid, 'detached driver identity');
+    captureGroup(); trace('driver-spawned');
     const until = Date.now() + 15000;
-    while (!endpoint && Date.now() < until) {
-      if (launchError) throw launchError;
+    while (!endpoint) {
+      stop.signal.throwIfAborted(); if (driverError) throw driverError;
+      captureGroup();
       const match = driverLog.match(/Listening on (127\.0\.0\.1:\d+)/);
-      if (match) endpoint = 'http://' + match[1]; else await delay(40);
+      if (match) endpoint = 'http://' + match[1];
+      else { assert.ok(Date.now() < until, 'driver readiness timeout'); await bounded(() => delay(40)); }
     }
-    assert.ok(endpoint, 'driver readiness');
+    trace('session-creating');
     const created = await command('/session', 'POST', { capabilities: { alwaysMatch: {
       browserName: 'firefox', acceptInsecureCerts: false, 'moz:firefoxOptions': firefoxOptions(),
     } } });
-    session = created.sessionId;
-    browser = await identity(created.capabilities['moz:processID']);
+    session = created.sessionId; report.session = session;
+    browser = identity(created.capabilities['moz:processID']); report.identities.browser = browser;
     report.capabilities = created.capabilities;
+    report.versions = { browser: created.capabilities.browserVersion, driver: created.capabilities['moz:geckodriverVersion'] };
+    assert.ok(session && browser && report.versions.browser && report.versions.driver, 'session identities and versions');
+    assert.equal(created.capabilities.acceptInsecureCerts, false);
+    captureGroup(); trace('session-created');
     await command(`/session/${session}/timeouts`, 'POST', { script: 30000, pageLoad: 15000 });
     await command(`/session/${session}/url`, 'POST', { url: fixture.origin });
-    report.result = await command(`/session/${session}/execute/async`, 'POST', {
-      script: "const done = arguments[arguments.length - 1]; import('/grpc-web-browser.mjs').then(m => m.browserChecks()).then(done, error => done({error: String(error), stack: error.stack}));", args: [],
-    });
+    trace('page-loaded');
+    do {
+      report.result = await command(`/session/${session}/execute/sync`, 'POST', { script: 'return window.grpcWebResult || null;', args: [] });
+      if (!report.result) await bounded(() => delay(40));
+    } while (!report.result);
     assert.equal(report.result.ok, true, JSON.stringify(report.result));
-    await delay(100);
+    await bounded(() => delay(100));
     const submissions = fixture.requests.filter(r => r.path.endsWith('/SendTransaction'));
-    assert.equal(submissions.length, 4); // One success plus three independent failures.
+    assert.equal(submissions.length, 4);
+    assert.equal(fixture.requests.length, 34);
     assert.equal(fixture.requests.filter(r => r.mode === 'mutation')[0].body, base64(frame(new Uint8Array([8, 1]))));
     assert.ok(fixture.requests.every(r => !r.headers.cookie && !r.headers.referer));
     assert.equal(fixture.closed.filter(mode => mode === 'stall').length, 4);
-    report.requests = fixture.requests.map(({ path, mode, body }) => ({ path, mode, body }));
-    report.ok = true;
+    assert.deepEqual([...new Set(fixture.served)].sort(), [...assets.keys()].sort());
+    trace('checks-passed');
   } catch (error) { report.error = String(error); }
   finally {
-    if (session) try { await command(`/session/${session}`, 'DELETE'); report.cleanup.sessionDeleted = true; } catch (error) { report.cleanup.error = String(error); }
+    // Preserve the primary error; independently bound every teardown, even if another fails.
+    stop.abort(Error('run finished')); clearTimeout(deadline);
+    await cleanup('groupCaptured', () => captureGroup());
+    // Start session/server cleanup together; driver teardown does not depend on either succeeding.
+    const closing = [cleanup('serverClosed', () => fixture?.close())];
+    if (session) closing.push(cleanup('sessionDeleted', () => command(`/session/${session}`, 'DELETE', undefined, true)));
+    else report.cleanup.sessionDeleted = null;
+    await Promise.all(closing);
     for (const signal of ['SIGTERM', 'SIGKILL']) {
-      const current = leader && await identity(leader.pid);
-      if (leader && (!current || current.start === leader.start)) {
-        try { process.kill(-leader.pid, signal); } catch (error) { if (error.code !== 'ESRCH') report.cleanup.error = String(error); }
-      }
-      if (await alive(browser)) try { process.kill(browser.pid, signal); } catch (error) { if (error.code !== 'ESRCH') report.cleanup.error = String(error); }
+      await cleanup(signal, () => {
+        const group = captureGroup();
+        if (group.length) try { process.kill(-leader.pid, signal); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+      });
+      // Firefox can be launched outside the driver's group by a packaged launcher.
+      await cleanup('browser' + signal, () => {
+        if (alive(browser)) try { process.kill(browser.pid, signal); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+      });
       await delay(300);
     }
-    try { process.kill(-leader.pid, 0); report.cleanup.driverGroupGone = false; }
-    catch (error) { report.cleanup.driverGroupGone = error.code === 'ESRCH'; }
-    report.cleanup.browserGone = !await alive(browser);
-    await fixture.close(); report.cleanup.serverClosed = true;
-    report.ok &&= report.cleanup.sessionDeleted && report.cleanup.driverGroupGone && report.cleanup.browserGone && !report.cleanup.error;
-    await writeFile(logs + '/firefox.driver.log', driverLog);
-    await writeFile(logs + '/firefox.json', JSON.stringify(report, null, 2) + '\n');
+    await cleanup('driverGroupGone', () => assert.equal(captureGroup().length, 0));
+    await cleanup('browserGone', () => assert.equal(alive(browser), false));
+    report.served = fixture?.served ?? [];
+    report.requests = fixture?.requests.map(({ path, mode, body }) => ({ path, mode, body })) ?? [];
+    report.finished = new Date().toISOString();
+    report.ok = !report.error && !report.cleanup.errors.length && report.trace.some(item => item.event === 'checks-passed');
+    process.off('SIGINT', onInt); process.off('SIGTERM', onTerm);
+    try { if (receipt) writeFileSync(receipt.replace('receipt.json', 'driver.log'), driverLog); }
+    catch (error) { report.cleanup.errors.push(String(error)); report.ok = false; }
+    try { trace('finished'); } catch (error) { report.ok = false; console.error('receipt write failed:', error); }
     console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
   }

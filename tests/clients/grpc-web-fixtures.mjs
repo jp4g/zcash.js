@@ -25,13 +25,15 @@ export function base64(bytes) {
 }
 export const good = () => base64(concat(frame(new Uint8Array([8, 1])), trailer()));
 
-export async function serveFixtures(assets = new Map()) {
+export async function serveFixtures(assets = new Map(), { signal, onCreate } = {}) {
   const { createServer } = await import('node:http');
-  const requests = [], closed = [], timers = new Set();
+  signal?.throwIfAborted();
+  const requests = [], closed = [], served = [], timers = new Set();
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost');
       if (req.method === 'GET' && assets.has(url.pathname)) {
+        served.push(url.pathname);
         res.writeHead(200, { 'content-type': url.pathname === '/' ? 'text/html' : 'text/javascript' });
         res.end(assets.get(url.pathname)); return;
       }
@@ -70,7 +72,30 @@ export async function serveFixtures(assets = new Map()) {
       } else res.end(text);
     } catch { res.destroy(); }
   });
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-  return { origin: `http://127.0.0.1:${server.address().port}`, requests, closed,
-    async close() { for (const timer of timers) clearTimeout(timer); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
+  let closing;
+  const fixture = { requests, closed, served,
+    close() {
+      return closing ??= (async () => {
+        for (const timer of timers) clearTimeout(timer);
+        server.closeAllConnections();
+        await new Promise((resolve, reject) => server.close(error => {
+          if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') reject(error); else resolve();
+        }));
+      })();
+    } };
+  // Publish ownership before listen: callers can tear down pending acquisition.
+  onCreate?.(fixture);
+  await new Promise((resolve, reject) => {
+    const aborted = () => reject(signal.reason);
+    const failed = error => { signal?.removeEventListener('abort', aborted); reject(error); };
+    server.once('error', failed);
+    if (signal?.aborted) { reject(signal.reason); return; }
+    signal?.addEventListener('abort', aborted, { once: true });
+    server.listen({ port: 0, host: '127.0.0.1', signal }, () => {
+      signal?.removeEventListener('abort', aborted);
+      resolve();
+    });
+  });
+  fixture.origin = `http://127.0.0.1:${server.address().port}`;
+  return fixture;
 }

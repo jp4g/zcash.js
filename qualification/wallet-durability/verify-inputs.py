@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Checks consumed registry bytes, lock edges and wallet revision; no Python assert."""
-import hashlib,json,tarfile,tomllib,sys
+import hashlib,json,tarfile,tomllib,sys,os
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
-CACHE=Path('/home/jack/zcash-wallet-durability-scratch/cargo/registry')
+CACHE=Path(os.environ['CARGO_HOME'])/'registry'
 def require(ok,message):
     if not ok: raise RuntimeError(message)
 def check(stage):
@@ -19,13 +19,17 @@ def check(stage):
         archive=archives[0]
         require(hashlib.sha256(archive.read_bytes()).hexdigest()==pkg['checksum'],f'archive checksum: {prefix}')
         source=CACHE/'src'/archive.parent.name
+        expected_names=set()
         with tarfile.open(archive) as tar:
             for member in tar:
                 if not member.isfile(): continue
                 require(member.name.startswith(prefix+'/') and '..' not in Path(member.name).parts,'archive path')
+                expected_names.add(str(Path(member.name).relative_to(prefix)))
                 expected=tar.extractfile(member).read()
                 require((source/member.name).read_bytes()==expected,f'extracted source drift: {member.name}')
                 files+=1
+        actual={str(p.relative_to(source/prefix)) for p in (source/prefix).rglob('*') if p.is_file() and p.name!='.cargo-ok'}
+        require(actual==expected_names,f'extracted inventory drift: {prefix}')
         receipts.append({'package':prefix,'archive_sha256':pkg['checksum']})
     wallet={}
     for package in ['zakura-client-backend-0.1.0-rc4','zakura-client-sqlite-0.1.0-rc4','zakura-pczt-0.1.0-rc2']:

@@ -1,96 +1,96 @@
-# Persisted synthetic wallet and scanner qualification
+# Persisted wallet integration prerequisite (partial F3)
 
-Narrow issue #2 F3 integration, not a production SDK/API or issue #3 transaction
-implementation. All mutations use the pinned public wallet migration, account,
-`scan_block` orchestration, and unchanged `WalletWrite::put_blocks` routines.
-Deterministic spending authority exists only in memory for the public all-zero
-synthetic fixture. No seed or spending-key custody is implemented.
+This qualification consumes the fixed scanner at `a61dccd` and measured storage
+sources from **this repository checkout**. `inputs.json` requires complete file
+inventories, pinned Git objects, and byte equality with the checkout before a
+build. Missing, stale, altered, or extra sources fail under ordinary and optimized
+Python. The build copies verified sources into a new immutable stage; no sibling
+worktree source is used. The scanner is included unchanged; consumer root
+re-exports resolve the scanner's existing `crate::` references. No wallet/scanner
+algorithm is forked and the selected published dependency graph remains unchanged:
+wallet `a9142ee`, backend/SQLite RC4, PCZT RC2, Common **1.0.0**.
 
-`inputs.json` pins storage 6b96bdd and scanner e338313 files by Git object and
-SHA-256. Each build extracts those Git objects into its own stage and includes the
-scanner's public Rust modules by explicit snapshot path. No evolving checkout is
-compiled by reference, and no private wallet/tree/crypto algorithm is copied.
-Only the fixed headerless encrypted Sapling/Ironwood protobuf corpus is accepted.
-The scanner baseline's pending header and Python provenance fixes remain separate
-integration prerequisites; its Python runners are not used here.
+Wasm uses the measured storage C VFS, MEMSYS5 allocator and host callbacks.
+Genuine wasm-bindgen 0.2.128 output is unedited and instantiated once per owner;
+rusqlite and WalletDb use the same SQLite connection. Node uses real files, fsync
+and kernel flock; Firefox uses exclusive OPFS synchronous access handles and
+flush. The policy remains TRUNCATE journal, synchronous FULL, 8-page cache, memory
+temporary storage, no WAL or ATTACH. Reopen does not CREATE, migrate, or seed.
+The public all-zero synthetic seed is used in memory only, with no custody API.
 
-Wasm uses the exact storage C VFS, MEMSYS5 allocator, and host callbacks from the
-pinned input. Genuine wasm-bindgen 0.2.128 web output is unedited and instantiated
-once per owner; rusqlite and WalletDb share that module's SQLite connection.
-Node uses its real filesystem and kernel flock. Browser uses exclusive OPFS
-synchronous access handles. Policy is TRUNCATE rollback journal, synchronous FULL,
-8-page cache, memory temporary storage, no WAL, ATTACH or concurrent readers.
-Reopen omits SQLITE_OPEN_CREATE and does not migrate or seed. Missing paths and
-query errors fail explicitly. Whole-table snapshots include UUIDs on persistence
-comparisons; only separate native parity normalizes the one opaque account UUID.
+The existing bounded cases preserve all table/column observations and SQLite
+types, exact persisted UUIDs, public account/address/key metadata, balances,
+roots, witnesses, 66 migrations, and integrity. Only the separate native parity
+comparison canonicalizes the opaque UUID. Native created/imported scans use the
+same transaction boundaries as Wasm; meaningful tree/SQL bytes are not normalized.
+Interruption checkpoints perform real VFS operations before external destruction.
+ENOSPC is injected into the real transaction and does not establish quota coverage.
 
-The suite exercises created accounts, UFVK imports and several durable batches;
-full table equality covers account metadata, addresses, public keys, notes,
-nullifiers, spends, trees, checkpoints and scan queue. Public APIs additionally
-read accounts, addresses, UFVKs and balances and obtain usable witnesses at the
-retained checkpoints, including 1,025 later irrelevant Sapling commitments.
-Every observation executes actual `PRAGMA integrity_check` and checks 66 migrations.
-Native cached-scanner reference parity uses the same batch boundaries and runs
-separately; it is not persistence proof. Cross-batch tree reference marks are
-compared exactly against the matching native path, never removed from observations.
+## Explicit location parameters
 
-Interruption checkpoints occur after actual VFS journal sync, database write,
-database sync and journal truncation inside the real scanner transaction. The
-external owner destroys the worker before reopening. A separate Node OS process
-is SIGKILLed and its signal exit observed, with actual hot-journal magic, recovery
-writes, retained lease inode, second-writer rejection, retry and replay idempotence.
-The ENOSPC control injects a write error into this real transaction; it is not
-actual host quota exhaustion.
-
-Build and run from the worktree, choosing a new stage (existing stages/logs are
-never overwritten):
+Use installed tools and a populated local Cargo registry cache; no install or
+network command is performed. Set only locations that vary:
 
 ```sh
-python3 qualification/wallet-durability/build.py /home/jack/zcash-wallet-durability-scratch/NEW-STAGE
-WALLET_DURABILITY_PHASE=tracer STORAGE_BUNDLE=/home/jack/zcash-wallet-durability-scratch/NEW-STAGE/bundle timeout --kill-after=5s 150s node /home/jack/zcash-wallet-durability-scratch/NEW-STAGE/bundle/run-node.mjs
-WALLET_DURABILITY_PHASE=interruptions STORAGE_BUNDLE=/home/jack/zcash-wallet-durability-scratch/NEW-STAGE/bundle timeout --kill-after=5s 180s node /home/jack/zcash-wallet-durability-scratch/NEW-STAGE/bundle/run-node.mjs
-STORAGE_BUNDLE=/home/jack/zcash-wallet-durability-scratch/NEW-STAGE/bundle timeout --kill-after=5s 90s node /home/jack/zcash-wallet-durability-scratch/NEW-STAGE/bundle/run-process.mjs
+export WD_SCRATCH=/absolute/owned/new-scratch
+export WD_SDK=/absolute/wasi-sdk-27.0-x86_64-linux
+export WD_BINDGEN=/absolute/wasm-bindgen-0.2.128
+export WD_WALLET_REPO=/absolute/upstream-wallet-git-checkout
+export STORAGE_LOG_DIR=/absolute/owned/logs
+export TMPDIR="$WD_SCRATCH/tmp"
+export PYTHONDONTWRITEBYTECODE=1
+mkdir -p "$WD_SCRATCH/tmp" "$STORAGE_LOG_DIR"
+# Populate WD_SCRATCH/cargo with a private COPY of a cached Cargo home.
+# Do not share writable Cargo caches or targets with prior qualifications.
+python3 qualification/wallet-durability/build.py "$WD_SCRATCH/NEW-STAGE"
+export STORAGE_BUNDLE="$WD_SCRATCH/NEW-STAGE/bundle"
+WALLET_DURABILITY_PHASE=tracer timeout --kill-after=5s 150s node "$STORAGE_BUNDLE/run-node.mjs"
 ```
 
-Builds use the task's copied Cargo cache, targets and temporary files, jobs=2,
-Rayon=2, offline and locked, and the already installed toolchain. The entire
-non-root storage lock graph is checked unchanged. Registry archives and extracted
-sources are checked against locked checksums; wallet VCS metadata is pinned to
-a9142ee. Receipts preserve source, inputs, lock, tool identities, build logs,
-feature graph, raw Wasm/map, native reference executable and generated assets.
-The pinned byte inspector is executed with its assertions transformed into
-unconditional exceptions, so Python optimization cannot disable evidence checks.
+Builds derive `cargo`, `target`, and `tmp` beneath WD_SCRATCH, run offline and
+locked with two build/Rayon threads, and record installed Rust/C/Node/generator
+versions and digests. WD_WALLET_REPO supplies pinned Git objects for independent
+source verification, not compiled path dependencies. The full non-root storage
+lock graph, every archive checksum and extracted file inventory are checked.
+Cargo's `.cargo-ok` marker is the only ignored extracted-file metadata. Audits
+also require exact upstream Git source inventories (180 Rust files).
 
-Actual Firefox execution belongs to the coordinator using its independently
-corrected storage runner. This task does not repair the two reviewed runner P2s.
-`run-host.py` requires explicit corrected runner path and SHA-256. It sets the supported STORAGE_LOG_DIR environment variable and exposes
-the existing BiDi realm event list and requested phase through read-only routes. The browser waits for external destruction events before each
-new owner. The existing runner's port ownership/cancellation logic stays unchanged:
+Get a complete native/Node/Firefox tracer before the full existing bounded cases:
 
 ```sh
-WALLET_DURABILITY_PHASE=tracer STORAGE_BUNDLE=/home/jack/zcash-wallet-durability-scratch/NEW-STAGE/bundle timeout --kill-after=10s 200s python3 qualification/wallet-durability/run-host.py /ABS/CORRECTED/qualification/storage/run-firefox.mjs CORRECTED_RUNNER_SHA256
+WALLET_DURABILITY_PHASE=tracer STORAGE_DRIVER_PORT=19459 timeout --kill-after=10s 200s python3 qualification/wallet-durability/run-host.py qualification/storage/run-firefox.mjs fe0efdfe0315ef62d6cf310875e9e0f781fc7f769368102080d6b6247b089007
+WALLET_DURABILITY_PHASE=all timeout --kill-after=5s 180s node "$STORAGE_BUNDLE/run-node.mjs"
+timeout --kill-after=5s 90s node "$STORAGE_BUNDLE/run-process.mjs"
+WALLET_DURABILITY_PHASE=interruptions STORAGE_DRIVER_PORT=19460 timeout --kill-after=10s 200s python3 qualification/wallet-durability/run-host.py qualification/storage/run-firefox.mjs fe0efdfe0315ef62d6cf310875e9e0f781fc7f769368102080d6b6247b089007
+python3 qualification/wallet-durability/audit.py "$WD_SCRATCH/NEW-STAGE"
+python3 -O qualification/wallet-durability/audit.py "$WD_SCRATCH/NEW-STAGE"
+python3 -I qualification/wallet-durability/test-inputs.py
+python3 -I -O qualification/wallet-durability/test-inputs.py
+python3 -I qualification/wallet-durability/test-audit.py "$WD_SCRATCH/NEW-STAGE"
+python3 -I qualification/wallet-durability/test-host.py "$WD_SCRATCH/NEW-STAGE"
+python3 -I -O qualification/wallet-durability/test-host.py "$WD_SCRATCH/NEW-STAGE"
 ```
 
-Repeat with `WALLET_DURABILITY_PHASE=interruptions` for the recovery phase.
-Retain the corrected runner receipt, actual Firefox result and BiDi events. The
-host needs secure, non-isolated, no-SAB dedicated workers with unchanged packaged
-Firefox/geckodriver sandbox policy. A worker socket denial is not an architecture
-blocker. This command must not use the rejected base runner as final evidence.
+The corrected Firefox runner is required to be the pinned file in this checkout.
+It retains its installed `/snap/bin/geckodriver` host prerequisite and browser
+sandbox policy. The wrapper only exposes existing realm events and test phase;
+its receipt binds the exact adapted bytes, original responder, wrapper, bundle
+provenance, and phase. The bundle and wrapper must match the closed stage. The resolved bundle path
+forwarded to the host must be the exact directory whose inventory was checked.
+Dedicated-worker destruction events must precede each reopen, with final external
+confirmation. A denied loopback socket requires host execution of the same command;
+it is a concrete environment blocker, never a browser qualification pass.
+The measured byte inspector is reused with its SDK executable location relocated
+and every Python assertion converted to an unconditional exception. This is wrapper
+adaptation, not a change to upstream/runtime source.
 
-Actual quota exhaustion, eviction/restore, physical power loss, other browsers,
-production key custody, outbox/operation locks/revisions, transactions/proofs,
-threaded execution and complete F3 remain unqualified. Independent review and
-coordinator host reruns are separate gates. Executed status, hashes and retained
-failures are in `/home/jack/zcash-wallet-durability-logs/result.md`; early/resumable
-commands are in `checkpoint.md` there.
+Old stage-7 and failure evidence remain frozen; the historical REPORT.md records
+that earlier bounded result. New integrated evidence and exact local commands are
+in `/home/jack/zcash-wallet-integrated-logs/REPORT.md`, with CLI status separately
+in `CLIresult.md` and resumable checkpoints in `checkpoint.md`. Local reproduction
+with already installed tools/caches is not a fresh-machine installation result.
 
-Stage-7 executed outcome: Node tracer 3/3 and interruption 6/6 pass (8 distinct
-scenarios); the same actual Firefox 155 OPFS phases pass 3/3 and 6/6. Firefox
-externally observed all 30 dedicated-worker realms destroyed and recorded 30
-before-reopen destruction barriers. Actual Node whole-process SIGKILL, second
-writer EBUSY, hot-journal rollback and retry/idempotence pass. Coordinator Node
-all-case and process reruns also pass. The final generated Wasm SHA-256 is
-`5c6fdbe2ee80e8c444a2734e2ff19020599f063b23e2812e6fc2b3b37a1d8185`.
-These results qualify the stated synthetic slice; the uncovered gates above and
-independent integration review remain. Exact receipts and source/tool hashes are
-in `/home/jack/zcash-wallet-durability-logs/result.md`.
+Full F3 remains open: actual quota/eviction/restore, populated external migration
+failure/rollback, account-creation rollback, operation locks/outbox/revisions and
+applicable recovery consistency are not added here. No shared/threaded/SDK work,
+live chain/funds, publication, push, or merge is part of this slice.

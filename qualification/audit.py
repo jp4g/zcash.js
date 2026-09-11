@@ -8,11 +8,13 @@ import tarfile
 import tomllib
 
 from harness import audit_packages
+from fingerprints import sources
 
 ROOT = Path(__file__).resolve().parent
 
 
 def audit(metadata):
+    before = sources()
     baseline = tomllib.loads((ROOT / 'evidence/wallet-Cargo.lock').read_text())
     expected = {p['name']: p['version'] for p in baseline['package']
                 if p['name'].startswith('zakura-') and p['name'] != 'zakura-wallet-lib'}
@@ -28,6 +30,12 @@ def audit(metadata):
         row = {k: p[k] for k in ['name', 'version', 'source', 'rust_version']}
         row.update(features=nodes[p['id']]['features'], dependencies=nodes[p['id']]['deps'],
                    manifest_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        consumer = tomllib.loads((ROOT / 'consumer/Cargo.toml').read_text())['package']
+        if p['source'] is None and not (
+                p['id'] == metadata['resolve']['root'] and
+                path.resolve() == (ROOT / 'consumer/Cargo.toml').resolve() and
+                p['name'] == consumer['name'] and p['version'] == consumer['version']):
+            raise ValueError(f'non-registry dependency: {p["id"]}')
         if p['source'] is not None:
             if not p['source'].startswith('registry+'):
                 raise ValueError(f'non-registry dependency: {p["id"]}')
@@ -54,10 +62,40 @@ def audit(metadata):
                 if row.get('vcs', {}).get('git', {}).get('sha1') != 'f4526b0fa86406589732c8fb3849855fb92c43a2':
                     raise ValueError('Common 1.0 source revision mismatch')
         rows.append(row)
-    return {'status': 'audited registry archive and extracted files',
+    if sources() != before:
+        raise ValueError('sources changed during audit')
+    return {'run_id': os.environ.get('QUALIFICATION_RUN_ID'), 'sources': before,
+            'status': 'audited registry archive and extracted files',
             'lock_sha256': hashlib.sha256((ROOT / 'consumer/Cargo.lock').read_bytes()).hexdigest(),
             'packages': sorted(rows, key=lambda p: (p['name'], p['version']))}
 
 
+def metadata_input(path, target):
+    from contracts import commands
+    path = Path(path).resolve()
+    run_id = os.environ.get('QUALIFICATION_RUN_ID')
+    records = [json.loads(line) for line in (path.parent / 'commands.jsonl').read_text().splitlines()]
+    matches = [r for r in records if r.get('run_id') == run_id and r.get('log') == str(path)]
+    if not run_id or len(matches) != 1:
+        raise ValueError('missing or duplicate same-run metadata producer')
+    record = matches[0]
+    current = sources()
+    label = 'repeat-metadata-' + target
+    data = path.read_bytes()
+    if (record.get('label') != label or record.get('argv') != commands().get(label)
+            or record.get('cwd') != str(ROOT.parent) or record.get('exit_code') != 0
+            or record.get('timed_out') is not False
+            or record.get('sources_before') != current or record.get('sources_after') != current
+            or record.get('sha256') != hashlib.sha256(data).hexdigest()):
+        raise ValueError('metadata producer/input/target/source mismatch')
+    return json.loads(data), dict(log=str(path), sha256=record['sha256'], target=target,
+                                  run_id=run_id, sources=current, argv=record['argv'])
+
+
 if __name__ == '__main__':
-    print(json.dumps(audit(json.loads(Path(sys.argv[1]).read_text())), indent=2, sort_keys=True))
+    metadata, binding = metadata_input(sys.argv[1], sys.argv[2])
+    result = audit(metadata)
+    if result['sources'] != binding['sources']:
+        raise ValueError('metadata sources changed before audit')
+    result['metadata_input'] = binding
+    print(json.dumps(result, indent=2, sort_keys=True))

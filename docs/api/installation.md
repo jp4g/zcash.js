@@ -11,6 +11,7 @@ From the repository root, with Node `^20.19.0` or `>=22.12.0`:
 ```sh
 npm ci
 npm run docs:typecheck
+npm run docs:check-recovery
 npm run docs:build
 npm run docs:preview
 ```

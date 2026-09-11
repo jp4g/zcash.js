@@ -1,7 +1,7 @@
 // Foreground-only real Firefox runner. No installs or browser/security overrides.
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { readFile, mkdir, mkdtemp, writeFile, appendFile } from 'node:fs/promises';
+import { readFile, mkdir, mkdtemp, writeFile, appendFile, realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join, resolve, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,6 +45,15 @@ const delay = ms => new Promise(resolveDelay => setTimeout(resolveDelay, ms));
 let server, driver, driverExit, socket, endpoint, session, capabilities, manifest;
 let driverText = '', driverFailure, socketFailure, exitCode = 1, serial = 0;
 const pending = new Map();
+let browserIdentity;
+async function processIdentity(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  try {
+    const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return { pid, startTime: fields[19], state: fields[0] };
+  } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
 function rejectPending(error) {
   socketFailure = error;
   for (const request of pending.values()) { clearTimeout(request.timer); request.reject(error); }
@@ -92,10 +101,17 @@ try {
     assets.set(`/${name}`, bytes);
   }
   const here = dirname(fileURLToPath(import.meta.url));
+  const binaryHashes = {};
+  for (const path of ['/snap/firefox/current/usr/lib/firefox/firefox-bin', '/snap/firefox/current/usr/lib/firefox/geckodriver']) {
+    const resolved = await realpath(path);
+    binaryHashes[resolved] = sha(await readFile(resolved));
+  }
+  const expected = JSON.parse(await readFile(join(here, 'evidence.json'), 'utf8')).manifestSha256;
+  if (sha(manifestBytes) !== expected) throw Error('fresh-3 manifest hash mismatch');
   record({ stage: 'inputs', argv: process.argv, node: process.version, root, runRoot,
     manifestSha256: sha(manifestBytes), manifest,
     runnerSha256: sha(await readFile(fileURLToPath(import.meta.url))),
-    lifecycleAuditSha256: sha(await readFile(join(here, 'firefox-lifecycle.mjs'))), firefox, geckodriver });
+    lifecycleAuditSha256: sha(await readFile(join(here, 'firefox-lifecycle.mjs'))), firefox, geckodriver, binaryHashes });
   server = createServer((req, res) => {
     const path = req.url === '/' ? '/index.html' : req.url;
     const bytes = assets.get(path);
@@ -129,8 +145,9 @@ try {
     'moz:firefoxOptions': { binary: firefox, args: ['-headless'] },
   } } });
   session = value.sessionId; capabilities = value.capabilities;
+  browserIdentity = await processIdentity(capabilities['moz:processID']);
   record({ stage: 'session', session, endpoint, capabilities });
-  if (!session || capabilities.browserName !== 'firefox' || !capabilities.webSocketUrl) throw Error('Firefox/BiDi capability missing');
+  if (!session || capabilities.browserName !== 'firefox' || !capabilities.webSocketUrl || !browserIdentity) throw Error('Firefox/BiDi/process capability missing');
   const wsURL = new URL(capabilities.webSocketUrl);
   if (wsURL.protocol !== 'ws:' || !['127.0.0.1', 'localhost', '[::1]'].includes(wsURL.hostname)) throw Error('non-loopback BiDi endpoint');
   socket = new WebSocket(wsURL);
@@ -191,7 +208,7 @@ try {
   record({ stage: 'failed', error: String(error), stack: error.stack });
 } finally {
   clearTimeout(deadline);
-  let sessionDeleted = false, processGroupGone = !driver?.pid;
+  let sessionDeleted = false, processGroupGone = !driver?.pid, browserProcessGone = !browserIdentity;
   if (session) {
     try { await request(`/session/${session}`, 'DELETE', undefined, { timeout: 10000, cleanup: true }); sessionDeleted = true; }
     catch (error) { exitCode = 1; record({ stage: 'session-cleanup-error', error: String(error) }); }
@@ -211,9 +228,20 @@ try {
     } catch (error) { record({ stage: 'process-cleanup-error', error: String(error) }); }
     if (!processGroupGone) exitCode = 1;
   }
+  if (browserIdentity) {
+    for (const signal of ['SIGTERM', 'SIGKILL']) {
+      const current = await processIdentity(browserIdentity.pid);
+      if (!current || current.startTime !== browserIdentity.startTime || current.state === 'Z') { browserProcessGone = true; break; }
+      try { process.kill(browserIdentity.pid, signal); } catch (error) { if (error.code !== 'ESRCH') record({ stage: 'browser-cleanup-error', error: String(error) }); }
+      await delay(250);
+    }
+    const current = await processIdentity(browserIdentity.pid);
+    browserProcessGone = !current || current.startTime !== browserIdentity.startTime || current.state === 'Z';
+    if (!browserProcessGone) exitCode = 1;
+  }
   if (server?.listening) { server.closeAllConnections(); await new Promise(resolveClose => server.close(resolveClose)); }
   process.removeListener('SIGTERM', onSignal); process.removeListener('SIGINT', onSignal);
-  record({ stage: 'cleanup', sessionDeleted, processGroupGone, loopbackServerClosed: !server?.listening, exitCode, runRoot });
+  record({ stage: 'cleanup', sessionDeleted, processGroupGone, browserProcessGone, loopbackServerClosed: !server?.listening, exitCode, runRoot });
   await logWrites;
   await writeFile(driverPath, driverText);
   await writeFile(resultPath, JSON.stringify({ id, exitCode, capabilities, manifest, results, events, records,

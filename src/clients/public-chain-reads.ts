@@ -6,16 +6,30 @@ import { blockHash } from '../primitives.js';
 
 type ChainReadSource = { readonly transport: HttpTransport; readonly sourceId: string };
 
-function input(value: unknown, keys: readonly string[]): void {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)
-    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
-    || Reflect.ownKeys(value).some(key => typeof key !== 'string' || !keys.includes(key)
-      || !Object.hasOwn(Object.getOwnPropertyDescriptor(value, key)!, 'value'))) throw invalidArgument();
+// Copy only admitted data descriptors; never reread caller properties after validation.
+function input<T extends object>(value: T, keys: readonly string[]): T {
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)
+      || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
+    const snapshot = Object.create(null);
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== 'string' || !keys.includes(key)) throw invalidArgument();
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw invalidArgument();
+      snapshot[key] = descriptor.value;
+    }
+    const signal = snapshot.signal;
+    if (signal !== undefined && (!(signal instanceof AbortSignal)
+      || typeof signal.aborted !== 'boolean' || typeof signal.addEventListener !== 'function'
+      || typeof signal.removeEventListener !== 'function')) throw invalidArgument();
+    return snapshot;
+  } catch { throw invalidArgument(); }
 }
 
-function validateSource(source: ChainReadSource): void {
-  input(source, ['transport', 'sourceId']);
-  if (typeof source.sourceId !== 'string' || source.sourceId.trim().length === 0) throw invalidArgument();
+function validateSource(source: ChainReadSource): ChainReadSource {
+  const snapshot = input(source, ['transport', 'sourceId']);
+  if (typeof snapshot.sourceId !== 'string' || snapshot.sourceId.trim().length === 0) throw invalidArgument();
+  return snapshot;
 }
 
 function object(value: unknown): asserts value is Record<string, unknown> {
@@ -37,10 +51,9 @@ function hash(value: unknown) {
 
 /** Internal component; the composing client owns network handshake and source binding. */
 export async function getTip(source: ChainReadSource, args: Op = {}): Promise<ChainTip> {
-  validateSource(source);
-  input(args, ['signal']);
-  const { transport, sourceId } = source;
-  const value = await readRpc(transport, 'getblockchaininfo', [], args.signal);
+  const { transport, sourceId } = validateSource(source);
+  const { signal } = input(args, ['signal']);
+  const value = await readRpc(transport, 'getblockchaininfo', [], signal);
   object(value);
   return { height: integer(value.blocks, 0, 0xffff_ffff), hash: hash(value.bestblockhash),
     sourceId, observedAt: new Date().toISOString() };
@@ -48,9 +61,8 @@ export async function getTip(source: ChainReadSource, args: Op = {}): Promise<Ch
 
 /** Resolve once, then pin the raw request to that identity even if the height reorganizes. */
 export async function getBlockHeader(source: ChainReadSource, args: BlockSelector & Op): Promise<BlockHeader> {
-  validateSource(source);
-  input(args, ['height', 'hash', 'signal']);
-  const { transport, sourceId } = source;
+  const { transport, sourceId } = validateSource(source);
+  args = input(args, ['height', 'hash', 'signal']);
   const { height, hash: requestedHash, signal } = args;
   if (Object.hasOwn(args, 'height') === Object.hasOwn(args, 'hash')) throw invalidArgument();
   let selector: string;

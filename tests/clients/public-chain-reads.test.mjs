@@ -303,14 +303,17 @@ async function admissionFixture(t) {
 test('admission snapshots each source descriptor once without proxy property rereads', async t => {
   const f = await admissionFixture(t);
   for (const method of [adapter.getTip, adapter.getBlockHeader]) {
-    const reads = { sourceId: 0, transport: 0 }; let gets = 0;
+    const reads = { sourceId: 0, transport: 0 }; let gets = 0, labelGets = 0;
     const source = new Proxy(f.source, {
       getOwnPropertyDescriptor(target, key) {
         const descriptor = Reflect.getOwnPropertyDescriptor(target, key);
         if (++reads[key] > 1) descriptor.value = { private: 'private-sentinel' };
         return descriptor;
       },
-      get(target, key) { gets++; return gets <= 2 ? Reflect.get(target, key) : { private: 'private-sentinel' }; },
+      get(target, key) {
+        gets++;
+        return key === 'sourceId' && ++labelGets > 2 ? { private: 'private-sentinel' } : Reflect.get(target, key);
+      },
     });
     const observation = await method(source, method === adapter.getTip ? {} : { height: 0 });
     assert.equal(observation.sourceId, sourceId);
@@ -331,7 +334,7 @@ test('admission normalizes source and options reflection failures without dispat
     return true;
   };
   for (const method of [adapter.getTip, adapter.getBlockHeader]) {
-    const options = method === adapter.getTip ? {} : { height: 0 };
+    const options = method === adapter.getTip ? { signal: undefined } : { height: 0 };
     for (const location of ['source', 'options']) {
       for (const trap of ['getPrototypeOf', 'ownKeys', 'getOwnPropertyDescriptor', 'revoked']) {
         const target = location === 'source' ? f.source : options;

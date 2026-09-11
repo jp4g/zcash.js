@@ -23,6 +23,51 @@ export async function runBrowser() {
     globalThis.fetch = originals.fetch;
     const context = (mode, timeoutMs = 1000) => ({ sourceId,
       transport: http(`${location.origin}/rpc/${mode}`, { ...transportOptions, timeoutMs }) });
+    const { isZcashError } = await import('/src/errors.js');
+    for (const method of [api.getTip, api.getBlockHeader]) {
+      const source = context(method === api.getTip ? 'good' : 'genesis');
+      const options = method === api.getTip ? { signal: undefined } : { height: 0 };
+      let reads = 0, gets = 0;
+      const snapshot = new Proxy(source, {
+        getOwnPropertyDescriptor(target, key) {
+          const descriptor = Reflect.getOwnPropertyDescriptor(target, key);
+          if (key === 'sourceId' && ++reads > 1) descriptor.value = { private: 'private-sentinel' };
+          return descriptor;
+        },
+        get() { gets++; throw Error('private-sentinel'); },
+      });
+      const observed = await method(snapshot, new Proxy(options, {
+        get() { gets++; throw Error('private-sentinel'); },
+      }));
+      check(observed.sourceId === sourceId && reads === 1 && gets === 0, method.name + ' descriptor snapshot');
+      const invalid = async promise => {
+        try { await promise; } catch (error) {
+          check(isZcashError(error) && error.code === 'INVALID_ARGUMENT'
+            && error.message === 'Invalid argument.' && error.cause === undefined
+            && !String(error.stack).includes('private-sentinel'), 'sanitized admission');
+          return;
+        }
+        throw Error('expected invalid admission');
+      };
+      for (const location of ['source', 'options']) {
+        for (const trap of ['getPrototypeOf', 'ownKeys', 'getOwnPropertyDescriptor', 'revoked']) {
+          const target = location === 'source' ? source : options;
+          const revocable = Proxy.revocable(target, trap === 'revoked' ? {} : {
+            [trap]() { throw Error('private-sentinel'); },
+          });
+          if (trap === 'revoked') revocable.revoke();
+          await invalid(method(location === 'source' ? revocable.proxy : source,
+            location === 'options' ? revocable.proxy : options));
+        }
+      }
+      for (const trap of ['getPrototypeOf', 'get', 'revoked']) {
+        const revocable = Proxy.revocable(new AbortController().signal, trap === 'revoked' ? {} : {
+          [trap]() { throw Error('private-sentinel'); },
+        });
+        if (trap === 'revoked') revocable.revoke();
+        await invalid(method(source, { ...options, signal: revocable.proxy }));
+      }
+    }
     const tip = await api.getTip(context('good'));
     check(tip.height === 7 && tip.hash === hashA && tip.sourceId === sourceId, 'coherent tip');
     check(new Date(tip.observedAt).toISOString() === tip.observedAt, 'observation timestamp');

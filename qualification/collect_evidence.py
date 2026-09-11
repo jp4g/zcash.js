@@ -7,11 +7,16 @@ root = Path(__file__).resolve().parent
 logs = Path('/home/jack/zcash-qualification-logs')
 records = [json.loads(line) for line in (logs / 'commands.jsonl').read_text().splitlines()]
 for record in records:
-    assert hashlib.sha256(Path(record['log']).read_bytes()).hexdigest() == record['sha256']
+    if hashlib.sha256(Path(record['log']).read_bytes()).hexdigest() != record['sha256']:
+        raise ValueError('log checksum mismatch')
+for record in records:
+    if 'audit-' in record['label'] and record['exit_code'] != 0:
+        raise ValueError('audit failed')
 (root / 'evidence/commands.jsonl').write_text(''.join(json.dumps(r, sort_keys=True) + '\n' for r in records))
 for target in ['x86_64-unknown-linux-gnu', 'wasm32-unknown-unknown']:
     record = next(r for r in reversed(records) if r['label'] == 'repeat-audit-' + target)
-    assert record['exit_code'] == 0
+    if record['exit_code'] != 0:
+        raise ValueError('audit failed')
     audited = json.loads(Path(record['log']).read_text())
     rows = []
     for package in audited['packages']:

@@ -1,6 +1,8 @@
 //! Synthetic qualification only. Immutable scanner modules use public backend APIs.
 // Module path is generated from the receipt-bound input snapshot, never a live checkout.
 include!(concat!(env!("OUT_DIR"), "/scanner-module.rs"));
+// The measured scanner cases refer to their crate root; retain that consumer seam.
+pub use scanner::{ScanFailure, fixture, observation, inline_scan_observed};
 use rusqlite::{Connection, OpenFlags};
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;

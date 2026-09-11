@@ -1,9 +1,11 @@
 import fs from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { start } from './node-harness.mjs';
 import { suite } from './suite.mjs';
 const base=process.env.STORAGE_BUNDLE;
 if (!base) throw Error('explicit STORAGE_BUNDLE required');
-const root=fs.mkdtempSync('/home/jack/zcash-wallet-durability-scratch/node-');
+const root=fs.mkdtempSync(join(tmpdir(),'node-'));
 const reference=JSON.parse(fs.readFileSync(`${base}/reference.json`));
 const phase=process.env.WALLET_DURABILITY_PHASE ?? 'all';
 if(!['all','tracer','interruptions'].includes(phase))throw Error('invalid phase');

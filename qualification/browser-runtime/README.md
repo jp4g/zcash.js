@@ -61,6 +61,8 @@ Independent checks that do not start a browser:
 node qualification/browser-runtime/test-host.mjs
 node qualification/browser-runtime/test-firefox-lifecycle.mjs
 node qualification/browser-runtime/test-firefox-options.mjs
+node qualification/browser-runtime/test-firefox-failures.mjs
+node qualification/browser-runtime/test-firefox-verifier.mjs
 node qualification/browser-runtime/test-package.mjs /home/jack/zcash-browser-runtime-scratch/fresh-3
 node qualification/browser-runtime/diagnostic-node.mjs /home/jack/zcash-browser-runtime-scratch/fresh-3
 ```
@@ -73,7 +75,7 @@ socket or launching Chromium. The Firefox runner always executes the full suite.
 Read-only audit of the actual successful foreground result:
 
 ```sh
-node qualification/browser-runtime/verify-firefox.mjs /home/jack/zcash-browser-runtime-logs/firefox-1789136669817.json
+node qualification/browser-runtime/verify-firefox.mjs /home/jack/zcash-browser-runtime-logs/firefox-1789136669817.json --receipt-sha256 0fb2a7b30de32fe6c86907e452114a1b056f4edd2d2baea496f86ceba9e5110e
 ```
 
 To stage another verified fresh build, use a new output directory (existing
@@ -88,3 +90,19 @@ snapshots before/after building, raw/generated hashes, required exports and the
 reviewed six-import contract. The localhost server freezes verified file bytes
 in memory. This disposable server/loader does not implement the production H1
 manifest protocol or establish production packaging/CSP compatibility.
+
+The verifier requires current runner/lifecycle/options source hashes by default.
+For historical receipts, `--receipt-sha256` must come from an independently trusted
+audit, as above; computing a digest from an untrusted receipt does not establish
+producer identity. Structural lifecycle and scenario checks apply in either mode.
+
+After the review fixes, the coordinator should rerun the changed Firefox consumer
+against the preserved `fresh-3` assets, using a separate log directory:
+
+```sh
+node qualification/browser-runtime/run-firefox.mjs --artifacts /home/jack/zcash-browser-runtime-scratch/fresh-3 --logs /home/jack/zcash-browser-runtime-logs/fixes/foreground-rerun --scratch /home/jack/zcash-browser-runtime-scratch --geckodriver /snap/bin/geckodriver
+```
+
+The runner creates timestamped JSON, JSONL and driver logs there and a fresh
+`firefox-run-*` scratch profile. Verify the new JSON with `verify-firefox.mjs`
+without a digest override to check current qualifying source identity.

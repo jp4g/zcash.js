@@ -12,6 +12,30 @@ const scenarios = ['same-instance', 'pool', 'canary-corruption', 'heap-corruptio
   'entropy-unavailable', 'entropy-loss', 'time-loss', 'sleep-loss', 'destruction-original', 'destruction-fresh',
   'bootstrap-timeout', 'bootstrap-error', 'cancel-active', 'cancel-before-start', 'malformed-result'];
 const find = stage => evidence.records.filter(r => r.stage === stage);
+const digest = createHash('sha256').update(bytes).digest('hex');
+const pinFlag = process.argv.indexOf('--receipt-sha256');
+assert.equal(find('inputs').length, 1);
+if (pinFlag !== -1) {
+  const pin = process.argv[pinFlag + 1];
+  assert.match(pin || '', /^[a-f0-9]{64}$/, 'independent receipt digest required');
+  assert.equal(digest, pin, 'receipt must match independently trusted digest');
+} else {
+  for (const [field, file] of Object.entries({ runnerSha256: 'run-firefox.mjs',
+    lifecycleAuditSha256: 'firefox-lifecycle.mjs', optionsSha256: 'firefox-options.mjs' })) {
+    const hash = createHash('sha256').update(await readFile(new URL(file, import.meta.url))).digest('hex');
+    assert.equal(find('inputs')[0][field], hash, `qualifying source identity: ${file}`);
+  }
+}
+const eventRecords = find('bidi-event');
+const events = eventRecords.map((record, index) => {
+  assert.equal(record.eventIndex, index, 'event indices must be unique and contiguous');
+  return record.event;
+});
+assert.deepEqual(evidence.events, events, 'duplicate event stream must match chronological records');
+for (const [index, record] of find('scenario-pass').entries()) {
+  const { utc, stage, ...payload } = record;
+  assert.deepEqual(payload, evidence.results[index], 'scenario-pass must match result summary');
+}
 assert.equal(evidence.exitCode, 0, 'foreground command must succeed including cleanup');
 assert.deepEqual(evidence.results.map(r => r.scenario), scenarios, 'all required probes in order');
 assert.deepEqual(find('scenario-pass').map(r => r.scenario), scenarios);
@@ -43,9 +67,13 @@ for (const result of evidence.results) {
   const passIndex = evidence.records.findIndex(r => r.stage === 'scenario-pass' && r.scenario === result.scenario);
   assert(startIndex > previousPass && passIndex > startIndex, 'replacement must start after previous lifecycle pass');
   const start = evidence.records[startIndex];
+  assert.equal(start.after, evidence.records.slice(0, startIndex).filter(r => r.stage === 'bidi-event').length,
+    'scenario boundary must match chronological event stream');
+  assert.equal(result.lifecycle.through, evidence.records.slice(0, passIndex).filter(r => r.stage === 'bidi-event').length,
+    'lifecycle boundary must match chronological event stream');
   const wanted = result.scenario === 'cancel-before-start' ? 0 : 1;
   const workerURL = origin + (result.category === 'harness-control' ? '/control-worker.mjs' : '/probe-worker.mjs');
-  const lifecycle = requireLifecycle(evidence.events.slice(0, result.lifecycle.through), {
+  const lifecycle = requireLifecycle(events.slice(0, result.lifecycle.through), {
     after: start.after, wanted, owner, origin, workerURL,
   });
   assert.deepEqual(result.lifecycle, lifecycle);

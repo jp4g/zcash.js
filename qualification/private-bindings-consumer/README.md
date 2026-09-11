@@ -8,15 +8,16 @@ The production Rust crate and generated output ownership are in the private
 `pin.json` is created only after a real committed-source private build. It records
 that exact local repository, full revision and `build.json` SHA-256. No placeholder
 pin is supplied when the producing commit is blocked. `pin.mjs` is an explicit
-one-time local pin update (`wx` prevents silently replacing an existing pin).
+one-time local pin creation (`wx` prevents silently replacing an existing pin).
 
-After the private source commit and successful explicit `build.py` invocation:
+For an initial pin only, run `pin.mjs` once. To replace a committed pin, preserve
+its bytes and explicitly update its revision and metadata digest after a real build;
+do not rerun exclusive creation over it. After a successful build:
 
 ```sh
-node qualification/private-bindings-consumer/pin.mjs /home/jack/zakura-bindings-network-scratch/packet-1
-node qualification/private-bindings-consumer/verify.test.mjs /home/jack/zakura-bindings-network-scratch/packet-1 /home/jack/zakura-bindings-network-scratch
-node qualification/private-bindings-consumer/prepare.mjs /home/jack/zakura-bindings-network-scratch/packet-1 /home/jack/zakura-bindings-network-scratch/browser-pinned-1
-node /home/jack/zakura-bindings-network-scratch/browser-pinned-1/node.mjs /home/jack/zakura-bindings-network-scratch/browser-pinned-1
+node qualification/private-bindings-consumer/verify.test.mjs /home/jack/zakura-bindings-network-scratch/fix-r1-packet-normal /home/jack/zakura-bindings-network-scratch
+node qualification/private-bindings-consumer/prepare.mjs /home/jack/zakura-bindings-network-scratch/fix-r1-packet-normal /home/jack/zakura-bindings-network-scratch/fix-r1-browser
+node /home/jack/zakura-bindings-network-scratch/fix-r1-browser/node.mjs /home/jack/zakura-bindings-network-scratch/fix-r1-browser
 ```
 
 The local verifier checks the independently pinned metadata digest, revision,
@@ -42,17 +43,19 @@ certificate policy and cleanup are retained from accepted a280d31. No WebDriver
 import or security override is used. Parent owns actual browser/socket execution.
 
 The committed pin selects private revision
-`33345a982d330650935c39f505c9fa2947ec9897` and build metadata SHA-256
-`5c3f7b2afde98d205c3a6a2d35533aa172115c5293144ee180ba42084c41b5d2`.
-Two fresh committed-source builds match byte-for-byte. The actual pinned Node
+`2de5fc0a0b1eed6927251157d6bfc3181515fdf9` and build metadata SHA-256
+`bcac33310a80a516da6ba22c06b5a29b581f6c086830ad19c3d37df387a498f9`.
+Two fresh committed-source builds (normal Python and `-O`) match byte-for-byte.
+This pin contains the R1 build-guard fix only. HIGH review R2 (SharedArrayBuffer
+prototype-spoof admission) remains unresolved; this is not a merge-ready packet. The actual pinned Node
 consumer passes 196 cases plus 29 admission controls; all nine pin/file rejection
 controls pass. The final browser package is
-`/home/jack/zakura-bindings-network-scratch/browser-pinned-1`, with inventory digest
-`c208432bd703ff0b5e55dfd82274b42f37393cb80ffbb7223401210cc4b567a8`.
+`/home/jack/zakura-bindings-network-scratch/fix-r1-browser`, with inventory digest
+`3a0a8c730ff9f2acc51241ab646a14cbd6d35b397b143391968a093c620b0f25`.
 Parent owns actual Firefox execution and independent review. Historical uncommitted
 candidate packages are preserved and are not the final pinned package. Detailed
 results and the exact browser command are under
-`/home/jack/zakura-bindings-network-logs/{checkpoint.md,REPORT.md,CLIresult.md,BROWSER-PINNED-COMMAND.txt}`.
+`/home/jack/zakura-bindings-network-logs/fixes/{checkpoint.md,REPORT.md,CLIresult.md,BROWSER-COMMAND.txt}`.
 
 No complete runtime profile, executable host loader, worker/ABI negotiation,
 network registration, public defineNetwork or client genesis verification is

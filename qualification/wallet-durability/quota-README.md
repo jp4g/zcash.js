@@ -75,3 +75,30 @@ of its real files/manifest. No original artifacts, source, caches or logs are
 modified. Detailed local evidence is in `REPORT.md` under the quota logs, separately
 from `CLIresult.md`. Independent HIGH review is coordinator-owned. Eviction,
 restore, other F3 gates and issue #2 remain open regardless of this result.
+
+## Host-1 diagnostic follow-up (package 2)
+
+Actual host 1 ran Firefox 155.0.1 and passed the populated baseline. Its next
+`pressure` command failed, but worker and page serialized `Error.stack` alone;
+Firefox's recorded stacks omitted the original name/message. That evidence cannot
+identify the underlying pressure error. Package 1 and its failed result are retained.
+
+Package 2 preserves name, message, stack, textual error and native code separately
+at both boundaries; the suite also retains the original failed command reply.
+Pressure diagnostics include the step, filler write offset/length/bytes/errors,
+and storage estimates on error. These fields do not establish quota acceptance.
+The standard preference, cap, deadline, filler refinement, headroom and every
+native-error/FULL/rollback/retry/identity requirement are unchanged. No pressure
+behavior fix is justified until the original native failure is observed.
+
+```sh
+node --experimental-vm-modules qualification/wallet-durability/quota-test-errors.mjs /home/jack/zcash-browser-quota-scratch/package-2
+python3 -I qualification/wallet-durability/quota-test-host.py /home/jack/zcash-browser-quota-scratch/package-2
+python3 -I -O qualification/wallet-durability/quota-test-host.py /home/jack/zcash-browser-quota-scratch/package-2
+```
+
+The error transport control executes the real worker handler and exact suite/page
+error boundaries with an offline failing storage call, and executes no wallet or
+crypto. It tests observability, not a quota pass. The manifest control now accepts
+an optional package path. Package-2 host command is in the quota logs' checkpoint;
+continuation evidence is separate in `REPORT-r2.md` and `CLIresult-r2.md`.

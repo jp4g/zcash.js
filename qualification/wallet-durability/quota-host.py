@@ -37,6 +37,8 @@ def freeze(root):
     browser=(root/'bundle/browser-test.mjs').read_text()
     browser=replace(browser,"from './suite.mjs'","from './quota-suite.mjs'")
     browser=replace(browser,"new Worker('./browser-worker.mjs'","new Worker('./quota-worker.mjs'")
+    browser="import {errorDetails} from './quota-pressure.mjs';\n"+browser
+    browser=replace(browser,'error:String(e.stack)','...errorDetails(e)')
     browser=replace(browser,'actualQuotaExhaustion:false','actualQuotaExhaustion:results.some(r=>r.test===\'actual-quota-populated-scan-rollback-retry\' && r.pass===true)')
     (root/'bundle/browser-test.mjs').write_text(browser)
     # No alternative server/driver lifecycle: exact pinned runner plus narrow seams.

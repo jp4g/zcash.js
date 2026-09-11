@@ -15,3 +15,17 @@ const result=await fill(full);
 assert.equal(result.bytes,100001);assert.equal(result.errors.at(-1).requested,1);
 await assert.rejects(fill({...h,write(){throw Error('unrelated failure');}}),/unrelated failure/);
 console.log('quota native-category, byte-cap, refinement and unexpected-error controls pass (not platform evidence)');
+// Firefox stacks can omit both the exception name and message. No prototype patch.
+const {errorDetails}=await import('./quota-pressure.mjs');
+const original=new DOMException('original pressure failure','QuotaExceededError');
+Object.defineProperty(original,'stack',{value:'write@worker.mjs:1:1'});
+const serialized=JSON.parse(JSON.stringify(errorDetails(original)));
+assert.equal(serialized.name,'QuotaExceededError');
+assert.equal(serialized.message,'original pressure failure');
+assert.equal(serialized.nativeCode,22);
+assert.equal(serialized.stack,'write@worker.mjs:1:1');
+assert.match(serialized.error,/QuotaExceededError: original pressure failure/);
+const progress={};size=0;
+await assert.rejects(fill(h,progress),/64 MiB cap/);
+assert.equal(progress.bytes,LIMIT);
+console.log('stack-only exception serialization and failure progress controls pass (not platform evidence)');

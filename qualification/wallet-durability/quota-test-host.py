@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Mutate private copies of the real frozen package; never fabricate receipts."""
-import runpy,shutil,tempfile
+import runpy,shutil,sys,tempfile
 from pathlib import Path
 host=runpy.run_path(str(Path(__file__).with_name('quota-host.py')))
-source=Path('/home/jack/zcash-browser-quota-scratch/package-1')
+source=Path(sys.argv[1] if len(sys.argv)>1 else '/home/jack/zcash-browser-quota-scratch/package-1')
 with tempfile.TemporaryDirectory(prefix='host-control-',dir=host['SCRATCH']) as tmp:
     root=Path(tmp)/'package';shutil.copytree(source,root)
     for p in root.rglob('*'): p.chmod(0o755 if p.is_dir() else 0o644)

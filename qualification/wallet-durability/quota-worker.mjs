@@ -1,9 +1,10 @@
 import { acquire } from './opfs.mjs';
 import { load } from './load.mjs';
 import { dispatch } from './dispatch.mjs';
-import { fill, isNativeQuota } from './quota-pressure.mjs';
+import { fill, isNativeQuota, errorDetails } from './quota-pressure.mjs';
 let host,runtime,root,command,errors=[];
 onmessage=async ({data})=>{
+  let pressure;
   try {
     if(data.op==='prepare') {
       if(host) throw Error('prepare once');
@@ -29,18 +30,27 @@ onmessage=async ({data})=>{
       postMessage({rc:0,secure:isSecureContext,isolated:crossOriginIsolated,sab:typeof SharedArrayBuffer});return;
     }
     if(data.op==='pressure') {
+      pressure={step:'estimate-before'};
+      const before=pressure.before=await navigator.storage.estimate();
+      pressure.step='get-directory';
       const directory=await (await navigator.storage.getDirectory()).getDirectoryHandle(root);
+      pressure.step='get-filler-file';
       const f=await directory.getFileHandle('quota-filler',{create:true});
+      pressure.step='create-sync-handle';
       const h=await f.createSyncAccessHandle();
-      const before=await navigator.storage.estimate();
       let result;
       try {
+        pressure.step='check-filler-size';
         if(h.getSize()!==0) throw Error('filler must be fresh');
-        result=await fill(h);
+        pressure.step='fill';
+        result=await fill(h,pressure.fill={});
         // Allow real journal writes before the native quota failure in the scan.
+        pressure.step='journal-headroom';
         if(result.bytes<16384) throw Error('insufficient filler for journal headroom');
+        pressure.step='truncate-filler';
         h.truncate(result.bytes-16384);h.flush();result.retained=h.getSize();
       } finally {h.close();}
+      pressure.step='estimate-after';
       postMessage({...result,before,after:await navigator.storage.estimate()});return;
     }
     if(data.op==='freeFiller') {
@@ -54,5 +64,12 @@ onmessage=async ({data})=>{
     if(command==='walletScan') {errors=[];runtime.state.trace.length=0;runtime.state.traceDropped=0;}
     postMessage(dispatch(runtime.e,runtime.state,host,data));
     command=undefined;
-  } catch(e) {postMessage({error:String(e.stack),code:e.name});}
+  } catch(e) {
+    const failure={...errorDetails(e),command:data.op,pressure};
+    if(pressure) {
+      try {pressure.after=await navigator.storage.estimate();}
+      catch(estimateError) {pressure.estimateError=errorDetails(estimateError);}
+    }
+    postMessage(failure);
+  }
 };

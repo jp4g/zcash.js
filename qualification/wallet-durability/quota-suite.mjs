@@ -3,7 +3,7 @@ const stable=v=>JSON.stringify(v,(_,x)=>x && !Array.isArray(x) && typeof x==='ob
 function equal(a,b,m){require(stable(a)===stable(b),m);}
 export async function suite(harness,report){
   const root=harness.root();let w;
-  const call=async command=>{const r=await w.call(command);require(!r.error,`${command.op}: ${JSON.stringify(r)}`);return r;};
+  const call=async command=>{const r=await w.call(command);if(r.error)report({test:'command-failure',command:command.op,failure:r});require(!r.error,`${command.op}: ${JSON.stringify(r)}`);return r;};
   const start=async create=>{w=await harness.start(root,create);await call({op:'walletOpen',create});};
   const observe=complete=>call({op:'walletObserve',complete});
   const close=async()=>{await call({op:'walletClose'});await w.destroy();w=null;};

@@ -154,7 +154,7 @@ if (typeof process !== 'undefined' && process.argv[1] && import.meta.url === new
     if (created.capabilities.browserName !== 'firefox' || created.capabilities.acceptInsecureCerts !== false) throw Error('Firefox TLS verification required');
     await request(`/session/${session}/timeouts`, 'POST', { script: 20000, pageLoad: 15000 });
     await request(`/session/${session}/url`, 'POST', { url: server.origin });
-    const probe = await request(`/session/${session}/execute/async`, 'POST', { script: "const done=arguments[arguments.length-1]; import('/tests/runtime/artifacts-browser.mjs').then(m=>m.run()).then(value=>done({value}),e=>done({error:String(e)}));", args: [] });
+    const probe = await request(`/session/${session}/execute/async`, 'POST', { script: "const done=arguments[arguments.length-1]; import('/tests/runtime/artifacts-browser.mjs').then(m=>m.run()).then(value=>done({value}),e=>done({error:String(e).slice(0,1024),name:String(e?.name??'').slice(0,256),message:String(e?.message??'').slice(0,1024),stack:String(e?.stack??'').slice(0,4096)}));", args: [] });
     if (probe.error) throw Error(probe.error);
     result.probe = probe.value;
     if (server.unexpected.length || server.requests.some(r => r.cookie || r.authorization || r.referer)) throw Error('Unexpected or credential-bearing acquisition request');

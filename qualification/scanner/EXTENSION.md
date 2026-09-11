@@ -70,3 +70,23 @@ Scope remains synthetic and ephemeral: no proof or consensus validity, Orchard
 receipt/spend qualification, durable storage, request servicing, send/outbox,
 provider, production SDK or gate claim. Empty blocks do not qualify a pool.
 Threaded parity remains independently required before any full F2 claim.
+
+Threaded handoff cross-check: its `Domain.start()` prepares the owner, starts two
+compute workers on the same compiled module/shared memory, waits for both generated
+initializations, then calls `owner_build()` and admits operations after readiness.
+The scanner owner must call that runtime's `assert_ready()` before this entry;
+SQLite connection/account/scan/commit ownership stays on the owner worker. Scanner
+failure after readiness invalidates the domain, without fallback mutation replay.
+Each closed shared run must observe destruction of owner and both compute realms.
+
+The current `scanner_case` deliberately selects `Mode::Inline`. Calling it inside
+a ready shared domain would prove shared-runtime **inline** parity only. Actual
+cached scanner scheduling on WASM is still unexecuted: `Mode::NativeReference` is
+currently native-only, and a separate tested owner operation must enable the real
+`scan_cached_blocks` path after pool readiness. Do not equate a surrounding
+`parallel_evidence()` probe with scanner compute execution. Preserve the frozen
+per-case native results and compare both operations. Rust cases are public through
+the rlib; retain the scanner's local backend/SQLite/PCZT patch identities when
+composing a consuming workspace, since dependency manifests' patches do not
+propagate to that workspace. This documents the remaining integration, not an
+unexecuted implementation or a claim about the threaded worker's coverage.

@@ -1,0 +1,93 @@
+// Browser-only probe. The internal read hook is test access, never a public SDK export.
+const claims = ['packed-esm', 'packed-bundle', 'amounts-ids', 'no-eager', 'negative-eager',
+  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry'];
+const check = (condition, label) => { if (!condition) throw Error(label); };
+const keys = ['Worker', 'SharedWorker', 'WebAssembly', 'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource'];
+export async function guarded(load) {
+  const counts = Object.fromEntries(keys.map(key => [key, 0]));
+  const descriptors = keys.map(key => Object.getOwnPropertyDescriptor(globalThis, key));
+  try {
+    for (const key of keys) Object.defineProperty(globalThis, key, { configurable: true,
+      get() { counts[key]++; throw Error(`eager ${key}`); } });
+    await load();
+    // Include queued tasks from import/construct in the bounded observation window.
+    await new Promise(resolve => setTimeout(resolve, 100));
+    check(Object.values(counts).every(n => n === 0), 'eager initialization');
+  } finally {
+    keys.forEach((key, i) => descriptors[i] ? Object.defineProperty(globalThis, key, descriptors[i]) : delete globalThis[key]);
+  }
+  return counts;
+}
+export function sanitized(error) {
+  check(!JSON.stringify([error.message, error.stack, error]).includes('private-fixture'), 'sanitized structured error');
+}
+export async function run() {
+  const policy = { sourceId: 'firefox-synthetic', timeoutMs: 2000,
+    readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4096 };
+  let sdk, bundled;
+  const resourceStart = performance.getEntriesByType('resource').length;
+  const violations = [];
+  const violation = event => violations.push(event.violatedDirective);
+  document.addEventListener('securitypolicyviolation', violation);
+  const eager = await guarded(async () => {
+    sdk = await import('/package/dist/src/index.js');
+    bundled = await import('/bundle.mjs');
+    for (const api of [sdk, bundled.sdk]) {
+      check(Object.keys(api).sort().join(',') === 'accountIndex,blockHash,diversifierIndex,formatZec,http,isZcashError,parseZec,txId', 'root exports');
+      check(api.parseZec('9007199254740993.00000001') === 900719925474099300000001n, 'amount parse');
+      check(api.formatZec(900719925474099300000001n) === '9007199254740993.00000001', 'amount format');
+      check(api.txId('a'.repeat(64)) === 'a'.repeat(64) && api.blockHash('b'.repeat(64)) === 'b'.repeat(64), 'hash IDs');
+      check(api.accountIndex(0) === 0 && api.diversifierIndex(0n) === 0n, 'index IDs');
+      check(Object.keys(api.http(`${location.origin}/rpc`, policy)).length === 0, 'opaque transport');
+    }
+  });
+  document.removeEventListener('securitypolicyviolation', violation);
+  check(violations.length === 0, 'CSP violation during import/construction');
+  const importResources = performance.getEntriesByType('resource').slice(resourceStart).map(entry => entry.name);
+  check(importResources.every(name => {
+    const url = new URL(name);
+    return url.origin === location.origin && (url.pathname.startsWith('/package/dist/') || url.pathname === '/bundle.mjs');
+  }), 'unexpected import resource');
+  let negativeEager = 0;
+  try { await guarded(() => import('/negative-eager.mjs')); }
+  catch (error) { check(String(error).includes('eager Worker'), 'negative eager cause'); negativeEager++; }
+  check(negativeEager === 1, 'negative eager gate must reject');
+  let unsupported = false;
+  try { await import('/negative-unsupported.mjs'); } catch (error) { unsupported = error instanceof SyntaxError; }
+  check(unsupported, 'unimplemented named import must reject in Firefox');
+  const transport = bundled.sdk.http(`${location.origin}/rpc`, policy);
+  const read = (mode, signal, t = transport) => bundled.readRpc(t, 'getblockhash', [mode, 7, true, '€'], signal);
+  const good = await read('good');
+  check(good.value.text === '9007199254740993' && good.text === '€雪😀', 'precision/streamed UTF8');
+  const errors = {};
+  async function rejects(mode, code, signal, t) {
+    const start = performance.now();
+    try { await read(mode, signal, t); throw Error(`unexpected success ${mode}`); }
+    catch (error) {
+      check(bundled.sdk.isZcashError(error) && error.code === code, `${mode}: ${error.code}`);
+      sanitized(error);
+      check(performance.now() - start < 5000, `${mode} exceeded bound`);
+      errors[mode] = { code: error.code, retryable: error.retryable, elapsedMs: performance.now() - start };
+    }
+  }
+  await rejects('deadline', 'TIMEOUT', undefined, bundled.sdk.http(`${location.origin}/rpc`, { ...policy, timeoutMs: 300 }));
+  const controller = new AbortController();
+  // Wait for the real server to confirm this request entered a stalled response.
+  const aborted = rejects('abort', 'ABORTED', controller.signal);
+  try {
+    const until = performance.now() + 1500;
+    while (true) {
+      const status = await (await fetch('/fixture-state')).json();
+      if (status.abortStarted) break;
+      check(performance.now() < until, 'abort fixture did not start');
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  } finally { controller.abort(); }
+  await aborted;
+  await rejects('invalid', 'PROTOCOL_MISMATCH');
+  await rejects('rpc-error', 'METHOD_NOT_SUPPORTED', undefined, bundled.sdk.http(`${location.origin}/rpc`,
+    { ...policy, readRetry: { attempts: 3, delayMs: 0 } }));
+  check(errors['rpc-error'].retryable === false, 'RPC error retryability');
+  return { ok: true, claims, eager, importResources, negativeEager, precision: good.value.text, utf8: good.text, errors,
+    userAgent: navigator.userAgent, secureContext: isSecureContext, crossOriginIsolated };
+}

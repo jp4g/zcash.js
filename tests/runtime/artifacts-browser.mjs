@@ -68,6 +68,30 @@ export async function networkChecks(acquireArtifacts, origin) {
       observed.push(scenario);
     } finally { clearTimeout(timer); }
   }
+  const crossOrigin = new URL(origin);
+  crossOrigin.hostname = crossOrigin.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+  for (const [scenario, code] of [['cors-gzip', undefined], ['cors-gzip-short', 'RUNTIME_UNAVAILABLE'],
+    ['cors-gzip-tamper', 'RUNTIME_UNAVAILABLE'], ['cors-gzip-overflow', 'RESOURCE_LIMIT']]) {
+    const f = await fixture();
+    const target = `${crossOrigin.origin}/release/${scenario}/manifest.json`;
+    if (scenario === 'cors-gzip' && typeof window !== 'undefined') {
+      const response = await fetch(target, { credentials: 'omit', referrerPolicy: 'no-referrer' });
+      check(response.type === 'cors' && response.headers.get('content-encoding') === null
+        && response.headers.get('content-length') !== null, 'compressed CORS header filtering');
+      await response.body.cancel();
+    }
+    let result;
+    try {
+      result = await acquireArtifacts({ ...f.artifact, manifestUrl: target }, f.policy);
+      check(code === undefined, `${scenario} unexpectedly accepted`);
+      check(await sha(result.copyManifest()) === await sha(f.bytes), 'compressed manifest bytes');
+      for (const [url, expected] of f.assets) check(await sha(result.copyFile(url)) === await sha(expected), `${scenario} bytes`);
+    } catch (error) {
+      check(code !== undefined && error.code === code && error.stage === 'runtime', `${scenario}: ${error.code}`);
+      assertSanitized(error, target);
+    } finally { result?.dispose(); }
+    observed.push(scenario);
+  }
   return observed;
 }
 
@@ -86,6 +110,7 @@ export async function run(origin = location.origin) {
 // exception, trust bypass, generated runtime, or arbitrary filesystem server.
 export async function serveFixture({ cert, key, hostname = 'localhost' }) {
   const { createServer } = await import('node:https');
+  const { gzipSync } = await import('node:zlib');
   const { readFile } = await import('node:fs/promises');
   const baseline = await fixture(), threaded = await fixture('threaded');
   const routes = new Map(await Promise.all([
@@ -105,7 +130,7 @@ export async function serveFixture({ cert, key, hostname = 'localhost' }) {
   const requests = [], unexpected = [];
   const server = createServer({ cert: await readFile(cert), key: await readFile(key) }, (req, res) => {
     if (req.url === '/') {
-      res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': "default-src 'none'; script-src 'self'; connect-src 'self'; worker-src 'none'; object-src 'none'; img-src data:" });
+      res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': `default-src 'none'; script-src 'self'; connect-src 'self' https://${hostname === 'localhost' ? '127.0.0.1' : 'localhost'}:${server.address().port}; worker-src 'none'; object-src 'none'; img-src data:` });
       res.end('<!doctype html><meta charset="utf-8"><title>Artifact acquisition</title><link rel="icon" href="data:,"><script type="module" src="/artifact-page-entry.mjs"></script>'); return;
     }
     if (routes.has(req.url)) { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(routes.get(req.url)); return; }
@@ -117,6 +142,19 @@ export async function serveFixture({ cert, key, hostname = 'localhost' }) {
     const bytes = path === 'manifest.json' ? f.bytes : f.assets.get(path);
     if (!bytes) { unexpected.push(req.url); res.writeHead(404).end(); return; }
     requests.push({ scenario, path, cookie: req.headers.cookie ?? null, authorization: req.headers.authorization ?? null, referer: req.headers.referer ?? null });
+    if (scenario.startsWith('cors-gzip')) {
+      let decoded = bytes;
+      if (path === 'entry.mjs') {
+        if (scenario === 'cors-gzip-short') decoded = bytes.subarray(1);
+        if (scenario === 'cors-gzip-tamper') { decoded = bytes.slice(); decoded[0] ^= 1; }
+        if (scenario === 'cors-gzip-overflow') decoded = new Uint8Array(f.policy.maxAssetBytes + 1);
+      }
+      const body = gzipSync(decoded);
+      res.writeHead(200, { 'access-control-allow-origin': '*', 'content-encoding': 'gzip',
+        'content-length': body.length, 'cache-control': 'no-store',
+        'content-type': path === 'manifest.json' ? 'application/json' : path.endsWith('.wasm') ? 'application/wasm' : 'text/javascript' });
+      res.end(body); return;
+    }
     if (scenario === 'redirect' && path === 'manifest.json') { res.writeHead(302, { location: '/forbidden-redirect' }).end(); return; }
     const media = path === 'manifest.json' ? 'application/json' : path.endsWith('.wasm') ? 'application/wasm' : 'text/javascript';
     if (scenario === 'oversize' && path === 'manifest.json') {

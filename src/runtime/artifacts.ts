@@ -23,6 +23,11 @@ export interface VerifiedArtifacts {
   dispose(): void;
 }
 
+// Use native signal slots/hooks; caller-owned shadow properties are untrusted.
+const signalAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
+const signalAdd = EventTarget.prototype.addEventListener;
+const signalRemove = EventTarget.prototype.removeEventListener;
+
 const digestPattern = /^[0-9a-f]{64}$/;
 const kinds = ['module', 'worker', 'wasm', 'glue', 'thread-bootstrap'];
 const schemaKeys = ['operations', 'protobuf', 'networkParameters', 'database', 'hostServices'];
@@ -136,7 +141,10 @@ export async function acquireArtifacts(artifact: WasmArtifact, supplied: Artifac
     if (!['baseline', 'threaded'].includes(policy.mode)) throw invalidArgument();
     for (const key of ['maxManifestBytes', 'maxAssetBytes', 'maxTotalAssetBytes', 'maxFiles', 'timeoutMs'] as const) positive(policy[key]);
     canonical(policy.schemas);
-    if (caller !== undefined && !(caller instanceof AbortSignal)) throw invalidArgument();
+    if (caller !== undefined) {
+      if (!(caller instanceof AbortSignal)) throw invalidArgument();
+      signalAborted.call(caller); // Native brand validation before starting any timer.
+    }
   } catch { throw invalidArgument(); }
   const controller = new AbortController();
   let stopped: ZcashError | undefined;
@@ -156,9 +164,6 @@ export async function acquireArtifacts(artifact: WasmArtifact, supplied: Artifac
     if (remaining <= 0) stop(timeout());
     else timer = setTimeout(tick, Math.min(remaining, 2_147_483_647));
   };
-  tick();
-  caller?.addEventListener('abort', onAbort, { once: true });
-  if (caller?.aborted) onAbort();
   // Remove each wait's listener when it settles. Repeated Promise.race against
   // one unresolved stop promise would retain a reaction for every stream chunk.
   const bounded = <T>(promise: Promise<T>): Promise<T> => new Promise((resolve, reject) => {
@@ -189,9 +194,10 @@ export async function acquireArtifacts(artifact: WasmArtifact, supplied: Artifac
         || (response.url && response.url !== url)) throw unavailable();
       if (media !== undefined && response.headers.get('content-type')?.split(';')[0]!.trim().toLowerCase() !== media) throw invalidArgument();
       // Fetch exposes decoded bytes. A compressed wire Content-Length does not
-      // describe that representation; enforce the streamed decoded limit instead.
+      // describe that representation. CORS may hide Content-Encoding entirely;
+      // decoded stream bounds, exact asset lengths and hashes remain authoritative.
       const encoding = response.headers.get('content-encoding');
-      const declared = !encoding || encoding.trim().toLowerCase() === 'identity'
+      const declared = (!encoding && response.type !== 'cors') || encoding?.trim().toLowerCase() === 'identity'
         ? response.headers.get('content-length') : null;
       if (declared !== null) {
         if (!/^[0-9]+$/.test(declared)) throw invalidArgument();
@@ -223,6 +229,11 @@ export async function acquireArtifacts(artifact: WasmArtifact, supplied: Artifac
   }
 
   try {
+    tick();
+    if (caller) {
+      signalAdd.call(caller, 'abort', onAbort, { once: true });
+      if (signalAborted.call(caller)) onAbort();
+    }
     check();
     manifestBytes = await read(endpoint.href, undefined, policy.maxManifestBytes);
     if (await bounded(sha(manifestBytes)) !== pin) throw unavailable();
@@ -271,6 +282,8 @@ export async function acquireArtifacts(artifact: WasmArtifact, supplied: Artifac
     if (isZcashError(error)) throw error;
     throw unavailable();
   } finally {
-    clearTimeout(timer!); caller?.removeEventListener('abort', onAbort); controller.abort();
+    clearTimeout(timer!);
+    if (caller) signalRemove.call(caller, 'abort', onAbort);
+    controller.abort();
   }
 }

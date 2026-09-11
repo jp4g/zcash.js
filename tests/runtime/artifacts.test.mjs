@@ -166,7 +166,7 @@ test('actual Node HTTPS acquisition (explicit scoped certificate trust)', { skip
   const { serveFixture, networkChecks } = await import('./artifacts-browser.mjs');
   const server = await serveFixture({ cert: process.env.ARTIFACT_TLS_CERT, key: process.env.ARTIFACT_TLS_KEY });
   try {
-    assert.equal((await networkChecks(acquireArtifacts, server.origin)).length, 12);
+    assert.equal((await networkChecks(acquireArtifacts, server.origin)).length, 16);
     assert.deepEqual(server.unexpected, []);
     assert.ok(server.requests.every(r => !r.cookie && !r.authorization && !r.referer));
     assert.deepEqual(server.requests.filter(r => r.scenario === 'good').map(r => r.path), ['manifest.json', 'entry.mjs', 'worker.mjs', 'runtime.wasm', 'deps/雪.mjs']);
@@ -261,4 +261,99 @@ test('manifest is authenticated as bytes independently of MIME; absolute authori
   const count = calls.length;
   await rejects(acquireArtifacts({ ...f.artifact, manifestUrl: 'https:///fixture.invalid/a' }, f.policy), 'INVALID_ARGUMENT');
   assert.equal(calls.length, count);
+});
+
+// Review F2: model the browser's filtered CORS headers, with real wire lengths.
+test('compressed CORS hidden encoding keeps decoded integrity authoritative', async t => {
+  const { gzipSync } = await import('node:zlib');
+  const f = await fixture(); let mode = 'good';
+  route(t, f, (path, bytes) => {
+    let body = bytes;
+    if (path === 'entry.mjs') {
+      if (mode === 'short') body = bytes.slice(1);
+      if (mode === 'tamper') { body = bytes.slice(); body[0] ^= 1; }
+      if (mode === 'overflow') body = new Uint8Array(f.policy.maxAssetBytes + 1);
+    }
+    const response = new Response(body, { headers: {
+      'content-type': path.endsWith('.wasm') ? 'application/wasm' : 'text/javascript',
+      'content-length': String(gzipSync(body).length),
+    } });
+    Object.defineProperty(response, 'type', { value: 'cors' });
+    return response;
+  });
+  const result = await acquireArtifacts(f.artifact, f.policy);
+  assert.deepEqual(result.copyManifest(), f.bytes);
+  for (const [path, bytes] of f.assets) assert.deepEqual(result.copyFile(path), bytes);
+  result.dispose();
+  for (const [value, code] of [['short', 'RUNTIME_UNAVAILABLE'], ['tamper', 'RUNTIME_UNAVAILABLE'], ['overflow', 'RESOURCE_LIMIT']]) {
+    mode = value; await rejects(acquireArtifacts(f.artifact, f.policy), code);
+  }
+});
+
+for (const hook of ['addEventListener', 'removeEventListener', 'aborted', 'after-admission']) {
+  test(`hostile caller signal ${hook} preserves ownership and cleanup`, async t => {
+    const { getEventListeners } = await import('node:events');
+    const f = await fixture(), controller = new AbortController();
+    const poison = () => {
+      for (const key of hook === 'after-admission' ? ['addEventListener', 'removeEventListener', 'aborted'] : [hook]) {
+        const fail = () => { throw Error('private-fixture signal hook'); };
+        Object.defineProperty(controller.signal, key, { configurable: true,
+          ...(key === 'aborted' || hook === 'after-admission' ? { get: fail } : { value: fail }) });
+      }
+    };
+    if (hook !== 'after-admission') poison();
+    const pending = new Set(), retained = [], signals = [];
+    const schedule = globalThis.setTimeout, clear = globalThis.clearTimeout;
+    t.mock.method(globalThis, 'setTimeout', (...args) => { const id = schedule(...args); pending.add(id); return id; });
+    t.mock.method(globalThis, 'clearTimeout', id => { pending.delete(id); clear(id); });
+    t.after(() => { for (const id of pending) clear(id); });
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    t.mock.method(crypto.subtle, 'digest', (algorithm, bytes) => { retained.push(bytes); return digest(algorithm, bytes); });
+    route(t, f, (_path, _bytes, options) => { signals.push(options.signal); if (hook === 'after-admission') poison(); });
+    const result = await acquireArtifacts(f.artifact, f.policy, controller.signal);
+    assert.deepEqual(result.copyManifest(), f.bytes);
+    for (const [path, bytes] of f.assets) assert.deepEqual(result.copyFile(path), bytes);
+    assert.equal(pending.size, 0);
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    assert.ok(signals.every(signal => signal.aborted));
+    result.dispose(); assert.equal(retained.length, 5);
+    assert.ok(retained.every(bytes => bytes.every(n => n === 0)));
+    retained.length = 0;
+    f.assets.get('deps/雪.mjs')[0] ^= 1;
+    await rejects(acquireArtifacts(f.artifact, f.policy, controller.signal), 'RUNTIME_UNAVAILABLE');
+    assert.equal(retained.length, 5);
+    assert.ok(retained.every(bytes => bytes.every(n => n === 0)));
+    assert.equal(pending.size, 0);
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    assert.ok(signals.every(signal => signal.aborted));
+  });
+}
+
+
+test('hostile signal shadows preserve native pre-abort, late abort and deadline', async t => {
+  const { getEventListeners } = await import('node:events');
+  const f = await fixture(); let active, mode, canceled = 0;
+  const poison = signal => {
+    for (const key of ['aborted', 'addEventListener', 'removeEventListener']) {
+      Object.defineProperty(signal, key, { get() { throw Error('private-fixture mutated signal'); } });
+    }
+  };
+  const calls = route(t, f, () => {
+    poison(active.signal); // Mutation after admission, while read is pending.
+    return new Response(new ReadableStream({
+      start(c) { c.enqueue(f.bytes.slice(0, 10)); if (mode === 'abort') queueMicrotask(() => active.abort()); },
+      cancel() { canceled++; return new Promise(() => {}); },
+    }));
+  });
+  active = new AbortController(); active.abort(); poison(active.signal);
+  await rejects(acquireArtifacts(f.artifact, f.policy, active.signal), 'ABORTED');
+  assert.equal(calls.length, 0);
+  for (const value of ['abort', 'timeout']) {
+    mode = value; active = new AbortController();
+    await rejects(acquireArtifacts(f.artifact, { ...f.policy, timeoutMs: 15 }, active.signal), value === 'abort' ? 'ABORTED' : 'TIMEOUT');
+    assert.equal(getEventListeners(active.signal, 'abort').length, 0);
+  }
+  assert.equal(canceled, 2);
+  await rejects(acquireArtifacts(f.artifact, f.policy, Object.create(AbortSignal.prototype)), 'INVALID_ARGUMENT');
+  assert.equal(calls.length, 2, 'non-native signal rejected before fetching');
 });

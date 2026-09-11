@@ -258,3 +258,64 @@ test('cancellation queued between header completion and block completion wins', 
   });
   await assert.rejects(adapter.getBlock(f.source, { height: 1, signal: controller.signal }), code('ABORTED'));
 });
+
+// In-process transport boundary: actual parser/header/native digests, no socket permission needed.
+function boundary(t, options = {}) {
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (_url, request) => {
+    const call = JSON.parse(request.body); calls.push(call);
+    return new Response(`{"jsonrpc":"2.0","id":${JSON.stringify(call.id)},${reply(call)}}`);
+  });
+  return { calls, source: { sourceId, transport: http('http://127.0.0.1:1', { ...transportOptions, ...options }) } };
+}
+const sanitized = expected => error => {
+  assert.equal(error.code, expected); assert.equal(error.message, expected === 'INVALID_ARGUMENT' ? 'Invalid argument.' : 'Request aborted.');
+  assert.doesNotMatch(String(error) + JSON.stringify(error), /private-fixture/); return true;
+};
+for (const location of ['source', 'args']) test(`boundary: ${location} descriptors captured once without property reads`, async t => {
+  const f = boundary(t); const reads = new Map();
+  const target = location === 'source' ? f.source : { height: 1 };
+  const proxy = new Proxy(target, {
+    get() { throw Error('private-fixture'); },
+    getOwnPropertyDescriptor(target, key) {
+      reads.set(key, (reads.get(key) ?? 0) + 1);
+      return reads.get(key) === 1 ? Reflect.getOwnPropertyDescriptor(target, key) : undefined;
+    },
+  });
+  const value = await adapter.getBlock(location === 'source' ? proxy : f.source, location === 'args' ? proxy : { height: 1 });
+  assert.equal(value.sourceId, sourceId); assert.equal(value.point.height, 1);
+  assert.ok([...reads.values()].every(n => n === 1)); assert.equal(f.calls.length, 3);
+});
+for (const location of ['source', 'args']) test(`boundary: ${location} reflection failures reject before callbacks`, async t => {
+  let callbacks = 0; const f = boundary(t, { headers() { callbacks++; return {}; } });
+  const target = location === 'source' ? f.source : { height: 1 };
+  const revoked = Proxy.revocable(target, {}); revoked.revoke();
+  for (const bad of [revoked.proxy, new Proxy(target, { getOwnPropertyDescriptor() { return undefined; } }),
+    ...['getPrototypeOf', 'ownKeys', 'getOwnPropertyDescriptor'].map(trap => new Proxy(target, { [trap]() { throw Error('private-fixture'); } }))]) {
+    await assert.rejects(adapter.getBlock(location === 'source' ? bad : f.source, location === 'args' ? bad : { height: 1 }), sanitized('INVALID_ARGUMENT'));
+  }
+  assert.equal(callbacks, 0); assert.equal(f.calls.length, 0);
+});
+test('boundary: hostile signals reject before callbacks', async t => {
+  let callbacks = 0; const f = boundary(t, { headers() { callbacks++; return {}; } });
+  const revoked = Proxy.revocable(new AbortController().signal, {}); revoked.revoke();
+  for (const signal of [{}, Object.create(AbortSignal.prototype), revoked.proxy,
+    new Proxy(new AbortController().signal, {}),
+    Object.defineProperty(new AbortController().signal, 'aborted', { get() { throw Error('private-fixture'); } })]) {
+    await assert.rejects(adapter.getBlock(f.source, { height: 1, signal }), sanitized('INVALID_ARGUMENT'));
+  }
+  assert.equal(callbacks, 0); assert.equal(f.calls.length, 0);
+});
+for (const mode of ['throw', 'false-abort', 'throw-abort']) test(`boundary: final native cancellation ${mode}`, async t => {
+  const f = boundary(t); const controller = new AbortController(); const digest = crypto.subtle.digest; let digests = 0;
+  t.mock.method(crypto.subtle, 'digest', async function (...args) {
+    const value = await digest.apply(this, args);
+    if (++digests === 2) queueMicrotask(() => queueMicrotask(() => {
+      Object.defineProperty(controller.signal, 'aborted', mode === 'false-abort' ? { value: false } : { get() { throw Error('private-fixture'); } });
+      if (mode !== 'throw') controller.abort();
+    }));
+    return value;
+  });
+  await assert.rejects(adapter.getBlock(f.source, { height: 1, signal: controller.signal }), sanitized(mode === 'throw' ? 'INVALID_ARGUMENT' : 'ABORTED'));
+  assert.equal(digests, 2); assert.equal(f.calls.length, 3);
+});

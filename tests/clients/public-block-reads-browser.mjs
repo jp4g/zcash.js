@@ -68,6 +68,26 @@ export async function runBrowser() {
       } });
       await rejects(getBlock(fromCallback, args), 'ABORTED', `callback-${stage}`);
     }
+    const descriptorSource = new Proxy(context('descriptors'), { get() { throw Error('private-fixture'); } });
+    check((await getBlock(descriptorSource, new Proxy({ height: 1 }, { get() { throw Error('private-fixture'); } }))).point.height === 1, 'descriptor-only inputs');
+    for (const trap of ['getPrototypeOf', 'ownKeys', 'getOwnPropertyDescriptor']) {
+      await rejects(getBlock(context('invalid'), new Proxy({ height: 1 }, { [trap]() { throw Error('private-fixture'); } })), 'INVALID_ARGUMENT', trap);
+    }
+    await rejects(getBlock(context('invalid'), { height: 1, signal: new Proxy(new AbortController().signal, {}) }), 'INVALID_ARGUMENT', 'signal proxy');
+    for (const mode of ['throw', 'false-abort', 'throw-abort']) {
+      const controller = new AbortController(); const digest = crypto.subtle.digest; let digests = 0;
+      crypto.subtle.digest = async function (...args) {
+        const value = await digest.apply(this, args);
+        if (++digests === 2) queueMicrotask(() => queueMicrotask(() => {
+          Object.defineProperty(controller.signal, 'aborted', mode === 'false-abort' ? { value: false } : { get() { throw Error('private-fixture'); } });
+          if (mode !== 'throw') controller.abort();
+        }));
+        return value;
+      };
+      try { await rejects(getBlock(context(`final-${mode}`), { height: 1, signal: controller.signal }), mode === 'throw' ? 'INVALID_ARGUMENT' : 'ABORTED', mode); }
+      finally { crypto.subtle.digest = digest; }
+      check(digests === 2, `${mode}: two native digests`);
+    }
     check(eager.Worker === 0 && eager.WebAssembly === 0, 'no worker or WASM');
     check(typeof crypto.subtle.digest === 'function', 'native Web Crypto');
     return { checks, eager, userAgent: navigator.userAgent };
@@ -89,7 +109,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const report = { status: 'failed', runRoot, build, sandbox: 'unchanged', started: new Date().toISOString() };
   const stop = new AbortController();
   const deadline = setTimeout(() => stop.abort(), 90000);
-  const onSignal = () => stop.abort();
+  const onSignal = signal => { report.interruptedBy = signal; stop.abort(); };
   process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   let server, driver, driverIdentity, browserIdentity, session, endpoint, driverError, text = '';
@@ -191,6 +211,12 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     report.processIdentities = { driver: driverIdentity, browser: browserIdentity };
     await request(`/session/${session}/timeouts`, 'POST', { script: 20000, pageLoad: 15000, implicit: 0 });
     await request(`/session/${session}/url`, 'POST', { url: server.origin });
+    if (process.env.PUBLIC_BLOCK_INTERRUPT_PROBE === '1') {
+      assert.equal(typeof process.send, 'function', 'interruption probe requires owning helper IPC');
+      process.send({ ready: true, reportPath, processIdentities: report.processIdentities, origin: server.origin });
+      while (!stop.signal.aborted) await pause(20);
+      stop.signal.throwIfAborted();
+    }
     let answer;
     const resultDeadline = Date.now() + 45000;
     while (!answer) {
@@ -207,6 +233,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       ['getblock', [block.hash, 1]], ['getblockheader', [block.hash, true]], ['getblockheader', [block.hash, false]],
     ]);
     for (const [mode, count] of Object.entries({
+      descriptors: 3, 'final-throw': 3, 'final-false-abort': 3, 'final-throw-abort': 3,
       mutation: 3, null: 1, 'bad-number': 1, 'bad-tx': 1, 'bad-count': 1,
       'bad-hash': 2, 'bad-height': 1, 'bad-parent': 3, 'bad-time': 3,
       'header-height': 3, 'header-hash': 2, 'bad-raw': 3, invalid: 0,
@@ -219,7 +246,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       }
     }
     report.status = 'passed';
-  } catch (error) { report.error = { code: error.code, message: String(error), stack: error.stack }; }
+  } catch (error) { if (report.interruptedBy) report.status = 'interrupted'; report.error = { code: error.code, message: String(error), stack: error.stack }; }
   finally {
     clearTimeout(deadline);
     const errors = []; let sessionDeleted = !session, groupGone = !driverIdentity;

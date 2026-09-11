@@ -109,3 +109,47 @@ package in owned scratch. `CLIresult.md` is the final worker summary. Parent run
 Node/installed Firefox outside this worker restriction, reviews independently,
 incorporates A fixes, and reruns qualification before acceptance. No automatic
 reviewer/queue worker, push, merge, installation or publication is performed here.
+
+## First independent-review R1/R2 correction candidate
+
+The R1/R2 correction is based on integrated A first fixes at `c2a3131`; A's
+independent HIGH R2 review remains a separate acceptance gate. Source and selector
+admission now copies each allowed own data descriptor once into a null-prototype
+record. Reflection failures, revoked proxies and missing descriptors produce fixed
+`INVALID_ARGUMENT` before callbacks. Property `get` traps are never invoked;
+values returned by those traps cannot replace the captured descriptor values.
+
+Cancellation uses the native AbortSignal state and an owned signal passed to HTTP
+and A. Native listener methods bridge caller cancellation, with teardown in
+`finally`; caller method shadows never enter downstream code. A final native
+abort wins over an `aborted: false` shadow or a throwing accessor. A non-aborted
+signal with an own accessor is rejected without invoking it. Existing transport,
+timeout, protocol and crypto/runtime errors retain their original SDK codes.
+On hosts whose native getter accepts proxies, Node's existing
+`process.getBuiltinModule('node:util').types.isProxy` supplies the proxy check.
+There is no static Node import or polyfill. Hosts lacking both a proxy-rejecting
+native getter and that check fail closed for supplied signals. This worker tested
+Node 26.8.1; it does not claim Node 18 or complete supported-version qualification.
+Browser-native signal support is retained and must be verified on the candidate.
+
+The unchanged independent 37-test suite originally reproduced 25 pass / 12 fail.
+After descriptor-only capture, three old assertions requiring `get` execution are
+incompatible with the requested behavior. The original stays immutable; an owned
+copy changes only those three expectations and passes 37/37. Eight committed
+socket-free R1/R2 regressions fail before the correction and pass afterwards.
+The ordinary-page browser suite now includes descriptor/proxy controls and final
+shadow cancellation after both real native digests. R3 was already corrected in
+`39906b3`, with the prior parent Firefox PASS receipt; that receipt does not qualify
+this new combined candidate.
+
+The worker's real HTTP/Firefox attempts still fail at loopback `listen EPERM`.
+Parent must freshly build the combined candidate and run all Node and actual
+Firefox checks, then execute the real SIGINT/SIGTERM interruption helper at
+`/home/jack/zcash-public-block-scratch/fixes/boundary/interrupted-browser.mjs`.
+The helper is syntax-checked only, **not executed** in this worker. It waits for
+an actual browser session/page, signals only the recorded runner identity, and
+requires session/group/browser/server cleanup receipts and disappearance checks.
+`PUBLIC_BLOCK_INTERRUPT_PROBE=1` is a runner-only IPC checkpoint for that helper.
+External `fixes/boundary/REPORT.md` records exact commands, counts and remaining
+parent gates. No whole-client or #6 acceptance is claimed; independent HIGH
+rereview follows this first correction candidate.

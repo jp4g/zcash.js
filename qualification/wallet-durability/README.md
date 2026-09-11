@@ -83,3 +83,14 @@ threaded execution and complete F3 remain unqualified. Independent review and
 coordinator host reruns are separate gates. Executed status, hashes and retained
 failures are in `/home/jack/zcash-wallet-durability-logs/result.md`; early/resumable
 commands are in `checkpoint.md` there.
+
+Stage-7 executed outcome: Node tracer 3/3 and interruption 6/6 pass (8 distinct
+scenarios); the same actual Firefox 155 OPFS phases pass 3/3 and 6/6. Firefox
+externally observed all 30 dedicated-worker realms destroyed and recorded 30
+before-reopen destruction barriers. Actual Node whole-process SIGKILL, second
+writer EBUSY, hot-journal rollback and retry/idempotence pass. Coordinator Node
+all-case and process reruns also pass. The final generated Wasm SHA-256 is
+`5c6fdbe2ee80e8c444a2734e2ff19020599f063b23e2812e6fc2b3b37a1d8185`.
+These results qualify the stated synthetic slice; the uncovered gates above and
+independent integration review remain. Exact receipts and source/tool hashes are
+in `/home/jack/zcash-wallet-durability-logs/result.md`.

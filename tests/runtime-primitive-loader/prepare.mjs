@@ -37,7 +37,7 @@ const log = openSync(join(temp, 'tsc.log'), 'wx');
 try {
   execFileSync(process.execPath, ['/home/jack/zcash.js/node_modules/typescript/bin/tsc', '--target', 'ES2022', '--module', 'ES2022', '--moduleResolution', 'bundler',
     '--strict', '--noUncheckedIndexedAccess', '--exactOptionalPropertyTypes', '--skipLibCheck', '--noEmitOnError', '--outDir', join(temp, 'compiled'), '--rootDir', temp,
-    join(temp, 'src/runtime/primitive-loader.ts')], { stdio: ['ignore', log, log] });
+    join(temp, 'src/runtime/primitive-loader.ts')], { cwd: temp, stdio: ['ignore', log, log] });
 } finally { closeSync(log); }
 for (const name of ['src/runtime/primitive-loader.js', 'src/runtime/artifacts.js', 'src/errors.js']) files.set(name, readFileSync(join(temp, 'compiled', name)));
 for (const name of ['browser.mjs', 'network-cases.mjs', 'transaction-cases.mjs', 'vectors.mjs', 'host.mjs']) files.set(name, readSdk('tests/runtime-primitive-loader/' + name));

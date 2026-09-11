@@ -60,6 +60,35 @@ export async function runBrowser() {
             location === 'options' ? revocable.proxy : options));
         }
       }
+      const invoke = signal => method(source, { ...options, signal });
+      for (const mode of ['plain', 'overrides', 'mutated', 'abort']) {
+        const controller = new AbortController();
+        const poison = () => { throw Error('private-sentinel'); };
+        const mutate = () => {
+          for (const key of ['aborted', 'addEventListener', 'removeEventListener']) {
+            Object.defineProperty(controller.signal, key, { configurable: true, get: poison });
+          }
+        };
+        if (mode === 'overrides') mutate();
+        const lifetimeSource = { sourceId, transport: http(`${location.origin}/rpc/${method === api.getTip ? 'good' : 'genesis'}`, {
+          ...transportOptions, headers: async () => {
+            await Promise.resolve();
+            if (mode === 'mutated' || mode === 'abort') mutate();
+            if (mode === 'abort') controller.abort();
+            return {};
+          },
+        }) };
+        try {
+          await method(lifetimeSource, { ...options, signal: controller.signal });
+          check(mode !== 'abort', method.name + ' native lifetime ' + mode);
+        } catch (error) {
+          check(mode === 'abort' && isZcashError(error) && error.code === 'ABORTED', method.name + ' native lifetime abort');
+        }
+      }
+      await invalid(invoke(new Proxy(new AbortController().signal, {})));
+      await invalid(invoke(Object.create(AbortSignal.prototype, {
+        aborted: { value: false }, addEventListener: { value() {} }, removeEventListener: { value() {} },
+      })));
       for (const trap of ['getPrototypeOf', 'get', 'revoked']) {
         const revocable = Proxy.revocable(new AbortController().signal, trap === 'revoked' ? {} : {
           [trap]() { throw Error('private-sentinel'); },
@@ -67,6 +96,25 @@ export async function runBrowser() {
         if (trap === 'revoked') revocable.revoke();
         await invalid(method(source, { ...options, signal: revocable.proxy }));
       }
+    }
+    for (const stage of [1, 2]) {
+      const controller = new AbortController();
+      const native = crypto.subtle.digest;
+      let calls = 0;
+      crypto.subtle.digest = async function (...args) {
+        const value = await native.apply(this, args);
+        if (++calls !== stage) return value;
+        for (const key of ['aborted', 'addEventListener', 'removeEventListener']) {
+          Object.defineProperty(controller.signal, key, { get() { throw Error('private-sentinel'); } });
+        }
+        controller.abort();
+        await Promise.resolve();
+        throw Error('private-sentinel');
+      };
+      try {
+        await rejects(api.getBlockHeader(context('genesis'), { height: 0, signal: controller.signal }), 'ABORTED');
+        check(calls === stage, 'native hash abort stage ' + stage);
+      } finally { crypto.subtle.digest = native; }
     }
     const tip = await api.getTip(context('good'));
     check(tip.height === 7 && tip.hash === hashA && tip.sourceId === sourceId, 'coherent tip');

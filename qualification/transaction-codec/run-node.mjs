@@ -9,7 +9,7 @@ if (!/^[a-f0-9]{64}$/.test(expected ?? '') || !output) throw Error('usage: run-n
 const { manifest, assets } = await loadBundle(root, expected);
 const wasmBytes = assets.get('/codec_bg.wasm');
 const module = new WebAssembly.Module(wasmBytes);
-const bindings = await import('./codec.js');
+const bindings = await import('./codec-entry.mjs');
 const wasm = bindings.initSync({ module });
 if (wasm.memory.buffer instanceof SharedArrayBuffer) throw Error('expected unshared baseline');
 const { runCases } = await import('./cases.mjs');

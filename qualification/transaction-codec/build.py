@@ -9,7 +9,7 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 SCRATCH = Path('/home/jack/zcash-transaction-codec-scratch')
-LOGS = Path('/home/jack/zcash-transaction-codec-logs')
+LOGS = Path('/home/jack/zcash-transaction-codec-logs/fixes')
 BINDGEN = Path('/home/jack/zcash-node-runtime-scratch/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl/wasm-bindgen')
 
 
@@ -30,7 +30,7 @@ def main():
     source.mkdir(parents=True)
     bundle.mkdir()
     names = ['Cargo.toml', 'Cargo.lock', 'src/lib.rs', 'src/main.rs', 'env.sh', 'build.py',
-             'fixtures/vectors.json', 'fixtures/provenance.json', 'bundle.mjs', 'cases.mjs',
+             'fixtures/vectors.json', 'fixtures/provenance.json', 'codec-entry.mjs', 'bundle.mjs', 'cases.mjs',
              'run-node.mjs', 'run-browser.mjs', 'browser-entry.mjs', 'browser.html']
     inputs = {name: sha(ROOT / name) for name in names}
     for name in names:
@@ -65,7 +65,7 @@ def main():
         shutil.copyfile(SCRATCH / 'target/wasm32-unknown-unknown/debug/transaction_codec_qualification.wasm', raw)
         receipt['raw_sha256'] = sha(raw)
         command('bindgen', [str(BINDGEN), str(raw), '--target', 'web', '--no-typescript', '--out-name', 'codec', '--out-dir', str(bundle)])
-        for name in ['bundle.mjs', 'cases.mjs', 'run-node.mjs', 'run-browser.mjs', 'browser-entry.mjs', 'browser.html']:
+        for name in ['codec-entry.mjs', 'bundle.mjs', 'cases.mjs', 'run-node.mjs', 'run-browser.mjs', 'browser-entry.mjs', 'browser.html']:
             shutil.copyfile(source / name, bundle / name)
         shutil.copyfile(source / 'fixtures/vectors.json', bundle / 'vectors.json')
         (bundle / 'package.json').write_text('{"type":"module"}\n')

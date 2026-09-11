@@ -18,6 +18,8 @@ export function runCases(bindings, vectors) {
   const suite = JSON.parse(bindings.qualify());
   check(suite.ok && suite.vectors.length === 13 && vectors.length === 13, 'suite count');
   check(suite.compact_size_negatives === 2 && suite.v6_known_incompatible_branch, 'negative coverage');
+  const fieldControls = runFieldCases(bindings, vectors);
+  check(suite.lossy_serialization_negatives === 1, 'lossy serialization coverage');
   let crossings = 0;
   for (const [index, vector] of vectors.entries()) {
     const raw = Uint8Array.from(vector.hex.match(/../g), b => Number.parseInt(b, 16));
@@ -33,5 +35,28 @@ export function runCases(bindings, vectors) {
     rejects(() => bindings.decode(raw, 0), vector.version >= 5 ? 'branch mismatch' : 'version/context mismatch');
     crossings += 5;
   }
-  return { ...suite, js_boundary_calls: crossings, reversed_expectation_controls: vectors.length };
+  return { ...suite, js_boundary_calls: crossings + fieldControls.calls, js_field_controls: fieldControls, reversed_expectation_controls: vectors.length };
+}
+
+// Keep these controls callable against the old real glue for the RED regression.
+export function runFieldCases(bindings, vectors) {
+  let calls = 0;
+  for (const vector of vectors) {
+    const raw = Uint8Array.from(vector.hex.match(/../g), b => Number.parseInt(b, 16));
+    for (const branch of [vector.branch + 2 ** 32, vector.branch - 2 ** 32,
+      vector.branch + 0.5, String(vector.branch), new Number(vector.branch), NaN, Infinity]) {
+      rejects(() => bindings.decode(raw, branch), 'branch must be a u32 integer');
+      calls++;
+    }
+    for (const bytes of [Array.from(raw), Uint16Array.from(raw), Array.from(raw, b => b + 256)]) {
+      rejects(() => bindings.decode(bytes, vector.branch), 'raw must be Uint8Array');
+      calls++;
+    }
+    // A genuine byte view with a nonzero offset is still accepted exactly.
+    const padded = Uint8Array.of(0, ...raw, 0);
+    compare(JSON.parse(bindings.decode(padded.subarray(1, -1), vector.branch)), vector);
+    calls++;
+  }
+  return { calls, branch_negatives: vectors.length * 7, byte_type_negatives: vectors.length * 3,
+    byte_view_controls: vectors.length };
 }

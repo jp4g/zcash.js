@@ -1,4 +1,4 @@
-import init, * as bindings from './codec.js';
+import init, * as bindings from './codec-entry.mjs';
 import { runCases } from './cases.mjs';
 
 export async function run() {

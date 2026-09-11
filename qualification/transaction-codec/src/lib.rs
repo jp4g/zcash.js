@@ -25,6 +25,9 @@ pub fn decode(raw: &[u8], branch: u32) -> Result<String, String> {
     let tx = parse_exact(raw, branch)?;
     let mut written = Vec::new();
     tx.write(&mut written).map_err(|e| format!("write: {e}"))?;
+    if written != raw {
+        return Err("serialization differs from input".into());
+    }
     Ok(serde_json::json!({
         "hex": hex::encode(written),
         "txid": hex::encode(tx.txid().as_ref()),
@@ -51,6 +54,7 @@ fn vectors() -> Vec<Vector> {
 /// The identical native/WASM suite, with expectations from frozen source vectors.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn qualify() -> Result<String, String> {
+    rejects_lossy_serialization()?;
     let mut results = Vec::new();
     for v in vectors() {
         let raw = hex::decode(&v.hex).map_err(|e| e.to_string())?;
@@ -126,7 +130,16 @@ pub fn qualify() -> Result<String, String> {
         return Err("V6/Nu5 context control".into());
     }
     Ok(serde_json::json!({"vectors":results,"compact_size_negatives":2,
-        "v6_known_incompatible_branch":true,"ok":true}).to_string())
+        "v6_known_incompatible_branch":true,"lossy_serialization_negatives":1,"ok":true}).to_string())
+}
+
+// Review R1: parseable V4 with valueBalance=1 but no Sapling bundle.
+fn rejects_lossy_serialization() -> Result<(), String> {
+    let raw = hex::decode("0400008085202f89000000000000000000000100000000000000000000").unwrap();
+    if decode(&raw, u32::from(BranchId::Sapling)).err().as_deref() != Some("serialization differs from input") {
+        return Err("accepted lossy V4 serialization".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -140,6 +153,11 @@ mod tests {
     #[test]
     fn source_vectors_and_parser_negatives() {
         qualify().unwrap();
+    }
+
+    #[test]
+    fn lossy_serialization_is_rejected() {
+        rejects_lossy_serialization().unwrap();
     }
 
     #[test]

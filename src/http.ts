@@ -31,14 +31,20 @@ export function http(url: string, options: TransportOptions): HttpTransport {
     if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password
       || url.includes('#')) throw invalidArgument();
     record(options, ['sourceId', 'timeoutMs', 'readRetry', 'maxResponseBytes', 'headers']);
-    if (typeof options.sourceId !== 'string' || options.sourceId.trim().length === 0) throw invalidArgument();
-    integer(options.timeoutMs, 1);
-    integer(options.maxResponseBytes, 1);
-    record(options.readRetry, ['attempts', 'delayMs']);
-    integer(options.readRetry.attempts, 1);
-    integer(options.readRetry.delayMs, 0);
-    if (options.headers !== undefined && typeof options.headers !== 'function') throw invalidArgument();
-    const snapshot: TransportOptions = Object.freeze({ ...options, readRetry: Object.freeze({ ...options.readRetry }) });
+    const { sourceId, timeoutMs, readRetry, maxResponseBytes, headers } = options;
+    record(readRetry, ['attempts', 'delayMs']);
+    const snapshot: TransportOptions = {
+      sourceId, timeoutMs, maxResponseBytes, ...(headers === undefined ? {} : { headers }),
+      readRetry: { attempts: readRetry.attempts, delayMs: readRetry.delayMs },
+    };
+    if (typeof snapshot.sourceId !== 'string' || snapshot.sourceId.trim().length === 0) throw invalidArgument();
+    integer(snapshot.timeoutMs, 1);
+    integer(snapshot.maxResponseBytes, 1);
+    integer(snapshot.readRetry.attempts, 1);
+    integer(snapshot.readRetry.delayMs, 0);
+    if (snapshot.headers !== undefined && typeof snapshot.headers !== 'function') throw invalidArgument();
+    Object.freeze(snapshot.readRetry);
+    Object.freeze(snapshot);
     const transport = Object.freeze({}) as HttpTransport;
     transports.set(transport, { url: endpoint.href, options: snapshot, nextId: 0n });
     return transport;

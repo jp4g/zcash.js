@@ -32,6 +32,63 @@ test('http is lazy, opaque, validates every option and snapshots policy', async 
   await assert.rejects(call({}), { code: 'INVALID_ARGUMENT' });
 });
 
+test('non-enumerable supported options retain byte limits, deadlines and retry policy', async (t) => {
+  let mode = 'large';
+  let calls = 0;
+  mockFetch(t, async (_url, init) => {
+    calls++;
+    if (mode === 'stall') return new Promise(() => {});
+    if (mode === 'retry' && calls === 1) return new Response('', { status: 503 });
+    return response(JSON.parse(init.body), mode === 'large' ? 'x'.repeat(8192) : 'ok');
+  });
+  const policy = {};
+  const retry = {};
+  for (const [key, value] of Object.entries({ attempts: 2, delayMs: 0 })) {
+    Object.defineProperty(retry, key, { value });
+  }
+  for (const [key, value] of Object.entries(options({ timeoutMs: 20, maxResponseBytes: 64, readRetry: retry }))) {
+    Object.defineProperty(policy, key, { value });
+  }
+  const transport = sdk.http('https://synthetic.invalid', policy);
+  await assert.rejects(call(transport), { code: 'RESOURCE_LIMIT' });
+  mode = 'stall';
+  const controller = new AbortController();
+  const fallback = setTimeout(() => controller.abort(), 500);
+  try { await assert.rejects(call(transport, controller.signal), { code: 'TIMEOUT' }); }
+  finally { clearTimeout(fallback); }
+  mode = 'retry';
+  calls = 0;
+  assert.equal(await call(transport), 'ok');
+  assert.equal(calls, 2);
+});
+
+test('supported option getters are read once and their first values are validated and stored', async (t) => {
+  const reads = {};
+  const changing = (values, prefix = '') => Object.fromEntries(Object.entries(values).map(([key, value]) => {
+    return [key, { enumerable: true, get() {
+      const name = prefix + key;
+      reads[name] = (reads[name] ?? 0) + 1;
+      return reads[name] === 1 ? value : undefined;
+    } }];
+  }));
+  const retry = Object.defineProperties({}, changing({ attempts: 1, delayMs: 0 }, 'retry.'));
+  const policy = Object.defineProperties({}, changing(options({ readRetry: retry,
+    headers: async () => ({ Authorization: 'first' }) })));
+  mockFetch(t, async (_url, init) => {
+    assert.equal(init.headers.get('authorization'), 'first');
+    return response(JSON.parse(init.body));
+  });
+  const transport = sdk.http('https://synthetic.invalid', policy);
+  assert.equal(await call(transport), 'ok');
+  assert.deepEqual(reads, { sourceId: 1, timeoutMs: 1, readRetry: 1, maxResponseBytes: 1,
+    headers: 1, 'retry.attempts': 1, 'retry.delayMs': 1 });
+  let invalidReads = 0;
+  const invalid = options();
+  Object.defineProperty(invalid, 'timeoutMs', { get() { return ++invalidReads === 1 ? 0 : 1000; } });
+  assert.throws(() => sdk.http('https://synthetic.invalid', invalid), { code: 'INVALID_ARGUMENT' });
+  assert.equal(invalidReads, 1);
+});
+
 test('wire requests use POST, distinct string IDs, explicit credentials, no redirect/cache and exact params', async (t) => {
   const requests = [];
   mockFetch(t, async (url, init) => {

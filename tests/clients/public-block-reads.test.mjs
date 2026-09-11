@@ -1,0 +1,260 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { fixture, result, sourceId, transportOptions, blockOne } from './public-chain-reads-fixtures.mjs';
+
+const build = process.env.PUBLIC_BLOCK_READS_BUILD ?? '/home/jack/zcash-public-block-scratch/dist';
+const { http } = await import(`${build}/src/http.js`);
+const adapter = await import(`${build}/src/clients/public-block-reads.js`).catch(error => {
+  if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error;
+  return {};
+});
+// The single txid is verbatim from the pinned verbosity-1 block-one snapshot.
+const txids = ['851bf6fbf7a976327817c738c489d7fa657752445430922d94c983c0b9ed4609'];
+const block = { ...blockOne.verbose, nTx: 1, tx: txids };
+const reply = call => result(call.method === 'getblock' ? block : call.params[1] ? blockOne.verbose : blockOne.raw);
+const code = expected => error => error.code === expected;
+async function local(t, respond = reply, options = {}) {
+  const server = await fixture(respond);
+  t.after(async () => { await server.close(); assert.deepEqual(server.unexpected, []); });
+  return { ...server, source: { sourceId, transport: http(server.origin + '/rpc', { ...transportOptions, ...options }) } };
+}
+
+test('getBlock resolves height once and pins both header calls across a reorg', async t => {
+  assert.equal(typeof adapter.getBlock, 'function');
+  const f = await local(t, call => {
+    // Subsequent height lookups now resolve a different block; hash calls still succeed.
+    if (call.method !== 'getblock' && call.params[0] === '1') return result(null);
+    return reply(call);
+  });
+  const before = Date.now();
+  const value = await adapter.getBlock(f.source, { height: 1 });
+  assert.deepEqual({ ...value, raw: undefined, observedAt: undefined }, {
+    point: { height: 1, hash: block.hash }, previousHash: block.previousblockhash,
+    time: block.time, txids, sourceId, raw: undefined, observedAt: undefined,
+  });
+  assert.equal(Buffer.from(value.raw).toString('hex'), blockOne.raw);
+  assert.ok(Date.parse(value.observedAt) >= before && Date.parse(value.observedAt) <= Date.now());
+  assert.deepEqual(f.calls.map(({ method, params }) => ({ method, params })), [
+    { method: 'getblock', params: ['1', 1] },
+    { method: 'getblockheader', params: [block.hash, true] },
+    { method: 'getblockheader', params: [block.hash, false] },
+  ]);
+});
+
+test('invalid selector/source rejects without invoking callbacks', async () => {
+  let callbacks = 0;
+  const source = { sourceId, transport: http('http://127.0.0.1:1', { ...transportOptions,
+    headers() { callbacks++; throw Error('private-fixture'); } }) };
+  for (const args of [undefined, null, [], {}, { height: 1, hash: block.hash }, { height: 1, hash: undefined },
+    { hash: block.hash, height: undefined }, { height: -1 }, { height: 4294967296 }, { height: NaN },
+    { height: 1.5 }, { height: 1n }, { height: '1' }, { hash: block.hash.toUpperCase() },
+    { hash: '0x' + block.hash }, { hash: block.hash.slice(1) }, { hash: 1 }, { height: 1, extra: true },
+    { height: 1, signal: {} }, Object.create({ height: 1 }),
+    Object.defineProperty({}, 'height', { get() { throw Error('private-fixture'); } })]) {
+    await assert.rejects(adapter.getBlock(source, args), code('INVALID_ARGUMENT'));
+  }
+  for (const bad of [null, {}, { ...source, sourceId: '' }, { ...source, sourceId: '  ' },
+    { ...source, sourceId: 1 }, { ...source, extra: 1 }, { ...source, transport: {} },
+    Object.defineProperty({}, 'sourceId', { get() { throw Error('private-fixture'); } })]) {
+    await assert.rejects(adapter.getBlock(bad, { height: 1 }), code('INVALID_ARGUMENT'));
+  }
+  assert.equal(callbacks, 0);
+});
+
+test('verbose block rejects malformed shapes, hashes and txid lists before header lookup', async t => {
+  let value;
+  const f = await local(t, () => result(value), { maxResponseBytes: 4_000_000 });
+  const bads = [null, [], 1, 'raw', {}, { ...block, hash: block.hash.toUpperCase() },
+    { ...block, hash: '0x' + block.hash }, { ...block, hash: block.hash.slice(1) },
+    { ...block, previousblockhash: null }, { ...block, previousblockhash: 'x'.repeat(64) },
+    { ...block, time: null }, { ...block, tx: null }, { ...block, tx: {} }, { ...block, tx: [] },
+    { ...block, tx: [null] }, { ...block, tx: [{ txid: txids[0] }] },
+    { ...block, tx: [txids[0].toUpperCase()] }, { ...block, tx: ['0x' + txids[0]] },
+    { ...block, tx: [txids[0].slice(1)] }, { ...block, nTx: 2 },
+    { ...block, nTx: 2, tx: [txids[0], txids[0]] },
+    { ...block, nTx: 37038, tx: Array(37038).fill(txids[0]) }];
+  for (const field of ['height', 'hash', 'previousblockhash', 'time', 'tx', 'nTx']) {
+    const missing = { ...block }; delete missing[field]; bads.push(missing);
+  }
+  for (value of bads) {
+    const start = f.calls.length;
+    await assert.rejects(adapter.getBlock(f.source, { height: 1 }), code('PROTOCOL_MISMATCH'));
+    assert.equal(f.calls.length, start + 1);
+  }
+});
+
+test('height, time and nTx use lossless integer tokens and source ranges', async t => {
+  let payload;
+  const f = await local(t, () => `"result":${payload}`);
+  for (const field of ['height', 'time', 'nTx']) {
+    for (const token of ['-1', '4294967296', '9007199254740993', '1.0', '1e0', '1.2', '"1"', 'null', 'true', '{}', '-0']) {
+      payload = JSON.stringify(block).replace(new RegExp(`"${field}":[0-9]+`), `"${field}":${token}`);
+      const start = f.calls.length;
+      await assert.rejects(adapter.getBlock(f.source, { hash: block.hash }), code('PROTOCOL_MISMATCH'), `${field}:${token}`);
+      assert.equal(f.calls.length, start + 1);
+    }
+  }
+});
+
+test('contradictions between selector, resolved point and hash-pinned header reject', async t => {
+  let verbose = block, header = blockOne.verbose, raw = blockOne.raw;
+  const f = await local(t, call => result(call.method === 'getblock' ? verbose : call.params[1] ? header : raw));
+  for (const args of [{ height: 2 }, { hash: 'ab'.repeat(32) }]) {
+    await assert.rejects(adapter.getBlock(f.source, args), code('PROTOCOL_MISMATCH'));
+  }
+  for (const change of [{ height: 2 }, { hash: 'ab'.repeat(32) }, { previousblockhash: 'ab'.repeat(32) }, { time: block.time + 1 }]) {
+    header = { ...blockOne.verbose, ...change };
+    await assert.rejects(adapter.getBlock(f.source, { height: 1 }), code('PROTOCOL_MISMATCH'));
+  }
+  header = blockOne.verbose;
+  for (const change of [{ previousblockhash: 'ab'.repeat(32) }, { time: block.time + 1 }]) {
+    verbose = { ...block, ...change };
+    await assert.rejects(adapter.getBlock(f.source, { height: 1 }), code('PROTOCOL_MISMATCH'));
+  }
+  verbose = block; raw = '00';
+  await assert.rejects(adapter.getBlock(f.source, { height: 1 }), code('PROTOCOL_MISMATCH'));
+});
+
+test('results own their raw bytes and txid arrays; records follow the frozen API shape', async t => {
+  const f = await local(t);
+  const a = await adapter.getBlock(f.source, { hash: block.hash });
+  a.raw.fill(0);
+  assert.equal(Object.isFrozen(a), true);
+  assert.equal(Object.isFrozen(a.point), true);
+  assert.equal(Object.isFrozen(a.txids), true);
+  assert.throws(() => { a.txids[0] = 'ab'.repeat(32); }, TypeError);
+  const b = await adapter.getBlock(f.source, { height: 1 });
+  assert.equal(Buffer.from(b.raw).toString('hex'), blockOne.raw);
+  assert.deepEqual(b.txids, txids);
+  assert.notEqual(a.raw.buffer, b.raw.buffer); assert.notEqual(a.txids, b.txids); assert.notEqual(a.point, b.point);
+});
+
+test('selector, signal, transport and source label snapshot precedes async header callbacks', async t => {
+  let source, args;
+  const controller = new AbortController();
+  const f = await local(t, reply, { headers() {
+    args.height = 2; args.signal = new AbortController().signal;
+    source.sourceId = 'mutated'; source.transport = {};
+    return {};
+  } });
+  source = f.source; args = { height: 1, signal: controller.signal };
+  const value = await adapter.getBlock(source, args);
+  assert.equal(value.sourceId, sourceId); assert.equal(value.point.height, 1);
+  assert.deepEqual(f.calls.map(c => c.params), [['1', 1], [block.hash, true], [block.hash, false]]);
+});
+
+for (const stage of [0, 1, 2]) {
+  test(`stage ${stage}: RPC errors remain sanitized failures, never absence`, async t => {
+    let errorCode;
+    let index = 0;
+    const f = await local(t, call => index++ === stage
+      ? `"error":{"code":${errorCode},"message":"private-fixture","data":"private-fixture"}` : reply(call));
+    for (const [rpc, expected] of [[-32601, 'METHOD_NOT_SUPPORTED'], [-8, 'TRANSPORT_ERROR'], [-5, 'TRANSPORT_ERROR'], [-1, 'TRANSPORT_ERROR']]) {
+      errorCode = rpc; index = 0;
+      await assert.rejects(adapter.getBlock(f.source, { height: 1 }), error => {
+        assert.equal(error.code, expected); assert.equal(error.retryable, false);
+        assert.doesNotMatch(JSON.stringify(error) + error.message, /private-fixture|127\.0\.0\.1/); return true;
+      });
+      assert.equal(index, stage + 1);
+    }
+  });
+  test(`stage ${stage}: abort a streaming response and stop subsequent requests`, async t => {
+    let arrived;
+    const ready = new Promise(resolve => { arrived = resolve; });
+    let index = 0;
+    const f = await local(t, (call, req, res) => {
+      if (index++ !== stage) return reply(call);
+      res.writeHead(200, { 'content-type': 'application/json' }); res.write('{'); arrived();
+    });
+    const controller = new AbortController();
+    const pending = assert.rejects(adapter.getBlock(f.source, { height: 1, signal: controller.signal }), code('ABORTED'));
+    await ready; controller.abort(); await pending; assert.equal(f.calls.length, stage + 1);
+  });
+  test(`stage ${stage}: timeout and transport byte limit stop composition`, async t => {
+    let index = 0, oversize = false;
+    const f = await local(t, (call, req, res) => {
+      if (index++ !== stage) return reply(call);
+      if (oversize) return result('x'.repeat(17000));
+      res.writeHead(200, { 'content-type': 'application/json' }); res.write('{');
+    }, { timeoutMs: 80 });
+    await assert.rejects(adapter.getBlock(f.source, { height: 1 }), code('TIMEOUT'));
+    index = 0; oversize = true;
+    await assert.rejects(adapter.getBlock(f.source, { height: 1 }), code('RESOURCE_LIMIT'));
+    assert.equal(index, stage + 1);
+  });
+  test(`stage ${stage}: callback cancellation uses original signal after input mutation`, async t => {
+    let args, index = 0;
+    const controller = new AbortController();
+    const f = await local(t, reply, { headers() {
+      args.signal = new AbortController().signal;
+      if (index++ === stage) controller.abort();
+      return {};
+    } });
+    args = { height: 1, signal: controller.signal };
+    await assert.rejects(adapter.getBlock(f.source, args), code('ABORTED'));
+    assert.equal(f.calls.length, stage);
+  });
+}
+
+test('pre-aborted operation does not call transport callbacks', async () => {
+  let calls = 0;
+  const source = { sourceId, transport: http('http://127.0.0.1:1', { ...transportOptions, headers() { calls++; return {}; } }) };
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(adapter.getBlock(source, { height: 1, signal: controller.signal }), code('ABORTED'));
+  assert.equal(calls, 0);
+});
+
+test('verbatim pinned verbosity-1 snapshot composes with A block-one header bytes', async t => {
+  const { readFile } = await import('node:fs/promises');
+  const file = process.env.PUBLIC_BLOCK_SNAPSHOT ?? '/tmp/zakura-upstream-review/crates/zakura-rpc/src/methods/tests/snapshots/get_block_verbose_height_verbosity_1@mainnet_10.snap';
+  const snapshot = (await readFile(file, 'utf8')).split('---\n').at(-1);
+  const f = await local(t, call => call.method === 'getblock' ? `"result":${snapshot}` : reply(call));
+  const value = await adapter.getBlock(f.source, { height: 1 });
+  assert.deepEqual(value.txids, txids); assert.equal(Buffer.from(value.raw).toString('hex'), blockOne.raw);
+});
+
+for (const stage of [1, 2]) {
+  test(`native digest ${stage}: cancellation remains ABORTED`, async t => {
+    const f = await local(t);
+    const controller = new AbortController();
+    const digest = crypto.subtle.digest;
+    let calls = 0;
+    t.mock.method(crypto.subtle, 'digest', async function (...args) {
+      const value = await digest.apply(this, args);
+      if (++calls === stage) controller.abort();
+      return value;
+    });
+    await assert.rejects(adapter.getBlock(f.source, { height: 1, signal: controller.signal }), code('ABORTED'));
+    assert.equal(calls, stage);
+  });
+}
+
+test('module stays internal and import graph has no eager runtime dependency', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const root = await import(`${build}/src/index.js`);
+  assert.equal('getBlock' in root, false); assert.equal('createPublicClient' in root, false);
+  const source = await readFile(`${build}/src/clients/public-block-reads.js`, 'utf8');
+  assert.doesNotMatch(source, /WebAssembly|new Worker|transaction-codec|bindings|from ['"].*index/);
+});
+
+test('ordered canonical txids at the source allocation bound remain bounded source observations', async t => {
+  // Structural response test only: these hashes are not a transaction/merkle proof oracle.
+  const ordered = Array.from({ length: 37037 }, (_, i) => i.toString(16).padStart(64, '0')).reverse();
+  const f = await local(t, call => call.method === 'getblock' ? result({ ...block, tx: ordered, nTx: ordered.length }) : reply(call),
+    { maxResponseBytes: 4_000_000, timeoutMs: 5000 });
+  const value = await adapter.getBlock(f.source, { height: 1 });
+  assert.deepEqual(value.txids, ordered);
+});
+
+test('cancellation queued between header completion and block completion wins', async t => {
+  const f = await local(t);
+  const controller = new AbortController();
+  const digest = crypto.subtle.digest;
+  let calls = 0;
+  t.mock.method(crypto.subtle, 'digest', async function (...args) {
+    const value = await digest.apply(this, args);
+    if (++calls === 2) queueMicrotask(() => queueMicrotask(() => controller.abort()));
+    return value;
+  });
+  await assert.rejects(adapter.getBlock(f.source, { height: 1, signal: controller.signal }), code('ABORTED'));
+});

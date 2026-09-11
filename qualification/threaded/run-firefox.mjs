@@ -108,7 +108,7 @@ try {
     binaryHashes[resolved] = sha(await readFile(resolved));
   }
   const expected = JSON.parse(await readFile(join(here, 'evidence.json'), 'utf8')).manifestSha256;
-  if (sha(manifestBytes) !== expected) throw Error('fresh-3 manifest hash mismatch');
+  if (sha(manifestBytes) !== expected) throw Error('threaded qualification manifest hash mismatch');
   record({ stage: 'inputs', argv: process.argv, node: process.version, root, runRoot,
     manifestSha256: sha(manifestBytes), manifest,
     runnerSha256: sha(await readFile(fileURLToPath(import.meta.url))),

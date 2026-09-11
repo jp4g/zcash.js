@@ -1,0 +1,8 @@
+{
+  "bundle": "/home/jack/zcash-threaded-scratch/bundle-2",
+  "manifestSha256": "213f75284f56fccb9abc5ed34530ab872d8566f213b7e4693bb2abd684838519",
+  "generatedStage": "/home/jack/zcash-threaded-scratch/build-1789137003821175868",
+  "generatedWasmSha256": "cad9e721a2eb30eef62254a735eb98a5cf7bd415692545391c062a1d34d0e509",
+  "browser": "pending foreground execution",
+  "scanner": "not integrated; F2 open"
+}

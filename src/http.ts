@@ -115,13 +115,14 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
       return value;
     });
     response = await bounded(fetching);
-    if (!response.ok) throw transportError([408, 429, 500, 502, 503, 504].includes(response.status));
+    const httpError = response.ok ? undefined
+      : transportError([408, 429, 500, 502, 503, 504].includes(response.status));
     const declared = response.headers.get('content-length');
     if (declared !== null) {
       if (!/^[0-9]+$/.test(declared)) throw protocolError();
       if (BigInt(declared) > BigInt(state.options.maxResponseBytes)) throw resourceLimit();
     }
-    if (!response.body) throw protocolError();
+    if (!response.body) throw httpError ?? protocolError();
     reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
     const chunks: string[] = [];
@@ -136,7 +137,15 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
     }
     try { chunks.push(decoder.decode()); }
     catch { throw protocolError(); }
-    const result = parseEnvelope(chunks.join(''), id);
+    let result: Json;
+    try { result = parseEnvelope(chunks.join(''), id); }
+    catch (error) {
+      // Servers may use HTTP 500 for a structured RPC failure. Preserve those
+      // semantics; a non-JSON HTTP error page is still an HTTP transport failure.
+      if (httpError && isZcashError(error) && error.code === 'PROTOCOL_MISMATCH') throw httpError;
+      throw error;
+    }
+    if (httpError) throw httpError;
     // Synchronous parsing cannot be interrupted by a timer; check elapsed time.
     if (performance.now() - started >= state.options.timeoutMs) throw timeout();
     return result;
@@ -193,9 +202,10 @@ export async function readRpc(transport: HttpTransport, method: string, params: 
     || params.some(value => !['string', 'boolean'].includes(typeof value)
       && !(typeof value === 'number' && Number.isSafeInteger(value)))
     || (signal !== undefined && !(signal instanceof AbortSignal))) throw invalidArgument();
+  const parameters = [...params];
   for (let index = 0; index < state.options.readRetry.attempts; index++) {
     const id = (++state.nextId).toString();
-    const body = JSON.stringify({ jsonrpc: '2.0', id, method, params });
+    const body = JSON.stringify({ jsonrpc: '2.0', id, method, params: parameters });
     try { return await attempt(state, body, id, signal); }
     catch (error) {
       if (!isZcashError(error) || !error.retryable || index + 1 >= state.options.readRetry.attempts) throw error;

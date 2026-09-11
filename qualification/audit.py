@@ -50,6 +50,9 @@ def audit(metadata):
             if p['name'] in ['zakura-client-backend', 'zakura-client-sqlite', 'zakura-pczt']:
                 if row.get('vcs', {}).get('git', {}).get('sha1') != 'a9142ee100b3a563b7d9ba7a8e94201d00ad8154':
                     raise ValueError('wallet revision mismatch')
+            elif p['name'].startswith('zakura-'):
+                if row.get('vcs', {}).get('git', {}).get('sha1') != 'f4526b0fa86406589732c8fb3849855fb92c43a2':
+                    raise ValueError('Common 1.0 source revision mismatch')
         rows.append(row)
     return {'status': 'audited registry archive and extracted files',
             'lock_sha256': hashlib.sha256((ROOT / 'consumer/Cargo.lock').read_bytes()).hexdigest(),

@@ -224,11 +224,11 @@ try {
   const browserProcessGone = !await alive(browserIdentity);
   for (const timer of timers) clearTimeout(timer);
   if (server?.listening) { server.closeAllConnections(); await new Promise(done => server.close(done)); }
+  if (!sessionDeleted || !processGroupGone || !browserProcessGone || cleanupErrors.length) report.status = 'failed';
   // Finish fallible consumer removal before publishing the final status.
   if (report.status === 'passed') try { await rm(join(runRoot, 'consumer'), { recursive: true, force: true }); }
-  catch (error) { cleanupErrors.push(String(error)); }
+  catch (error) { cleanupErrors.push(String(error)); report.status = 'failed'; }
   report.cleanup = { sessionDeleted, processGroupGone, browserProcessGone, serverClosed: !server?.listening, cleanupErrors };
-  if (!sessionDeleted || !processGroupGone || !browserProcessGone || cleanupErrors.length) report.status = 'failed';
   report.requests = requests; report.unexpected = unexpected;
   report.finished = new Date().toISOString();
   await writeFile(resultPath.replace(/\.json$/, '.driver.log'), driverText);

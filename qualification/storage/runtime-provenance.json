@@ -1,0 +1,26 @@
+{
+  "Cargo.toml": {
+    "revision": "e73f423b35dffd6478d2150b7fd488064c71ddd9",
+    "sha256": "ad2793ea61f6df5118211583d12833a4037ba3ced281979eecad426a9b5ce9a7"
+  },
+  "Cargo.lock": {
+    "revision": "e73f423b35dffd6478d2150b7fd488064c71ddd9",
+    "sha256": "2c9b6faa9ff0b227e992bcc10ffb2127138c0258fce81fd45e223e451bf29d71"
+  },
+  "build.rs": {
+    "revision": "e73f423b35dffd6478d2150b7fd488064c71ddd9",
+    "sha256": "2f4f03d913dc03cce63943d9ea3a993d93dae4e443851eb3250ac0a2a3b74cd9"
+  },
+  "env.sh": {
+    "revision": "e73f423b35dffd6478d2150b7fd488064c71ddd9",
+    "sha256": "fc3207bd4e8ce9dd13c78feba3fe05a28ac31477d9d2f8c87dbd87cb250ff38c"
+  },
+  "adapter.c": {
+    "revision": "e73f423b35dffd6478d2150b7fd488064c71ddd9",
+    "sha256": "b29fcd7f4d324a089ed6722ada30686e683a8f9288a36052b25b02861ba74f73"
+  },
+  "src/lib.rs": {
+    "revision": "e73f423b35dffd6478d2150b7fd488064c71ddd9",
+    "sha256": "d73832fc2ddc0c35b0250676bcb04f535a3a0c6e52521851166fc53d8b020695"
+  }
+}

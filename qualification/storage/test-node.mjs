@@ -4,8 +4,8 @@ import { Worker } from 'node:worker_threads';
 import { mkdtempSync } from 'node:fs';
 const root = mkdtempSync('/home/jack/zcash-storage-scratch/node-');
 const active = new Set();
-async function start() {
-  const worker = new Worker(new URL('./node-worker.mjs', import.meta.url), { workerData: { root } });
+async function start(create = false) {
+  const worker = new Worker(new URL('./node-worker.mjs', import.meta.url), { workerData: { root, create } });
   active.add(worker);
   return worker;
 }
@@ -25,7 +25,7 @@ function call(worker, command) {
 }
 async function destroy(worker) { await worker.terminate(); active.delete(worker); }
 try {
-  let worker = await start();
+  let worker = await start(true);
   assert.equal((await call(worker, { op: 'open' })).rc, 0);
   assert.equal((await call(worker, { op: 'seed' })).rc, 0);
   assert.equal((await call(worker, { op: 'close' })).rc, 0);

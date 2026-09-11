@@ -1,0 +1,43 @@
+# Disposable dependency-only issue #2 experiment; not an SDK.
+[package]
+name = "issue-2-qualification"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+zakura-bellman = { version = "=1.0.0", default-features = false, features = [] }
+zakura-bls12-381 = { version = "=1.0.0", default-features = false, features = ["groups", "pairings", "alloc", "bits"] }
+zakura-client-backend = { version = "=0.1.0-rc4", default-features = false, features = ["orchard", "transparent-inputs", "pczt"] }
+zakura-client-sqlite = { version = "=0.1.0-rc4", default-features = false, features = ["orchard", "transparent-inputs", "serde"] }
+zakura-halo2-gadgets = { version = "=1.0.0", default-features = false, features = [] }
+zakura-halo2-legacy-pdqsort = { version = "=1.0.0", default-features = false, features = [] }
+zakura-halo2-poseidon = { version = "=1.0.0", default-features = false, features = [] }
+zakura-halo2-proofs = { version = "=1.0.0", default-features = false, features = [] }
+zakura-jubjub = { version = "=1.0.0", default-features = false, features = [] }
+zakura-keys = { version = "=1.0.0", default-features = false, features = ["sapling", "orchard", "transparent-inputs"] }
+zakura-orchard = { version = "=1.0.0", default-features = false, features = ["std", "circuit"] }
+zakura-pairing = { version = "=1.0.0", default-features = false, features = [] }
+zakura-pasta-curves = { version = "=1.0.0", default-features = false, features = [] }
+zakura-pczt = { version = "=0.1.0-rc2", default-features = false, features = ["std", "orchard", "sapling", "transparent", "zcp-builder", "io-finalizer", "prover", "signer", "spend-finalizer", "tx-extractor"] }
+zakura-primitives = { version = "=1.0.0", default-features = false, features = ["std", "circuits", "transparent-inputs"] }
+zakura-proofs = { version = "=1.0.0", default-features = false, features = [] }
+zakura-reddsa = { version = "=1.0.0", default-features = false, features = [] }
+zakura-redjubjub = { version = "=1.0.0", default-features = false, features = [] }
+zakura-sapling-crypto = { version = "=1.0.0", default-features = false, features = [] }
+zakura-sinsemilla = { version = "=1.0.0", default-features = false, features = [] }
+rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled"] }
+
+# Initial target probe fails in getrandom 0.4.3 without this additive host feature.
+# getrandom 0.2.17 already receives `js` through existing dependency edges.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "=0.4.3", features = ["wasm_js"] }
+# UUID's wasm RNG selection is independent of getrandom's feature selection.
+uuid = { version = "=1.26.1", features = ["js"] }
+
+wasm-bindgen = "=0.2.128"

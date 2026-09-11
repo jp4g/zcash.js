@@ -1,0 +1,60 @@
+"""Disposable qualification command recorder; never interprets a failed stage as evidence."""
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+
+def run(label, argv, logs, timeout=900, cwd=None, env=None):
+    logs = Path(logs).resolve()
+    logs.mkdir(parents=True, exist_ok=True)
+    path = logs / f'{label}-{time.time_ns()}.log'
+    started = datetime.now(timezone.utc).isoformat()
+    timed_out = False
+    with path.open('xb') as output:
+        process = subprocess.Popen(argv, cwd=cwd, env=env, stdout=output,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            code = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            code, timed_out = 124, True
+    record = dict(label=label, argv=argv, cwd=str(Path(cwd or os.getcwd()).resolve()),
+                  started=started, exit_code=code, timed_out=timed_out,
+                  timeout_seconds=timeout, log=str(path),
+                  sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    with (logs / 'commands.jsonl').open('a') as output:
+        output.write(json.dumps(record, sort_keys=True) + '\n')
+    return record
+
+
+def audit_packages(packages, expected, forbidden):
+    found = {}
+    for package in packages:
+        name, version = package['name'], package['version']
+        if name in forbidden:
+            raise ValueError(f'forbidden upstream package: {name}')
+        if name.startswith('zakura-'):
+            if name not in expected or expected[name] != version or name in found:
+                raise ValueError(f'unexpected/duplicate Zakura identity: {name} {version}')
+            found[name] = version
+    if found != expected:
+        raise ValueError(f'missing Zakura packages: {sorted(expected.keys() - found.keys())}')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--logs', default='/home/jack/zcash-qualification-logs')
+    parser.add_argument('--timeout', type=float, default=900)
+    parser.add_argument('label')
+    parser.add_argument('command', nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    result = run(args.label, args.command, args.logs, args.timeout)
+    print(json.dumps(result, sort_keys=True))
+    raise SystemExit(result['exit_code'])

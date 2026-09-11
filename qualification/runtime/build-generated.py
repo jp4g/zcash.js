@@ -21,7 +21,7 @@ def digest(path):
 def main():
     stage = SCRATCH / ('build-' + str(time.time_ns()))
     stage.mkdir()
-    sources = ['Cargo.toml', 'Cargo.lock', 'build.rs', 'adapter.c', 'src/lib.rs', 'env.sh']
+    sources = ['Cargo.toml', 'Cargo.lock', 'build.rs', 'adapter.c', 'src/lib.rs', 'env.sh', 'build-generated.py']
     before = {}
     for name in sources:
         src = ROOT / 'qualification/runtime' / name
@@ -49,6 +49,17 @@ def main():
     if before != after:
         raise RuntimeError('producing sources changed during build')
     provenance['sources_after'] = after
+    build_record = provenance['commands'][0]
+    messages = []
+    for line in Path(build_record['log']).read_text().splitlines():
+        if line.startswith('{'):
+            messages.append(json.loads(line))
+    producers = [m for m in messages if m.get('reason') == 'compiler-artifact'
+                 and m.get('manifest_path') == str(ROOT / 'qualification/runtime/Cargo.toml')
+                 and 'cdylib' in m.get('target', {}).get('crate_types', [])]
+    if len(producers) != 1 or producers[0]['fresh']:
+        raise RuntimeError('expected one fresh producing compiler artifact')
+    provenance['compiler_artifact'] = producers[0]
     raw_dir = stage / 'raw'
     raw_dir.mkdir()
     target = SCRATCH / 'target'

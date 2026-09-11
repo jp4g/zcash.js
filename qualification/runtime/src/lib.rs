@@ -99,3 +99,27 @@ pub extern "C" fn rt_heap_check() -> u32 {
 pub fn raw_exports() -> wasm_bindgen::JsValue {
     wasm_bindgen::exports()
 }
+
+// Repeat actual committed updates and rolled-back deletes while Rust allocations live.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_cycle() -> u32 {
+    DB.with(|slot| {
+        let borrow = slot.borrow();
+        let db = borrow.as_ref().unwrap();
+        db.execute_batch("BEGIN; UPDATE fixture SET value=value+1; COMMIT; BEGIN; DELETE FROM fixture; ROLLBACK;").unwrap();
+        for row in [1, 2] {
+            let blob: Vec<u8> = db.query_row("SELECT payload FROM fixture WHERE rowid=?1", [row], |r| r.get(0)).unwrap();
+            assert_eq!(blob.len(), 65536);
+            assert!(blob.iter().enumerate().all(|(i, b)| *b == (i % 251) as u8));
+        }
+        let integrity: String = db.query_row("PRAGMA integrity_check", [], |r| r.get(0)).unwrap();
+        assert_eq!(integrity, "ok");
+        db.query_row("SELECT sum(value) FROM fixture", [], |r| r.get(0)).unwrap()
+    })
+}
+
+// Qualification fault injection only; never a public SDK export.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_heap_ptr() -> u32 {
+    HEAP.with(|slot| slot.borrow().as_ptr() as u32)
+}

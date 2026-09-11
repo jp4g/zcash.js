@@ -15,7 +15,7 @@ fn main() {
     println!("cargo:rustc-link-arg=--error-limit=0");
     let target = std::env::var("CARGO_TARGET_DIR").expect("separate CARGO_TARGET_DIR required");
     println!("cargo:rustc-link-arg=-Map={target}/runtime.map");
-    for name in ["rt_init", "rt_pool_check", "rt_pool_start", "rt_pool_size", "rt_hosts", "rt_time", "__heap_base", "__heap_end"] {
+    for name in ["rt_init", "rt_pool_check", "rt_pool_start", "rt_pool_size", "rt_hosts", "rt_time", "rt_unsupported_hosts", "__heap_base", "__heap_end"] {
         println!("cargo:rustc-link-arg=--export={name}");
     }
 }

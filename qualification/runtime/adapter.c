@@ -146,3 +146,20 @@ double rt_time(void) {
   if (v->xCurrentTimeInt64(v, &time) != SQLITE_OK) return -1;
   return (double)time;
 }
+
+/* Exercise actual unsupported lower-host semantics; memdb remains real SQLite I/O. */
+int rt_unsupported_hosts(void) {
+  if (!ready) return 0;
+  sqlite3_file file = {0};
+  int out = -1;
+  char message[64] = {0};
+  char short_path[2] = {0};
+  if (lower.xOpen(&lower, "/absent", &file, SQLITE_OPEN_READWRITE, &out) != SQLITE_CANTOPEN
+      || file.pMethods != 0) return 0;
+  if (lower.xDelete(&lower, "/absent", 1) != SQLITE_IOERR_DELETE) return 0;
+  if (lower.xAccess(&lower, "/absent", SQLITE_ACCESS_EXISTS, &out) != SQLITE_OK || out != 0) return 0;
+  if (lower.xFullPathname(&lower, "/absent", sizeof(short_path), short_path) != SQLITE_CANTOPEN) return 0;
+  if (lower.xGetLastError(&lower, sizeof(message), message) != SQLITE_CANTOPEN) return 0;
+  if (strcmp(message, "host filesystem/extension unavailable") != 0) return 0;
+  return 1;
+}

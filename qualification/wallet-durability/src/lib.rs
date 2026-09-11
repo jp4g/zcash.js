@@ -138,7 +138,14 @@ pub fn native_reference() -> Value {
         let mut conn=Connection::open_in_memory().unwrap();
         setup(&mut conn,import);
         let blocks=corpus();
-        zcash_client_backend::data_api::chain::scan_cached_blocks(&scanner::fixture::network(), &blocks, &mut scanner::fixture::wallet(&mut conn),100000.into(),&scanner::fixture::initial(),7).unwrap();
+        // Match transaction boundaries: public tree insertion can retain different
+        // internal reference marks across batches. Never normalize these away.
+        let ranges = if import { vec![(0,1),(1,2),(2,4),(4,7)] } else { vec![(0,7)] };
+        for (first,end) in ranges {
+            let state=scanner::fixture::chain_state(&blocks.0[..first]);
+            zcash_client_backend::data_api::chain::scan_cached_blocks(&scanner::fixture::network(), &blocks, &mut scanner::fixture::wallet(&mut conn),state.block_height()+1,&state,end-first).unwrap();
+            observe(&mut conn,end==7).unwrap();
+        }
         let observed=observe(&mut conn,true).unwrap();
         if !import { assert_eq!(observed["canonical"],serde_json::from_slice::<Value>(include_bytes!(concat!(env!("WD_FIXTURES"),"/native-reference.json"))).unwrap()); }
         result.insert(if import {"imported"} else {"created"}.into(),observed["canonical"].clone());

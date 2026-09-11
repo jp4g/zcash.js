@@ -22,7 +22,8 @@
   "version": "0.0.0",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "docs/planning/agnostic-implementation.md"
   ],
   "exports": {
     ".": {

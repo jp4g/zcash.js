@@ -1,4 +1,6 @@
-# Transaction codec qualification — R1–R3 fixed locally, fresh Firefox pending
+# Transaction codec qualification — accepted bounded R1–R3 fixes
+
+Coordinator acceptance update: fresh Node and Firefox executed manifest `a2b417f90ff6d9242a265f1dd7067b4ba09ce8089140b0dd4ca44dbc9334b907`, with 13 vectors and 208 checked adapter calls. Fresh Firefox receipt `/home/jack/zcash-transaction-codec-logs/fixes/build-1789150718823603619-browser-host.json` records session deletion, driver-group/browser disappearance and server closure. Independent HIGH R2 `/home/jack/zcash-transaction-codec-logs/review/REPORT-r2.md` accepted all three fixes and the full bounded slice with no remaining P1/P2. The historical worker checkpoint below predates these executions; its pending statements are superseded by this update. No full #3, consensus, proofs, signing, PCZT, outbox, resource-budget or production ABI acceptance.
 
 Issue #33, child of #3, feeding #6. Branch `test/transaction-codec`, base `fd9b3e3`. R1–R3 fixes start from clean `4642c91958160e5a3ca2ba02cc299a66a6d7ac17` and are committed in `93541e03128ffc9b60ff2247d5df21648260d06c`. Changes are confined to this subtree; original bundles and independent repros are preserved. The independent review found three defects; their local fixes pass native/Node and verifier controls. Fresh Firefox and independent fix acceptance remain pending.
 

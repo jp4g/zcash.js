@@ -156,8 +156,8 @@ function-index evidence.
 
 All three modules define one non-shared wasm32 memory, initially 275 pages
 (18,022,400 bytes), with **no declared maximum**. Only SQLite's pool is bounded;
-there is no total-memory cap. Executed pool start is 1,179,496, pool size 16,777,216,
-and Rust heap base 17,989,552. Pool end is below the Rust heap base.
+there is no total-memory cap. Executed pool start is 1,180,536, pool size 16,777,216,
+and Rust heap base 17,990,592. Pool end is below the Rust heap base.
 
 There is one `memory.grow` instruction, owned by Rust dlmalloc System::alloc.
 No retained libc malloc/calloc/realloc/sbrk member or competing C heap entry is

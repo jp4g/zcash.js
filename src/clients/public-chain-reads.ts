@@ -6,6 +6,45 @@ import { blockHash } from '../primitives.js';
 
 type ChainReadSource = { readonly transport: HttpTransport; readonly sourceId: string };
 
+// Capture native operations before any caller callback. Never give readRpc the caller object.
+const NativeController = AbortController;
+const nativeSignal = Object.getOwnPropertyDescriptor(AbortController.prototype, 'signal')!.get!;
+const nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
+const nativeAbort = AbortController.prototype.abort;
+const nativeAdd = EventTarget.prototype.addEventListener;
+const nativeRemove = EventTarget.prototype.removeEventListener;
+const nodeRuntime = typeof globalThis === 'object'
+  && typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string';
+let proxyCheck: Promise<(value: unknown) => boolean> | undefined;
+
+async function bridge(original?: AbortSignal) {
+  if (original === undefined) return { signal: undefined, close() {} };
+  try {
+    if (nodeRuntime) {
+      // Dynamic and Node-only: works across the public Node engine range, including
+      // versions predating process.getBuiltinModule; browsers never resolve this URL.
+      const builtin = 'node:util';
+      proxyCheck ??= import(builtin).then(module => module.types.isProxy);
+      if ((await proxyCheck)(original)) throw invalidArgument();
+    }
+    // Browser Web IDL branding rejects proxies; Node additionally needs isProxy.
+    const alreadyAborted = nativeAborted.call(original);
+    const controller = new NativeController();
+    const signal: AbortSignal = nativeSignal.call(controller);
+    Object.defineProperties(signal, {
+      aborted: { get: () => nativeAborted.call(signal) },
+      addEventListener: { value: nativeAdd.bind(signal) },
+      removeEventListener: { value: nativeRemove.bind(signal) },
+    });
+    const onAbort = () => {
+      if (nativeAborted.call(original)) nativeAbort.call(controller);
+    };
+    nativeAdd.call(original, 'abort', onAbort);
+    if (alreadyAborted || nativeAborted.call(original)) nativeAbort.call(controller);
+    return { signal, close: () => nativeRemove.call(original, 'abort', onAbort) };
+  } catch { throw invalidArgument(); }
+}
+
 // Copy only admitted data descriptors; never reread caller properties after validation.
 function input<T extends object>(value: T, keys: readonly string[]): T {
   try {
@@ -18,10 +57,6 @@ function input<T extends object>(value: T, keys: readonly string[]): T {
       if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw invalidArgument();
       snapshot[key] = descriptor.value;
     }
-    const signal = snapshot.signal;
-    if (signal !== undefined && (!(signal instanceof AbortSignal)
-      || typeof signal.aborted !== 'boolean' || typeof signal.addEventListener !== 'function'
-      || typeof signal.removeEventListener !== 'function')) throw invalidArgument();
     return snapshot;
   } catch { throw invalidArgument(); }
 }
@@ -52,49 +87,56 @@ function hash(value: unknown) {
 /** Internal component; the composing client owns network handshake and source binding. */
 export async function getTip(source: ChainReadSource, args: Op = {}): Promise<ChainTip> {
   const { transport, sourceId } = validateSource(source);
-  const { signal } = input(args, ['signal']);
-  const value = await readRpc(transport, 'getblockchaininfo', [], signal);
-  object(value);
-  return { height: integer(value.blocks, 0, 0xffff_ffff), hash: hash(value.bestblockhash),
-    sourceId, observedAt: new Date().toISOString() };
+  const owned = await bridge(input(args, ['signal']).signal);
+  const { signal } = owned;
+  try {
+    const value = await readRpc(transport, 'getblockchaininfo', [], signal);
+    object(value);
+    return { height: integer(value.blocks, 0, 0xffff_ffff), hash: hash(value.bestblockhash),
+      sourceId, observedAt: new Date().toISOString() };
+  } finally { owned.close(); }
 }
 
 /** Resolve once, then pin the raw request to that identity even if the height reorganizes. */
 export async function getBlockHeader(source: ChainReadSource, args: BlockSelector & Op): Promise<BlockHeader> {
   const { transport, sourceId } = validateSource(source);
   args = input(args, ['height', 'hash', 'signal']);
-  const { height, hash: requestedHash, signal } = args;
+  const { height, hash: requestedHash } = args;
   if (Object.hasOwn(args, 'height') === Object.hasOwn(args, 'hash')) throw invalidArgument();
   let selector: string;
   if (Object.hasOwn(args, 'height')) {
     if (typeof height !== 'number' || !Number.isInteger(height) || height < 0 || height > 0xffff_ffff) throw invalidArgument();
     selector = String(height);
   } else selector = blockHash(requestedHash!);
-  const value = await readRpc(transport, 'getblockheader', [selector, true], signal);
-  object(value);
-  const point = { height: integer(value.height, 0, 0xffff_ffff), hash: hash(value.hash) };
-  if ((height !== undefined && point.height !== height)
-    || (requestedHash !== undefined && point.hash !== requestedHash)) throw protocolError();
-  const previousHash = hash(value.previousblockhash);
-  const time = integer(value.time, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
-  if (point.height === 0 && previousHash !== '0'.repeat(64)) throw protocolError();
-  const encoded = await readRpc(transport, 'getblockheader', [point.hash, false], signal);
-  const raw = rawHeader(encoded);
-  const view = new DataView(raw.buffer);
-  if (display(raw.slice(4, 36)) !== previousHash || view.getUint32(100, true) !== time) throw protocolError();
-  let digest: Uint8Array;
+  const owned = await bridge(args.signal);
+  const { signal } = owned;
   try {
+    const value = await readRpc(transport, 'getblockheader', [selector, true], signal);
+    object(value);
+    const point = { height: integer(value.height, 0, 0xffff_ffff), hash: hash(value.hash) };
+    if ((height !== undefined && point.height !== height)
+      || (requestedHash !== undefined && point.hash !== requestedHash)) throw protocolError();
+    const previousHash = hash(value.previousblockhash);
+    const time = integer(value.time, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+    if (point.height === 0 && previousHash !== '0'.repeat(64)) throw protocolError();
+    const encoded = await readRpc(transport, 'getblockheader', [point.hash, false], signal);
+    const raw = rawHeader(encoded);
+    const view = new DataView(raw.buffer);
+    if (display(raw.slice(4, 36)) !== previousHash || view.getUint32(100, true) !== time) throw protocolError();
+    let digest: Uint8Array;
+    try {
+      checkAbort(signal);
+      const first = await crypto.subtle.digest('SHA-256', raw);
+      checkAbort(signal);
+      digest = new Uint8Array(await crypto.subtle.digest('SHA-256', first));
+    } catch {
+      checkAbort(signal);
+      throw failure('RUNTIME_UNAVAILABLE', 'runtime', 'configure', 'Native SHA-256 is unavailable.');
+    }
     checkAbort(signal);
-    const first = await crypto.subtle.digest('SHA-256', raw);
-    checkAbort(signal);
-    digest = new Uint8Array(await crypto.subtle.digest('SHA-256', first));
-  } catch {
-    checkAbort(signal);
-    throw failure('RUNTIME_UNAVAILABLE', 'runtime', 'configure', 'Native SHA-256 is unavailable.');
-  }
-  checkAbort(signal);
-  if (display(digest) !== point.hash) throw protocolError();
-  return { point, previousHash, time, raw, sourceId, observedAt: new Date().toISOString() };
+    if (display(digest) !== point.hash) throw protocolError();
+    return { point, previousHash, time, raw, sourceId, observedAt: new Date().toISOString() };
+  } finally { owned.close(); }
 }
 
 // Zakura block/serialize.rs and work/equihash.rs at 1e36d1b: 140 fixed bytes,

@@ -1,3 +1,4 @@
+import { getEventListeners } from 'node:events';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixture, result, sourceId, hashA, hashB, transportOptions } from './public-chain-reads-fixtures.mjs';
@@ -367,5 +368,204 @@ test('admission uses data descriptors without invoking throwing source or option
       new Proxy(method === adapter.getTip ? {} : { height: 0 }, handler));
     assert.equal(observation.sourceId, sourceId);
     assert.equal(gets, 0);
+  }
+});
+
+// R2 signal lifetime regressions (native Response fixtures).
+{
+const { getTip, getBlockHeader } = adapter;
+const { isZcashError } = await import(`${build}/src/errors.js`);
+const { genesis, blockOne } = await import('./public-chain-reads-fixtures.mjs');
+const secret='private-sentinel-r2';
+const bad=code=>e=>{assert.ok(isZcashError(e),'error must narrow with isZcashError');if(code)assert.equal(e.code,code);assert.equal(e.cause,undefined);assert.doesNotMatch(String(e.stack),/private-sentinel/);return true;};
+const invoke=(method,s,signal)=>method(s,method===getTip?{signal}:{height:0,signal});
+function fixture(t,{vector=genesis,headers,answer,timeoutMs=100,readRetry={attempts:1,delayMs:0}}={}) {
+ const calls=[];let headerCalls=0;
+ const source={sourceId:'r2-label',transport:http('http://127.0.0.1:1/rpc',{sourceId:'r2-label',timeoutMs,maxResponseBytes:16384,readRetry,headers:async()=>{headerCalls++;return await headers?.()??{};}})};
+ t.mock.method(globalThis,'fetch',async(_url,init)=>{
+  const c=JSON.parse(init.body);calls.push(c);
+  if(answer)return answer(c,init);
+  return new Response(JSON.stringify({jsonrpc:'2.0',id:c.id,result:c.method==='getblockchaininfo'?{blocks:vector.verbose.height,bestblockhash:vector.verbose.hash}:c.params[1]?vector.verbose:vector.raw}));
+ });
+ return {source,calls,get headerCalls(){return headerCalls;}};
+}
+async function observe(promise) {
+ try {const value=await promise;return {value};}
+ catch(error){return {error};}
+}
+test('both methods capture admitted source/options data descriptors exactly once, including changing label/selector/signal',async t=>{
+ for(const method of [getTip,getBlockHeader]){
+  const old=new AbortController(),replacement=new AbortController();replacement.abort(secret);
+  let source,options,revSource,revOptions;const counts={};
+  const f=fixture(t,{headers:async()=>{await Promise.resolve();source.sourceId={secret};source.transport={};options.height=99;options.signal=replacement.signal;revSource.revoke();revOptions.revoke();}});
+  source={...f.source};options=method===getTip?{signal:old.signal}:{height:0,signal:old.signal};
+  const handler=tag=>({get(){throw Error(secret);},getOwnPropertyDescriptor(target,key){const id=tag+key;counts[id]=(counts[id]??0)+1;const d=Reflect.getOwnPropertyDescriptor(target,key);if(counts[id]>1)d.value={secret};return d;}});
+  revSource=Proxy.revocable(source,handler('source.'));revOptions=Proxy.revocable(options,handler('options.'));
+  const result=await method(revSource.proxy,revOptions.proxy);assert.equal(result.sourceId,'r2-label');if(method===getBlockHeader)assert.equal(result.point.height,0);
+  assert.ok(Object.values(counts).every(n=>n===1));assert.equal(old.signal.aborted,false);
+ }
+});
+test('captured original native signal still cancels after options signal replacement',async t=>{
+ for(const method of [getTip,getBlockHeader]){
+  const ac=new AbortController();let options;const f=fixture(t,{headers:()=>{options.signal=new AbortController().signal;ac.abort(secret);}});
+  options=method===getTip?{signal:ac.signal}:{height:0,signal:ac.signal};await assert.rejects(method(f.source,options),bad('ABORTED'));assert.equal(f.calls.length,0);
+ }
+});
+test('descriptor shape traps, disappearance, invariant violations, own extras, revoked inputs sanitize without eager work',async t=>{
+ for(const method of [getTip,getBlockHeader])for(const location of ['source','options']){
+  const f=fixture(t);const args=method===getTip?{signal:undefined}:{height:0};const target=location==='source'?f.source:args;
+  const key=location==='source'?'sourceId':method===getTip?'signal':'height';
+  const candidates=[new Proxy(target,{getOwnPropertyDescriptor(){return undefined;}}),new Proxy(target,{ownKeys(){return [key,key];}}),new Proxy(target,{getOwnPropertyDescriptor(){return {configurable:true,get(){throw Error(secret);}};}}),new Proxy(target,{ownKeys(){return [...Reflect.ownKeys(target),Symbol('extra')];}})];
+  for(const trap of ['getPrototypeOf','ownKeys','getOwnPropertyDescriptor'])candidates.push(new Proxy(target,{[trap](){throw new Proxy({},{get(){throw Error(secret);}});}}));
+  const r=Proxy.revocable(target,{});r.revoke();candidates.push(r.proxy);
+  for(const candidate of candidates)await assert.rejects(method(location==='source'?candidate:f.source,location==='options'?candidate:args),bad('INVALID_ARGUMENT'));
+  assert.equal(f.calls.length,0);assert.equal(f.headerCalls,0);
+ }
+});
+test('ordinary unsupported signals reject before headers/fetch/crypto and without reading accessors',async t=>{
+ for(const method of [getTip,getBlockHeader]){
+  const f=fixture(t);let gets=0;
+  for(const signal of [null,{},false,1,()=>{},Object.defineProperty({},'aborted',{get(){gets++;throw Error(secret);}}),Object.create(AbortSignal.prototype)])await assert.rejects(invoke(method,f.source,signal),bad('INVALID_ARGUMENT'));
+  assert.equal(gets,0);assert.equal(f.calls.length,0);assert.equal(f.headerCalls,0);
+ }
+});
+for(const method of [getTip,getBlockHeader])for(const mode of ['aborted-second-read','prototype-second-read','add-call','remove-call','revoke-after-admission','revoke-during-headers','forged-signal'])test(`REPRO sanitized signal lifetime: ${method.name} ${mode}`,async t=>{
+ const foreign=Error(secret);const ac=new AbortController();let reads=0,revocable;
+ const f=fixture(t,{headers:()=>{if(mode==='revoke-during-headers')revocable.revoke();}});
+ const handler={get(t,k){
+  if(mode==='aborted-second-read'&&k==='aborted'&&++reads>1)throw foreign;
+  if(mode==='add-call'&&k==='addEventListener')return ()=>{throw foreign;};
+  if(mode==='remove-call'&&k==='removeEventListener')return ()=>{throw foreign;};
+  const value=Reflect.get(t,k,t);const out=typeof value==='function'?value.bind(t):value;
+  if(mode==='revoke-after-admission'&&k==='removeEventListener')revocable.revoke();return out;
+ },getPrototypeOf(t){if(mode==='prototype-second-read'&&++reads>1)throw foreign;return Reflect.getPrototypeOf(t);}};
+ revocable=Proxy.revocable(ac.signal,handler);
+ const signal=mode==='forged-signal'?Object.assign(Object.create(AbortSignal.prototype),{addEventListener(){throw foreign;},removeEventListener(){}}):revocable.proxy;
+ if(mode==='forged-signal')Object.defineProperty(signal,'aborted',{value:false});
+ const {error}=await observe(invoke(method,f.source,signal));
+ assert.ok(error,'unsupported signal should reject');bad('INVALID_ARGUMENT')(error);assert.equal(f.calls.length,0);assert.equal(f.headerCalls,0);
+});
+for(const stage of [1,2])test(`REPRO proxy intended to become hostile at digest ${stage} rejects before work`,async t=>{
+ let hostile=false,count=0;const foreign=Error(secret);const ac=new AbortController();const signal=new Proxy(ac.signal,{get(t,k){if(k==='aborted'&&hostile)throw foreign;const v=Reflect.get(t,k,t);return typeof v==='function'?v.bind(t):v;}});
+ const f=fixture(t);const native=crypto.subtle.digest.bind(crypto.subtle);
+ t.mock.method(crypto.subtle,'digest',async(...args)=>{const value=await native(...args);if(++count===stage)hostile=true;return value;});
+ const {error}=await observe(getBlockHeader(f.source,{height:0,signal}));assert.equal(count,0);assert.equal(f.calls.length,0);assert.equal(f.headerCalls,0);bad('INVALID_ARGUMENT')(error);
+});
+test('native signal semantics retain exact abort/error codes before headers, during callback, retry delay and both digest failures',async t=>{
+ for(const method of [getTip,getBlockHeader]){
+  const f=fixture(t);await assert.rejects(invoke(method,f.source,AbortSignal.abort(secret)),bad('ABORTED'));assert.equal(f.headerCalls,0);
+ }
+ for(const method of [getTip,getBlockHeader]){
+  const ac=new AbortController();const f=fixture(t,{headers:async()=>{ac.abort(secret);throw Error(secret);}});await assert.rejects(invoke(method,f.source,ac.signal),bad('ABORTED'));assert.equal(f.calls.length,0);
+ }
+ for(const stage of [1,2]){
+  const f=fixture(t);let count=0;const native=crypto.subtle.digest.bind(crypto.subtle);const mock=t.mock.method(crypto.subtle,'digest',async(...args)=>{if(++count===stage)throw Error(secret);return native(...args);});
+  await assert.rejects(getBlockHeader(f.source,{height:0}),bad('RUNTIME_UNAVAILABLE'));assert.equal(count,stage);mock.mock.restore();
+ }
+ for(const method of [getTip,getBlockHeader]){
+  const ac=new AbortController();const f=fixture(t,{readRetry:{attempts:3,delayMs:50},answer:async()=>{setTimeout(()=>ac.abort(secret),5);throw Error(secret);}});
+  await assert.rejects(invoke(method,f.source,ac.signal),bad('ABORTED'));assert.equal(f.calls.length,1);
+ }
+});
+}
+
+// R2 signal lifetime regressions (native Response fixtures).
+{
+const { getTip, getBlockHeader } = adapter;
+const { isZcashError } = await import(`${build}/src/errors.js`);
+const { genesis, blockOne } = await import('./public-chain-reads-fixtures.mjs');
+const run=(method,source,signal)=>method(source,method===getTip?{signal}:{height:0,signal});
+for(const method of [getTip,getBlockHeader])for(const mode of ['good','METHOD_NOT_SUPPORTED','PROTOCOL_MISMATCH','TIMEOUT'])test(`REPRO native signal own removal method: ${method.name} ${mode}`,async t=>{
+ const foreign=Error('private-sentinel-r2');const signal=new AbortController().signal;
+ Object.defineProperty(signal,'removeEventListener',{value(){throw foreign;}});
+ let calls=0,response;
+ const source={sourceId:'r2',transport:http('http://127.0.0.1:1/rpc',{sourceId:'r2',timeoutMs:mode==='TIMEOUT'?20:1000,readRetry:{attempts:1,delayMs:0},maxResponseBytes:16384})};
+ t.mock.method(globalThis,'fetch',async(_url,init)=>{
+  calls++;const c=JSON.parse(init.body);
+  const envelope={jsonrpc:'2.0',id:c.id,...(mode==='METHOD_NOT_SUPPORTED'?{error:{code:-32601,message:'server-private'}}:{result:mode==='PROTOCOL_MISMATCH'?null:c.method==='getblockchaininfo'?{blocks:0,bestblockhash:genesis.verbose.hash}:c.params[1]?genesis.verbose:genesis.raw})};
+  response=mode==='TIMEOUT'?new Response(new ReadableStream({start(c){c.enqueue(new TextEncoder().encode('{'));}})):new Response(JSON.stringify(envelope));return response;
+ });
+ let error;try{await run(method,source,signal);}catch(e){error=e;}
+ const listeners=getEventListeners(signal,'abort');const locked=response?.body.locked??false;
+
+ // Test-owned cleanup of the remaining native listener only, without triggering abort.
+ for(const listener of listeners)EventTarget.prototype.removeEventListener.call(signal,'abort',listener);
+ if(error!==undefined){assert.ok(isZcashError(error),'native signal override must not leak a foreign error');
+  assert.ok(error.code==='INVALID_ARGUMENT'||error.code===mode);if(error.code==='INVALID_ARGUMENT')assert.equal(calls,0,'reject unsupported signals before dispatch');
+ }else assert.equal(mode,'good','RPC failures must retain their error code');
+ assert.equal(locked,false,'always release the reader');assert.equal(listeners.length,0,'always detach listener');
+});
+for(const method of [getTip,getBlockHeader])test(`REPRO forged signal with no-op listener methods must not dispatch: ${method.name}`,async t=>{
+ let calls=0;const signal=Object.create(AbortSignal.prototype,{aborted:{value:false},addEventListener:{value(){}},removeEventListener:{value(){}}});
+ const source={sourceId:'r2',transport:http('http://127.0.0.1:1/rpc',{sourceId:'r2',timeoutMs:100,readRetry:{attempts:1,delayMs:0},maxResponseBytes:16384})};
+ t.mock.method(globalThis,'fetch',async(_url,init)=>{calls++;const c=JSON.parse(init.body);return new Response(JSON.stringify({jsonrpc:'2.0',id:c.id,result:c.method==='getblockchaininfo'?{blocks:0,bestblockhash:genesis.verbose.hash}:c.params[1]?genesis.verbose:genesis.raw}));});
+ let error,value;try{value=await run(method,source,signal);}catch(e){error=e;}
+
+ assert.ok(isZcashError(error));assert.equal(error.code,'INVALID_ARGUMENT');assert.equal(calls,0);
+});
+}
+
+for (const method of [adapter.getTip, adapter.getBlockHeader]) test(`${method.name} ignores genuine signal overrides throughout typed outcomes`, async t => {
+  const { genesis } = await import('./public-chain-reads-fixtures.mjs');
+  const { isZcashError } = await import(`${build}/src/errors.js`);
+  for (const mode of ['good', 'ABORTED', 'TRANSPORT_ERROR', 'RESOURCE_LIMIT', 'RUNTIME_UNAVAILABLE']) {
+    if (mode === 'RUNTIME_UNAVAILABLE' && method === adapter.getTip) continue;
+    const controller = new AbortController();
+    const poison = () => { throw Error('private-sentinel'); };
+    const mutate = () => {
+      for (const key of ['aborted', 'addEventListener', 'removeEventListener']) {
+        Object.defineProperty(controller.signal, key, { configurable: true, get: poison });
+      }
+    };
+    mutate();
+    let response;
+    const source = { sourceId, transport: http('http://127.0.0.1:1/rpc', {
+      ...transportOptions, maxResponseBytes: mode === 'RESOURCE_LIMIT' ? 1 : 16384,
+      headers: async () => { await Promise.resolve(); mutate(); if (mode === 'ABORTED') controller.abort(); return {}; },
+    }) };
+    const fetching = t.mock.method(globalThis, 'fetch', async (_url, init) => {
+      const call = JSON.parse(init.body);
+      response = new Response(JSON.stringify({ jsonrpc: '2.0', id: call.id,
+        result: call.method === 'getblockchaininfo' ? { blocks: 0, bestblockhash: genesis.verbose.hash }
+          : call.params[1] ? genesis.verbose : genesis.raw }), { status: mode === 'TRANSPORT_ERROR' ? 500 : 200 });
+      return response;
+    });
+    const digest = mode === 'RUNTIME_UNAVAILABLE' ? t.mock.method(crypto.subtle, 'digest', poison) : undefined;
+    try {
+      const operation = method(source, method === adapter.getTip ? { signal: controller.signal } : { height: 0, signal: controller.signal });
+      if (mode === 'good') await operation;
+      else await assert.rejects(operation, error => isZcashError(error) && error.code === mode);
+      assert.equal(response?.body.locked ?? false, false);
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    } finally { fetching.mock.restore(); digest?.mock.restore(); }
+  }
+});
+
+test('genuine signal mutation and abort preempt late native hash rejections at both stages', async t => {
+  const { genesis } = await import('./public-chain-reads-fixtures.mjs');
+  for (const stage of [1, 2]) {
+    const controller = new AbortController();
+    const source = { sourceId, transport: http('http://127.0.0.1:1/rpc', transportOptions) };
+    const fetching = t.mock.method(globalThis, 'fetch', async (_url, init) => {
+      const call = JSON.parse(init.body);
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: call.id, result: call.params[1] ? genesis.verbose : genesis.raw }));
+    });
+    let calls = 0;
+    const native = crypto.subtle.digest.bind(crypto.subtle);
+    const digest = t.mock.method(crypto.subtle, 'digest', async (...args) => {
+      const value = await native(...args);
+      if (++calls !== stage) return value;
+      for (const key of ['aborted', 'addEventListener', 'removeEventListener']) {
+        Object.defineProperty(controller.signal, key, { get() { throw Error('private-sentinel'); } });
+      }
+      controller.abort();
+      await Promise.resolve();
+      throw Error('private-sentinel');
+    });
+    try {
+      await assert.rejects(adapter.getBlockHeader(source, { height: 0, signal: controller.signal }), code('ABORTED'));
+      assert.equal(calls, stage);
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    } finally { fetching.mock.restore(); digest.mock.restore(); }
   }
 });

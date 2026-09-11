@@ -4,6 +4,8 @@ import type { WalletOptions, RecoveryPolicy, RecoveryReport } from "zcash.js";
 
 declare const options: WalletOptions;
 const offline = { mode: 'offline' } satisfies RecoveryPolicy;
+// This 15s pass cannot satisfy a fresh 60s current-session monotonic interval.
+// If elapsed time is untrusted, automatic dispatch is deferred; observation may complete.
 const online = {
   mode: 'online', timeoutMs: 15_000,
   rebroadcast: { mode: 'previously-dispatched', maxAttempts: 3, minIntervalMs: 60_000 },
@@ -26,21 +28,21 @@ await defaultOpen.close();
 await local.close();
 await observed.close();
 
-// @ts-expect-error Offline startup cannot authorize network rebroadcast.
+// @ts-expect-error TS2322: Offline startup cannot authorize network rebroadcast.
 const offlineSend: RecoveryPolicy = { mode: 'offline', rebroadcast: { mode: 'previously-dispatched', maxAttempts: 3, minIntervalMs: 60_000 } };
-// @ts-expect-error Online startup requires a finite deadline.
+// @ts-expect-error TS2322: Online startup requires a finite deadline.
 const unbounded: RecoveryPolicy = { mode: 'online' };
-// @ts-expect-error Opening cannot automatically dispatch never-submitted finalized work.
+// @ts-expect-error TS2322: Opening cannot automatically dispatch never-submitted finalized work.
 const newSubmission: RecoveryPolicy = { mode: 'online', timeoutMs: 1, rebroadcast: { mode: 'all-finalized', maxAttempts: 3, minIntervalMs: 1 } };
-// @ts-expect-error Automatic retry requires a durable total attempt ceiling and spacing.
+// @ts-expect-error TS2739: Automatic retry requires a durable total attempt ceiling and spacing.
 const unboundedRetry: RecoveryPolicy = { mode: 'online', timeoutMs: 1, rebroadcast: { mode: 'previously-dispatched' } };
-// @ts-expect-error Opening cannot request signing authority.
+// @ts-expect-error TS2353: Opening cannot request signing authority.
 await createWalletClient({ ...options, mnemonic: new Uint8Array(32) });
-// @ts-expect-error operationId is not a factory recovery prerequisite or selector.
+// @ts-expect-error TS2353: operationId is not a factory recovery prerequisite or selector.
 await createWalletClient({ ...options, operationId: 'synthetic-operation' });
-// @ts-expect-error No public worker job ID recovery API.
+// @ts-expect-error TS2339: No public worker job ID recovery API.
 await local.getJobID();
-// @ts-expect-error Resume selects one journal operation; it cannot authorize a new send.
+// @ts-expect-error TS2353: Resume selects one journal operation; it cannot authorize a new send.
 await local.operations.resume({ operationId: 'synthetic-operation', broadcast: true });
-// @ts-expect-error Resume still requires an operation selector.
+// @ts-expect-error TS2345: Resume still requires an operation selector.
 await local.operations.resume({});

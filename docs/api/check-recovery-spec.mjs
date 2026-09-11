@@ -24,7 +24,12 @@ const temp = mkdtempSync(join(tmpdir(), 'zcash-recovery-negative-'));
 try {
   const source = readFileSync(join(root, 'docs/api/examples/recovery-policy.ts'), 'utf8');
   const lines = source.split('\n');
-  const expected = lines.flatMap((line, index) => line.includes('@ts-expect-error') ? [index + 2] : []);
+  const expected = lines.flatMap((line, index) => {
+    if (!line.includes('@ts-expect-error')) return [];
+    const match = line.match(/@ts-expect-error TS(\d+):/);
+    assert.ok(match, `negative assertion on line ${index + 1} needs an expected TS code`);
+    return [{ line: index + 2, code: Number(match[1]) }];
+  });
   assert.equal(expected.length, 9, 'review the negative contract inventory when changing cases');
   // Preserve line numbers; remove only the suppression, not the forbidden expression.
   writeFileSync(join(temp, 'negative.ts'), lines.map(line => line.includes('@ts-expect-error') ? '' : line).join('\n'));
@@ -36,10 +41,10 @@ try {
   const errors = negative.map(diagnostic => {
     assert.equal(diagnostic.file?.fileName, join(temp, 'negative.ts'));
     assert.notEqual(diagnostic.start, undefined);
-    return diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line + 1;
+    return { line: diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line + 1, code: diagnostic.code };
   });
-  assert.deepEqual(errors, expected, 'every forbidden expression must have its own diagnostic');
-  console.log(`PASS: all ${expected.length} forbidden cases independently produce diagnostics`);
+  assert.deepEqual(errors, expected, 'every forbidden expression must have its expected diagnostic location and code');
+  console.log(`PASS: all ${expected.length} forbidden cases independently produce the expected diagnostic codes`);
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

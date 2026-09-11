@@ -350,10 +350,12 @@ export type RecoveryPolicy =
     readonly timeoutMs: number; // positive safe integer; total network pass, not per operation
     /** Omitted = observe only. Requires light + broadcaster and stored consent.
      * Never grants first dispatch, rebuild, signing, proving or endpoint failover.
+     * Supported explicit DB restore/import disables retry until fresh reconciliation/consent.
+     * External copies/rollback may be undetectable; no cross-copy lifetime budget guarantee.
      */
     readonly rebroadcast?: {
       readonly mode: 'previously-dispatched';
-      readonly maxAttempts: number; // positive lifetime per-step ceiling; reopen cannot relax it
+      readonly maxAttempts: number; // positive per-step ceiling across ordinary opens of the non-rolled-back authoritative DB
       readonly minIntervalMs: number; // positive spacing; strictest adopted value persists
     };
   };
@@ -363,10 +365,10 @@ export type RecoveryPolicy =
 export interface RecoveryReport {
   readonly local: 'complete';
   readonly operations: number; // all records in the captured database inventory
-  readonly observation: 'offline' | 'complete' | 'incomplete';
-  readonly observedOperations: number;
-  readonly deferredOperations: number;
-  readonly lastError: ErrorInfo | null; // sanitized network failure; timeout uses TIMEOUT
+  readonly observation: 'offline' | 'complete' | 'incomplete'; // online complete iff no deferred observation candidates
+  readonly observedOperations: number; // fully observed candidates, independent of later dispatch failure
+  readonly deferredOperations: number; // candidates still needing observation, not failed dispatches
+  readonly lastError: ErrorInfo | null; // last sanitized network/dispatch failure, even with complete observation; timeout uses TIMEOUT
 }
 export interface WalletOptions extends Op {
   readonly recovery?: RecoveryPolicy;

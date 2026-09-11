@@ -1,20 +1,4 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Synthetic F2 no-SAB scanner replay</title>
-<pre id="output">Running synthetic ephemeral scanner fixture...</pre>
-<script type="module">
-const output = document.querySelector('#output');
-const worker = new Worker('./browser-worker.mjs', { type: 'module' });
-const timer = setTimeout(() => {
-  worker.terminate();
-  output.textContent += '\nFAIL: external 60-second watchdog';
-}, 60_000);
-worker.onmessage = ({ data }) => {
-  output.textContent += '\n' + JSON.stringify(data);
-  if (data.done || data.failed) { clearTimeout(timer); worker.terminate(); }
-};
-worker.onerror = error => {
-  output.textContent += '\nFAIL: ' + error.message;
-  clearTimeout(timer); worker.terminate();
-};
-</script>
+<title>Synthetic F2 scanner acceptance</title>
+<p>Use the bounded Firefox runner to execute each case and observe actual worker destruction.</p>

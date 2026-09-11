@@ -28,3 +28,16 @@ pub fn scanner_replay(on_stage: js_sys::Function) -> Result<String, JsValue> {
 extern "C" {
     fn panic_message(message: &str);
 }
+
+/// Reusable per-case entry. Caller initializes its real runtime/worker pool first.
+/// Each case creates and closes its own real ephemeral WalletDb.
+#[wasm_bindgen]
+pub fn scanner_case(name: &str, on_stage: js_sys::Function) -> Result<String, JsValue> {
+    std::panic::set_hook(Box::new(|info| panic_message(&info.to_string())));
+    let expected = crate::cases::expected_case(name).map_err(|e| JsValue::from_str(&e))?;
+    let mut report = |stage: &str| { on_stage.call1(&JsValue::NULL, &JsValue::from_str(stage)).expect("stage observer"); };
+    let result = crate::cases::run_case(name, crate::cases::Mode::Inline, &mut report).map_err(|e| JsValue::from_str(&e))?;
+    if result != expected { return Err(JsValue::from_str(&format!("{name}: native reference mismatch"))); }
+    report("reference-match");
+    Ok(serde_json::json!({"schema":2,"case":name,"passed":true,"result":result}).to_string())
+}

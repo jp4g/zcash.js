@@ -91,3 +91,6 @@ mod tests;
 pub mod observation;
 #[cfg(all(feature = "wasm-replay", target_arch = "wasm32"))]
 mod wasm;
+
+#[cfg(any(feature = "native-fixtures", feature = "wasm-replay"))]
+pub mod cases;

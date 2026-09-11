@@ -14,6 +14,11 @@ for name, expected in manifest['files'].items():
     assert len(data) == expected['bytes'], name
     assert hashlib.sha256(data).hexdigest() == expected['sha256'], name
 
+extension = json.loads((root / 'references/manifest.json').read_text())
+for name, expected in extension['files'].items():
+    data = (root / 'references' / name).read_bytes()
+    assert len(data) == expected['bytes'] and hashlib.sha256(data).hexdigest() == expected['sha256'], name
+
 packages = tomllib.loads((root / 'Cargo.lock').read_text())['package']
 consumer = tomllib.loads((root.parent / 'consumer/Cargo.lock').read_text())['package']
 selected = [p for p in packages if p['name'].startswith('zakura-')]

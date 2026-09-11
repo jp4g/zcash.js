@@ -44,8 +44,9 @@ Required follow-on checks include SQL commit/rollback/blob/integrity and pairing
 in one living instance; pool bounds/canaries/OOM/omission; Rust allocation growth
 interleaved with SQL and refreshed host memory views; entropy/time/sleep and
 entropy loss; and actual worker destruction followed by a fresh empty memdb.
-The current destruction fixture checks instance separation while both instances
-are alive, so it must be extended to actual destroy/recreate. Add meaningful
+The revised destruction fixture awaits original worker termination before creating
+a replacement and requires a successful schema-absence query. Its Rust export
+has not been rebuilt or executed; see [first review-fix cycle](review-fix.md). Add meaningful
 negative checks per adapter behavior; the current red import failures do not
 provide that coverage. Browser worker execution remains a later bounded slice.
 

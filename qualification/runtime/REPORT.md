@@ -154,7 +154,8 @@ Follow-on must use an approved exact generator, preserve/hash its outputs, adapt
 the loader to real generated imports, and rerun each red requirement. Extend the
 fixtures to execute SQL and pairing in the same living instance, interleave
 multiple SQL/Rust allocation cycles, check detailed unsupported host errors, and
-actually destroy/recreate a worker. Current `destruction` only compares two live
-instances and is insufficient for the requested lifecycle check. Add isolated
+actually destroy/recreate a worker. At the original report revision, `destruction` only compared two live instances.
+The first review-fix cycle changes that assertion and orchestration, but real
+lifecycle qualification is still pending; see [review-fix.md](review-fix.md). Add isolated
 negative controls before qualifying each behavior. Browser is optional subsequent
 work after Node. No #2 completion, production support or independent review claim.

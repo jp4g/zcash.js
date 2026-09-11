@@ -6,11 +6,11 @@ The baseline requires a secure loopback page and worker with
 and non-shared WASM memory. The same generated instance must execute bundled
 SQLite transaction/blob/integrity fixtures and Common 1.0 BLS pairing.
 
-The coordinator has executed real Firefox 155.0.1 with packaged geckodriver
-0.37.1 under unchanged security policy. The earlier Firefox subset used older
-fresh artifacts and lacked independent worker-destruction evidence. The current
-runner executes all 14 runtime and 5 harness scenarios from `fresh-3`, requiring
-external BiDi realm creation/destruction before every replacement worker.
+The coordinator has passed all 14 runtime and 5 browser harness scenarios in real
+Firefox 155.0.1 with packaged geckodriver 0.37.1 under unchanged security policy.
+The current run uses `fresh-3` and independently observed 18 worker realm
+creation/destruction pairs before replacement; pre-start cancellation creates
+no worker. All owned browser, session, driver and server cleanup checks passed.
 See [Firefox evidence and status](FIREFOX-REPORT.md).
 
 This implementer's sandbox still rejects sockets. Chromium on the foreground
@@ -60,13 +60,21 @@ Independent checks that do not start a browser:
 ```sh
 node qualification/browser-runtime/test-host.mjs
 node qualification/browser-runtime/test-firefox-lifecycle.mjs
+node qualification/browser-runtime/test-firefox-options.mjs
 node qualification/browser-runtime/test-package.mjs /home/jack/zcash-browser-runtime-scratch/fresh-3
 node qualification/browser-runtime/diagnostic-node.mjs /home/jack/zcash-browser-runtime-scratch/fresh-3
 ```
 
 The last command executes real web bindings **in Node**. It is a useful integration
 diagnostic, never a browser pass. Add `--verify-only` to the full runner command
-to verify staged files without opening a socket or launching Chromium.
+for the historical Chromium runner to verify staged files without opening a
+socket or launching Chromium. The Firefox runner always executes the full suite.
+
+Read-only audit of the actual successful foreground result:
+
+```sh
+node qualification/browser-runtime/verify-firefox.mjs /home/jack/zcash-browser-runtime-logs/firefox-1789136669817.json
+```
 
 To stage another verified fresh build, use a new output directory (existing
 outputs are never overwritten):

@@ -7,12 +7,12 @@ const block = { ...blockOne.verbose, nTx: 1, tx: txids };
 export async function runBrowser() {
   const checks = [];
   const check = (ok, label) => { if (!ok) throw Error(label); checks.push(label); };
-  const rejects = async (promise, code) => {
+  const rejects = async (promise, code, mode) => {
     try { await promise; } catch (error) {
-      check(error.code === code, code);
+      check(error.code === code, `${mode}: expected ${code}, actual ${error.code ?? error.name}`);
       check(!/private-fixture|127\.0\.0\.1/.test(error.message + JSON.stringify(error)), 'sanitized'); return;
     }
-    throw Error(`expected ${code}`);
+    throw Error(`${mode}: expected ${code}, actual fulfilled`);
   };
   const eager = { fetch: 0, Worker: 0, WebAssembly: 0 };
   const originals = { fetch, Worker, WebAssembly };
@@ -42,18 +42,18 @@ export async function runBrowser() {
     selector = { height: 1 };
     check((await getBlock(source, selector)).sourceId === sourceId, 'input snapshot');
     for (const mode of ['null', 'bad-number', 'bad-tx', 'bad-count', 'bad-hash', 'bad-height', 'bad-parent', 'bad-time', 'header-height', 'header-hash', 'bad-raw']) {
-      await rejects(getBlock(context(mode), { height: 1 }), 'PROTOCOL_MISMATCH');
+      await rejects(getBlock(context(mode), { height: 1 }), 'PROTOCOL_MISMATCH', mode);
     }
-    await rejects(getBlock(context('invalid'), { height: 1, hash: block.hash }), 'INVALID_ARGUMENT');
+    await rejects(getBlock(context('invalid'), { height: 1, hash: block.hash }), 'INVALID_ARGUMENT', 'invalid-selector');
     const pre = new AbortController(); pre.abort();
-    await rejects(getBlock(context('invalid'), { height: 1, signal: pre.signal }), 'ABORTED');
+    await rejects(getBlock(context('invalid'), { height: 1, signal: pre.signal }), 'ABORTED', 'pre-abort');
     for (const stage of [0, 1, 2]) {
-      await rejects(getBlock(context(`unsupported-${stage}`), { height: 1 }), 'METHOD_NOT_SUPPORTED');
-      await rejects(getBlock(context(`unknown-${stage}`), { height: 1 }), 'TRANSPORT_ERROR');
-      await rejects(getBlock(context(`oversize-${stage}`), { height: 1 }), 'RESOURCE_LIMIT');
-      await rejects(getBlock(context(`timeout-${stage}`, { timeoutMs: 100 }), { height: 1 }), 'TIMEOUT');
+      await rejects(getBlock(context(`unsupported-${stage}`), { height: 1 }), 'METHOD_NOT_SUPPORTED', `unsupported-${stage}`);
+      await rejects(getBlock(context(`unknown-${stage}`), { height: 1 }), 'TRANSPORT_ERROR', `unknown-${stage}`);
+      await rejects(getBlock(context(`oversize-${stage}`), { height: 1 }), 'RESOURCE_LIMIT', `oversize-${stage}`);
+      await rejects(getBlock(context(`timeout-${stage}`, { timeoutMs: 100 }), { height: 1 }), 'TIMEOUT', `timeout-${stage}`);
       const controller = new AbortController();
-      const pending = rejects(getBlock(context(`abort-${stage}`), { height: 1, signal: controller.signal }), 'ABORTED');
+      const pending = rejects(getBlock(context(`abort-${stage}`), { height: 1, signal: controller.signal }), 'ABORTED', `abort-${stage}`);
       const until = Date.now() + 3000;
       while (!(await (await fetch('/state')).json())[`abort-${stage}`]) {
         if (Date.now() > until) throw Error('abort fixture deadline');
@@ -66,7 +66,7 @@ export async function runBrowser() {
         args.signal = new AbortController().signal;
         if (count++ === stage) callbackAbort.abort(); return {};
       } });
-      await rejects(getBlock(fromCallback, args), 'ABORTED');
+      await rejects(getBlock(fromCallback, args), 'ABORTED', `callback-${stage}`);
     }
     check(eager.Worker === 0 && eager.WebAssembly === 0, 'no worker or WASM');
     check(typeof crypto.subtle.digest === 'function', 'native Web Crypto');
@@ -82,7 +82,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const { createHash } = await import('node:crypto');
   const build = process.env.PUBLIC_BLOCK_READS_BUILD ?? '/home/jack/zcash-public-block-scratch/dist';
   const logs = process.env.PUBLIC_BLOCK_LOGS ?? '/home/jack/zcash-public-block-logs';
-  const scratch = '/home/jack/zcash-public-block-scratch';
+  const scratch = process.env.PUBLIC_BLOCK_SCRATCH ?? '/home/jack/zcash-public-block-scratch';
   await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true });
   const runRoot = await mkdtemp(`${scratch}/firefox-`);
   const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
@@ -136,7 +136,11 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       assert.equal(call.method, stage === 0 ? 'getblock' : 'getblockheader');
       if (stage === 0) {
         assert.ok(['1', block.hash].includes(call.params[0])); assert.equal(call.params[1], 1);
-      } else assert.deepEqual(call.params, [block.hash, stage === 1]);
+      } else {
+        // Height resolution pins the header request to the returned block identity.
+        const expectedHash = mode === 'bad-hash' ? 'ab'.repeat(32) : block.hash;
+        assert.deepEqual(call.params, [expectedHash, stage === 1], mode);
+      }
       if (mode === `unsupported-${stage}` || mode === `unknown-${stage}`) {
         return `"error":{"code":${mode.startsWith('unsupported') ? -32601 : -8},"message":"private-fixture","data":"private-fixture"}`;
       }
@@ -202,9 +206,16 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       ['getblock', ['1', 1]], ['getblockheader', [block.hash, true]], ['getblockheader', [block.hash, false]],
       ['getblock', [block.hash, 1]], ['getblockheader', [block.hash, true]], ['getblockheader', [block.hash, false]],
     ]);
+    for (const [mode, count] of Object.entries({
+      mutation: 3, null: 1, 'bad-number': 1, 'bad-tx': 1, 'bad-count': 1,
+      'bad-hash': 2, 'bad-height': 1, 'bad-parent': 3, 'bad-time': 3,
+      'header-height': 3, 'header-hash': 2, 'bad-raw': 3, invalid: 0,
+    })) {
+      assert.equal(server.calls.filter(c => c.path.endsWith(`/${mode}`)).length, count, mode);
+    }
     for (const stage of [0, 1, 2]) {
       for (const mode of ['unsupported', 'unknown', 'oversize', 'timeout', 'abort', 'callback']) {
-        assert.equal(server.calls.filter(c => c.path.endsWith(`/${mode}-${stage}`)).length, stage + (mode === 'callback' ? 0 : 1));
+        assert.equal(server.calls.filter(c => c.path.endsWith(`/${mode}-${stage}`)).length, stage + (mode === 'callback' ? 0 : 1), `${mode}-${stage}`);
       }
     }
     report.status = 'passed';

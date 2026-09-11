@@ -77,6 +77,7 @@ async function runFirefox() {
   const scratch = process.env.GRPC_WEB_SCRATCH ?? '/home/jack/zcash-grpc-web-scratch/fixes/lifecycle';
   const report = { ok: false, started: new Date().toISOString(), runnerPid: process.pid,
     node: process.versions.node, cleanup: { errors: [] }, trace: [], identities: {} };
+  let watcher, profile, sessionRequested = false;
   let receipt, run, fixture, driver, endpoint, session, leader, browser, driverError, driverLog = '';
   const stop = new AbortController();
   const onInt = () => { report.error ??= 'Error: SIGINT'; stop.abort(Error('SIGINT')); };
@@ -97,7 +98,7 @@ async function runFirefox() {
   const identity = pid => {
     if (!Number.isSafeInteger(pid) || pid <= 0) return null;
     try { const fields = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ').at(-1).split(' ');
-      return { pid, group: Number(fields[2]), start: fields[19], state: fields[0] }; }
+      return { pid, parent: Number(fields[1]), group: Number(fields[2]), start: fields[19], state: fields[0] }; }
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   };
   const alive = owned => { const now = owned && identity(owned.pid); return !!now && now.start === owned.start && now.state !== 'Z'; };
@@ -113,6 +114,39 @@ async function runFirefox() {
     for (const item of group) members.set(item.pid, item);
     report.identities.groupMembers = [...members.values()];
     return group;
+  };
+  const browserRoots = new Map();
+  const browserMembers = new Map();
+  const captureBrowsers = () => {
+    if (!profile || !leader) return;
+    const processes = readdirSync('/proc').filter(name => /^\d+$/.test(name))
+      .map(name => identity(Number(name))).filter(item => item && item.state !== 'Z');
+    for (const item of processes) {
+      if (BigInt(item.start) < BigInt(leader.start)) continue;
+      let args;
+      try { args = readFileSync(`/proc/${item.pid}/cmdline`, 'utf8').split('\0'); }
+      catch (error) { if (error.code === 'ENOENT' || error.code === 'ESRCH') continue; throw error; }
+      // Match exact unique profile argv on launch-chain roots, regardless of process group.
+      if (args.some((arg, i) => ['-profile', '--profile'].includes(arg) && args[i + 1] === profile) && alive(item)) {
+        const first = !browserRoots.size;
+        browserRoots.set(item.pid, item); browserMembers.set(item.pid, item);
+        if (first && !browser) report.trace.push({ event: 'browser-owned-before-capabilities', at: new Date().toISOString() });
+      }
+    }
+    // Include children even when they change process group; never follow a reused parent PID.
+    let added;
+    do {
+      added = false;
+      for (const item of processes) {
+        const parent = browserMembers.get(item.parent);
+        if (!browserMembers.has(item.pid) && alive(parent) && BigInt(item.start) >= BigInt(parent.start)) {
+          browserMembers.set(item.pid, item); added = true;
+        }
+      }
+    } while (added);
+    report.identities.browserRoots = [...browserRoots.values()];
+    report.identities.browserMembers = [...browserMembers.values()];
+    save();
   };
   const command = async (path, method = 'GET', body, cleanup = false) => {
     const signal = cleanup ? AbortSignal.timeout(5000) : AbortSignal.any([stop.signal, AbortSignal.timeout(45000)]);
@@ -136,6 +170,7 @@ async function runFirefox() {
     receipt = receiptDir + '/receipt.json'; report.receipt = receipt;
     report.run = receiptDir; trace('started');
     mkdirSync(scratch, { recursive: true }); run = mkdtempSync(scratch + '/firefox-'); report.run = run;
+    profile = run + '/profile'; mkdirSync(profile); report.profile = profile;
     const assets = new Map([
       ['/', `<!doctype html><meta charset="utf-8"><title>gRPC-Web fixture</title><link rel="icon" href="data:,">
 <script type="module">
@@ -175,9 +210,10 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
       if (match) endpoint = 'http://' + match[1];
       else { assert.ok(Date.now() < until, 'driver readiness timeout'); await bounded(() => delay(40)); }
     }
-    trace('session-creating');
+    watcher = setInterval(() => { try { captureBrowsers(); } catch (error) { stop.abort(error); } }, 20);
+    sessionRequested = true; trace('session-creating');
     const created = await command('/session', 'POST', { capabilities: { alwaysMatch: {
-      browserName: 'firefox', acceptInsecureCerts: false, 'moz:firefoxOptions': firefoxOptions(),
+      browserName: 'firefox', acceptInsecureCerts: false, 'moz:firefoxOptions': { ...firefoxOptions(), args: [...firefoxOptions().args, '-profile', profile] },
     } } });
     session = created.sessionId; report.session = session;
     browser = identity(created.capabilities['moz:processID']); report.identities.browser = browser;
@@ -208,6 +244,7 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
     // Preserve the primary error; independently bound every teardown, even if another fails.
     stop.abort(Error('run finished')); clearTimeout(deadline);
     await cleanup('groupCaptured', () => captureGroup());
+    await cleanup('browsersCaptured', captureBrowsers);
     // Start session/server cleanup together; driver teardown does not depend on either succeeding.
     const closing = [cleanup('serverClosed', () => fixture?.close())];
     if (session) closing.push(cleanup('sessionDeleted', () => command(`/session/${session}`, 'DELETE', undefined, true)));
@@ -219,13 +256,23 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
         if (group.length) try { process.kill(-leader.pid, signal); } catch (error) { if (error.code !== 'ESRCH') throw error; }
       });
       // Firefox can be launched outside the driver's group by a packaged launcher.
+      await cleanup('browsersCaptured' + signal, captureBrowsers);
       await cleanup('browser' + signal, () => {
-        if (alive(browser)) try { process.kill(browser.pid, signal); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+        const errors = [];
+        for (const owned of [...browserMembers.values(), browser]) {
+          try { if (alive(owned)) process.kill(owned.pid, signal); } catch (error) { if (error.code !== 'ESRCH') errors.push(error); }
+        }
+        if (errors.length) throw Error(errors.map(String).join('; '));
       });
       await delay(300);
     }
     await cleanup('driverGroupGone', () => assert.equal(captureGroup().length, 0));
-    await cleanup('browserGone', () => assert.equal(alive(browser), false));
+    clearInterval(watcher);
+    await cleanup('browserGone', () => {
+      captureBrowsers();
+      assert.ok(!sessionRequested || browser || browserRoots.size, 'browser ownership unobserved during session acquisition');
+      assert.equal([...browserMembers.values(), browser].some(alive), false);
+    });
     report.served = fixture?.served ?? [];
     report.requests = fixture?.requests.map(({ path, mode, body }) => ({ path, mode, body })) ?? [];
     report.finished = new Date().toISOString();
@@ -235,7 +282,8 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
     catch (error) { report.cleanup.errors.push(String(error)); report.ok = false; }
     try { trace('finished'); } catch (error) { report.ok = false; console.error('receipt write failed:', error); }
     console.log(JSON.stringify(report, null, 2));
-    if (!report.ok) process.exitCode = 1;
+    // The receipt is written synchronously before abandoning retained handles.
+    if (!report.ok) process.exit(1);
   }
 }
 if (typeof window === 'undefined') await runFirefox();

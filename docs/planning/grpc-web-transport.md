@@ -146,11 +146,22 @@ node tests/clients/grpc-web-browser.mjs
 ```
 
 The standalone Firefox runner uses installed `/snap/bin/geckodriver`, ephemeral
-loopback ports and owned profiles under `/home/jack/zcash-grpc-web-scratch`.
-Results go to `/home/jack/zcash-grpc-web-logs/firefox.json`. It imports only this
+loopback ports and a unique explicit profile per run. Set `GRPC_WEB_SCRATCH`
+and `GRPC_WEB_LOGS` to owned writable directories (defaults are
+`/home/jack/zcash-grpc-web-scratch/fixes/lifecycle` and
+`/home/jack/zcash-grpc-web-logs/fixes/lifecycle`). Each invocation writes
+`$GRPC_WEB_LOGS/firefox-*/receipt.json`, including failed invocations. It imports only this
 worktree's built transport and errors modules, and reuses Firefox launch options
 read-only. It does not invoke the old source-pinned SDK browser runner. Cleanup
 is restricted to its session, recorded process identities/group and fixture.
+Linux `/proc` discovery records exact profile argv roots and their descendants
+with PID/start-time identities before capabilities arrive, including processes
+outside the driver group. An interrupted acquisition without observed browser
+ownership records failed cleanup, never proof of absence. Failed CLI runs exit
+with status 1 after synchronous receipt writing and independent bounded teardown;
+recorded identities and the unique profile allow the parent to reclaim surviving
+owned processes safely. Real Snap launch-chain qualification remains a separate
+parent check; dependency simulations do not establish it.
 No install, TLS override, sandbox override or live endpoint is involved.
 
 ## Integration obligations

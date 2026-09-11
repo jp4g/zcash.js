@@ -212,6 +212,7 @@ fn failures(mode: Mode, stage: &mut dyn FnMut(&str)) -> Value {
     assert!(zcash_client_backend::proto::compact_formats::CompactBlock::decode(encoded.as_slice()).is_err());
     assert_eq!(before,snapshot(&conn));
     stage("protobuf-decode-atomic");
+    header_guard(stage);
     results.push(json!({"case":"truncated-protobuf","classification":"DecodeError","unchanged":true}));
     json!(results)
 }
@@ -302,7 +303,7 @@ mod tests {
         let actual = run_case(name, Mode::Inline, &mut |s| eprintln!("inline {name} {s}")).unwrap();
         assert_eq!(reference, actual);
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("references").join(format!("{name}.json"));
-        if std::env::var_os("SCANNER_EXT_CAPTURE").is_some() {
+        if std::env::var("SCANNER_EXT_CAPTURE").as_deref() == Ok("1") {
             use std::io::Write;
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             // Capture once, only after independent native/inline equality. Never overwrite.
@@ -312,6 +313,7 @@ mod tests {
         let expected: Value = serde_json::from_slice(&std::fs::read(path).expect("explicit native reference capture required")).unwrap();
         assert_eq!(actual, expected);
     }
+    #[test] fn header_envelope_is_rejected() { super::header_guard(&mut |_| {}); }
     #[test] fn transparent() { check("transparent"); }
     #[test] fn effects_trees() { check("effects-trees"); }
     #[test] fn imported_batches() { check("imported-batches"); }
@@ -332,4 +334,23 @@ pub fn expected_case(name: &str) -> Result<Value, String> {
         _ => return Err(format!("unknown qualification case: {name}")),
     };
     serde_json::from_slice(bytes).map_err(|e| e.to_string())
+}
+
+fn header_guard(stage: &mut dyn FnMut(&str)) {
+    use zcash_primitives::block::{BlockHash, BlockHeaderData};
+    let mut conn = ready();
+    assert!(wallet(&mut conn).block_metadata(initial().block_height()).unwrap().is_none());
+    let before = snapshot(&conn);
+    let mut corpus = frozen();
+    let block = &mut corpus.0[0];
+    let header = BlockHeaderData { version:4, prev_block:BlockHash([9;32]), merkle_root:[0;32], final_sapling_root:[0;32],
+        time:block.time,bits:0,nonce:[0;32],solution:vec![] }.freeze().unwrap();
+    header.write(&mut block.header).unwrap();
+    assert!(block.header().is_some());
+    assert_eq!(block.prev_hash,initial().block_hash().0);
+    assert_ne!(block.prev_hash(),initial().block_hash());
+    let result = crate::inline_scan_observed(&network(),&mut wallet(&mut conn),&initial(),&corpus.0[..1],|s|stage(s));
+    assert!(matches!(result,Err(ScanFailure::Validation(_))),"header-bearing envelope must be rejected: {result:?}");
+    assert_eq!(before,snapshot(&conn));
+    stage("header-envelope-atomic");
 }

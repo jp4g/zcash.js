@@ -47,6 +47,11 @@ where
     if blocks.is_empty() || blocks.len() > 16 {
         return Err("validation: expected 1..=16 blocks".into());
     }
+    // This bounded corpus uses raw compact identities only. A parsed header
+    // overrides those identities in the backend and is outside this envelope.
+    if blocks.iter().any(|b| !b.header.is_empty()) {
+        return Err("validation: header-bearing compact envelope unsupported".into());
+    }
     if blocks.iter().any(|b| b.height >= u64::from(u32::MAX) || b.hash.len() != 32 || b.prev_hash.len() != 32 || b.vtx.iter().any(|t| t.txid.len() != 32)) {
         return Err("validation: block height or identity encoding".into());
     }

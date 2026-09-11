@@ -7,7 +7,7 @@ use std::path::Path;
 use zcash_client_backend::data_api::chain::scan_cached_blocks;
 fn freeze(path: &str, bytes: &[u8]) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(path);
-    if std::env::var_os("SCANNER_FREEZE").is_some() {
+    if std::env::var("SCANNER_FREEZE").as_deref() == Ok("1") {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, bytes).unwrap();
     }

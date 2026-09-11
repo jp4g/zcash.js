@@ -1,5 +1,11 @@
 # F2 synthetic scanner foundation — partial qualification
 
+Historical foundation report through e338313. See [EXTENSION.md](EXTENSION.md) for
+the resumed implementation. Coordinator subsequently passed actual Node and
+Firefox no-SAB first replay; the Chrome launch failure below is not a current
+browser-wide blocker. Historical commands/hashes below are retained, not current
+extension commands.
+
 The native cached scanner and the public inline wrapper completed the frozen
 nonempty corpus and produced equal canonical SQLite state. A real generated WASM
 module replayed that corpus in a dedicated **unshared Node worker**, reached

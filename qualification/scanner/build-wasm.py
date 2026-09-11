@@ -30,9 +30,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--stage', default=f'extension-{time.time_ns()}')
     args = parser.parse_args()
-    assert re.fullmatch(r'[a-zA-Z0-9_-]+', args.stage)
+    if not re.fullmatch(r'[a-zA-Z0-9_-]+', args.stage):
+        raise ValueError('Invalid bundle stage')
+    measured = {}
     for path, expected in [(ADAPTER, EXPECTED[0]), (HOST, EXPECTED[1])]:
-        assert sha(path) == expected, f'F1 input drift: {path}'
+        measured[str(path)] = sha(path)
+        if measured[str(path)] != expected:
+            raise ValueError(f'F1 input drift: {path}')
     bundle = SCRATCH / 'bundles' / args.stage
     evidence = LOGS / 'bundles' / args.stage
     bundle.mkdir(parents=True, exist_ok=False)
@@ -44,11 +48,17 @@ def main():
         dest = source / name
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, dest)
-    assert inventory(source) == inputs, 'source snapshot drift'
+    if inventory(source) != inputs:
+        raise ValueError('source snapshot drift')
     # The exact external adapter is copied into this owned immutable build input.
     adapter = bundle / 'adapter.c'
     shutil.copyfile(ADAPTER, adapter)
-    assert sha(adapter) == EXPECTED[0]
+    if sha(adapter) != measured[str(ADAPTER)]:
+        raise ValueError('adapter input drift during copy')
+    host = bundle / 'runtime-host.mjs'
+    shutil.copyfile(HOST, host)
+    if sha(host) != measured[str(HOST)]:
+        raise ValueError('host input drift during copy')
     env = dict(os.environ)
     env.update(SCANNER_SDK=str(SDK), SCANNER_ADAPTER=str(adapter),
         SCANNER_SQLITE=str(Path(env['CARGO_HOME'])/'registry/src/index.crates.io-1949cf8c6b5b557f/libsqlite3-sys-0.35.0/sqlite3'),
@@ -67,7 +77,7 @@ def main():
             raise RuntimeError(f'{label} failed')
     provenance = {'format':'scanner-bundle-v2','stage':args.stage,
         'git_head':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
-        'sources':inputs,'f1_inputs':{str(ADAPTER):EXPECTED[0],str(HOST):EXPECTED[1]},
+        'sources':inputs,'f1_inputs':measured,
         'bindgen':{'path':str(BINDGEN),'sha256':sha(BINDGEN)},
         'environment':{k:env.get(k) for k in ['SCANNER_SDK','SCANNER_ADAPTER','SCANNER_SQLITE','CARGO_HOME','CARGO_TARGET_DIR','CARGO_BUILD_JOBS','RAYON_NUM_THREADS','RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','CFLAGS_wasm32_unknown_unknown','CC_wasm32_unknown_unknown','AR_wasm32_unknown_unknown','LIBSQLITE3_FLAGS']},
         'commands':commands,'complete':False}
@@ -77,7 +87,7 @@ def main():
         shutil.copyfile(Path(env['CARGO_TARGET_DIR'])/'wasm32-unknown-unknown/debug/issue_2_scanner.wasm',raw)
         web = bundle / 'web'; web.mkdir()
         run('bindgen',[str(BINDGEN),str(raw),'--target','web','--keep-lld-exports','--out-dir',str(web),'--out-name','scanner'])
-        shutil.copyfile(HOST,web/'runtime-host.mjs')
+        shutil.copyfile(host,web/'runtime-host.mjs')
         (web/'package.json').write_text('{"type":"module"}\n')
         for path in (source/'replay').iterdir():
             if path.suffix in ['.mjs','.html'] and not path.name.startswith('test-'):
@@ -89,7 +99,8 @@ def main():
             'files':inventory(web)}
         (web/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
         provenance.update(complete=True,raw_sha256=sha(raw),manifest_sha256=sha(web/'manifest.json'),artifacts=inventory(web))
-        assert inventory(source) == inputs, 'build mutated source snapshot'
+        if inventory(source) != inputs:
+            raise ValueError('build mutated source snapshot')
         pointer = {'bundle':str(bundle),'web':str(web),'manifest_sha256':sha(web/'manifest.json'),'evidence':str(evidence)}
         (LOGS/'latest-extension-bundle.json').write_text(json.dumps(pointer,indent=2)+'\n')
         print(json.dumps(pointer),flush=True)

@@ -25,7 +25,7 @@ fixture/canonical files; ordinary tests must compare frozen files without rewrit
 Synthetic seeds, keys, protobuf blocks and raw transaction fixtures here have no
 real-chain identity or funds. They are intentionally public test material.
 
-Executed native coverage: seven tests pass, including both shielded receipt/spend/
+Foundation native coverage: seven tests pass, including both shielded receipt/spend/
 change paths, 1,025 irrelevant Sapling commitments, empty retained boundary,
 roots/change witnesses, full-row failure atomicity, rewind/replay, UFVK import,
 four batches (including an Ironwood-only receipt), public request equality, and separate transparent receipt/parsed
@@ -45,5 +45,8 @@ unshared workers with external 60-second deadlines. Browser is a no-SAB probe;
 serve the generated scratch bundle on loopback without isolation headers when
 browser execution is available. This does not provide OPFS or Node durability.
 
-See [REPORT.md](REPORT.md) for the executed acceptance matrix, exact commands,
-known limits, and browser/shared-worker work still required.
+See [EXTENSION.md](EXTENSION.md) for the six-case native/WASM interface, fresh
+bundle commands, Firefox lifecycle runner, and remaining limits. [REPORT.md](REPORT.md)
+preserves the historical foundation results. Actual coordinator Firefox no-SAB
+and Node first replay both passed; the prior Chrome failure is not a browser blocker.
+Exact extension execution receipts are in the external scanner logs.

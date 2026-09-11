@@ -29,3 +29,26 @@ const progress={};size=0;
 await assert.rejects(fill(h,progress),/64 MiB cap/);
 assert.equal(progress.bytes,LIMIT);
 console.log('stack-only exception serialization and failure progress controls pass (not platform evidence)');
+// Real host 2 returned a short count; offline control reproduces that contract.
+size=0;
+const partial={...h,write(b,{at}){assert.equal(at,size);const n=Math.min(b.length,100001-size);size+=n;return n;},truncate(n){if(n>100001)throw new DOMException('control truncate limit','QuotaExceededError');size=n;}};
+const short=await fill(partial);
+assert.equal(short.bytes,100001);assert.equal(short.saturation,'zero-write');
+assert.equal(short.errors.length,0); // Zero/short is not a native exception.
+assert.equal(short.writes.reduce((sum,w)=>sum+w.returned,0),100001);
+assert.ok(short.writes.some(w=>w.returned>0 && w.returned<w.requested));
+assert.equal(short.writes.at(-1).requested,1);assert.equal(short.writes.at(-1).returned,0);
+assert.equal(short.probe.op,'truncate');assert.equal(short.probe.requestedSize,100002);
+assert.equal(short.probe.name,'QuotaExceededError');assert.equal(short.probe.nativeQuota,true);
+await assert.rejects(fill({...h,write(){return -1;}}),/invalid filler write count/);
+await assert.rejects(fill({...h,write(b){return b.length+1;}}),/invalid filler write count/);
+console.log('short/zero counts and bounded native truncate-probe controls pass (not platform evidence)');
+size=0;
+const zero=await fill({...h,write(){return 0;},truncate(n){size=n;}});
+assert.equal(zero.saturation,'zero-write');assert.equal(zero.bytes,1);
+assert.equal(zero.errors.length,0);assert.equal(zero.probe.nativeQuota,undefined);
+assert.equal(zero.probe.sizeAfter,1);
+size=0;const tinyProgress={};
+await assert.rejects(fill({...h,write(){size++;return 1;}},tinyProgress),/filler attempt limit/);
+assert.equal(tinyProgress.writes.length,4096);assert.equal(size,4096);
+console.log('successful truncate is not an exception; tiny-progress attempts bounded');

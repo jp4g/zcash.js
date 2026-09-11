@@ -21,19 +21,22 @@ export async function suite(harness,report){
     report({test:'scan-attempt',failed,evidence});
     require(failed.error?.startsWith('scan:'),'scan must fail through qualified wallet export');
     const actual=evidence.errors.filter(e=>e.nativeQuota && e.name==='QuotaExceededError' && e.command==='walletScan' && ['wallet.db','wallet.db-journal'].includes(e.file) && ['write','truncate','sync'].includes(e.op));
-    require(actual.length>0,'no native SQLite-owned quota error during scan');
-    require(evidence.traceDropped===0,'incomplete VFS trace');
-    require(evidence.trace.some(t=>t.rc===13 && t.error?.endsWith(':QuotaExceededError')),'native quota not mapped to SQLite FULL');
-    require(evidence.trace.some(t=>t.op==='write' && t.rc===0),'scan failed before any successful VFS write');
+    // Preserve real rollback/retry evidence even when Firefox reports short/zero
+    // writes instead of a native exception. The original gate still applies below.
     await w.destroy();w=null;await start(false);
     const recovered=await observe(false);equal(recovered,before,'full persisted state rollback after destruction');
-    report({test:'quota-rollback',pass:true,recovered,actualQuotaExhaustion:true,nativeErrors:actual});
+    report({test:'pressure-rollback',pass:true,recovered,actualQuotaExhaustion:actual.length>0,nativeErrors:actual});
     const freed=await call({op:'freeFiller'});
     await call({op:'walletScan',start:4,end:7});const success=await observe(true);
     equal(success.canonical,harness.reference.imported,'retry native full SQL parity');
     equal(success.exact.accounts,before.exact.accounts,'persistent account identity');
     await close();await start(false);equal(await observe(true),success,'retry persisted state across destruction');
     await close();
+    report({test:'pressure-retry-native-parity-reopen',pass:true,freed,success,actualQuotaExhaustion:actual.length>0});
+    require(actual.length>0,'no native SQLite-owned QuotaExceededError during scan; inspect shortWrites and SQLite return codes (rollback/retry executed)');
+    require(evidence.traceDropped===0,'incomplete VFS trace');
+    require(evidence.trace.some(t=>t.rc===13 && t.error?.endsWith(':QuotaExceededError')),'native quota not mapped to SQLite FULL');
+    require(evidence.trace.some(t=>t.op==='write' && t.rc===0),'scan failed before any successful VFS write');
     report({test:'actual-quota-populated-scan-rollback-retry',pass:true,actualQuotaExhaustion:true,freed,success});
   } finally {
     if(w)await w.destroy();

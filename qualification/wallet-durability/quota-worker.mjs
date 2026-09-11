@@ -2,7 +2,7 @@ import { acquire } from './opfs.mjs';
 import { load } from './load.mjs';
 import { dispatch } from './dispatch.mjs';
 import { fill, isNativeQuota, errorDetails } from './quota-pressure.mjs';
-let host,runtime,root,command,errors=[];
+let host,runtime,root,command,errors=[],shortWrites=[];
 onmessage=async ({data})=>{
   let pressure;
   try {
@@ -17,7 +17,11 @@ onmessage=async ({data})=>{
       for(const op of ['write','truncate','sync']) {
         const original=host[op];
         host[op]=(h,...args)=>{
-          try {return original(h,...args);}
+          try {
+            const returned=original(h,...args);
+            if(op==='write' && returned!==args[0].length)shortWrites.push({op,file:paths.get(h),command,at:args[1],requested:args[0].length,returned,size:h.getSize()});
+            return returned;
+          }
           catch(e) {
             errors.push({nativeQuota:isNativeQuota(e),name:e.name,code:e.code,message:e.message,
               file:paths.get(h),op,command,at:op==='write'?args[1]:undefined,
@@ -58,10 +62,10 @@ onmessage=async ({data})=>{
       await directory.removeEntry('quota-filler');
       postMessage({freed:'quota-filler',estimate:await navigator.storage.estimate()});return;
     }
-    if(data.op==='quotaEvidence') {postMessage({errors,trace:runtime.state.trace,traceDropped:runtime.state.traceDropped});return;}
+    if(data.op==='quotaEvidence') {postMessage({errors,shortWrites,trace:runtime.state.trace,traceDropped:runtime.state.traceDropped,estimate:await navigator.storage.estimate()});return;}
     if(['fault','crash'].includes(data.op)) throw Error('injection forbidden in actual quota harness');
     command=data.op;
-    if(command==='walletScan') {errors=[];runtime.state.trace.length=0;runtime.state.traceDropped=0;}
+    if(command==='walletScan') {errors=[];shortWrites=[];runtime.state.trace.length=0;runtime.state.traceDropped=0;}
     postMessage(dispatch(runtime.e,runtime.state,host,data));
     command=undefined;
   } catch(e) {

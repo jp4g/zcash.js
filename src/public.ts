@@ -83,6 +83,8 @@ export function createPublicClient(args: { network: Network; transport: HttpTran
     if (before.height !== after.height || before.hash !== after.hash) return { txid: id, state: 'unknown', inclusion: null, tip: null, priorInclusion: null, ...stamp() };
     if (!found) return { txid: id, state: 'notSeen', inclusion: null, tip: after, priorInclusion: null, ...stamp() };
     const value = found.observation, inclusion = value.inclusion;
+    if (inclusion && (inclusion.height > after.height || (inclusion.height === after.height && inclusion.blockHash !== after.hash)))
+      return { ...value, state: 'unknown', inclusion: null, tip: after, ...stamp() };
     if (inclusion && inclusion.height <= after.height) return { ...value, inclusion: { ...inclusion, confirmations: after.height - inclusion.height + 1 }, tip: after, ...stamp() };
     return { ...value, tip: after, ...stamp() };
   }
@@ -147,7 +149,7 @@ export function createPublicClient(args: { network: Network; transport: HttpTran
         for (let index = 0; index < dto.subtrees.length; index++) {
           const row = object(dto.subtrees[index]), height = number(row.end_height), root = bytes(row.root, 32);
           if (root.length !== 32 || height < previous) throw protocolError(); previous = height;
-          const header = await chain.getBlockHeader(source, { height, signal }); if (!header) throw protocolError();
+          const header = await chain.getBlockHeader(source, { height, signal }); if (!header || height > before.height || (height === before.height && header.point.hash !== before.hash)) throw protocolError();
           roots.push({ pool: owned.pool, index: owned.startIndex + BigInt(index), root, completingBlock: header.point, ...stamp() });
         }
         const after = await chain.getTip(source, { signal });

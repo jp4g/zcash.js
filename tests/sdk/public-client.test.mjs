@@ -15,9 +15,9 @@ const observation = {pollIntervalMs:10,maxBufferedUpdates:4};
 const rpcError = code => `"error":{"code":${code},"message":"SECRET"}`;
 
 test('complete internal PublicClient composes all eleven methods with native codecs and actual HTTP', async () => {
-  let state = 'mined';
+  let state = 'mined', tipHeight=1, tipHash=blockOne.verbose.hash;
   const server = await fixture(call => {
-    if(call.method==='getblockchaininfo') return result({blocks:1,bestblockhash:blockOne.verbose.hash});
+    if(call.method==='getblockchaininfo') return result({blocks:tipHeight,bestblockhash:tipHash});
     if(call.method==='getblockheader') {
       const block=call.params[0]==='0'||call.params[0]===genesis.verbose.hash?genesis:blockOne;
       return result(call.params[1]?block.verbose:block.raw);
@@ -44,6 +44,13 @@ test('complete internal PublicClient composes all eleven methods with native cod
     assert.equal((await client.getBlockHeader({height:1})).point.hash,blockOne.verbose.hash);
     assert.equal((await client.getTransaction({txid:vector.display})).raw.length,vector.hex.length/2);
     assert.equal((await client.getTransactionStatus({txid:vector.display})).inclusion.confirmations,1);
+    for(const [height,hash]of[[0,genesis.verbose.hash],[1,genesis.verbose.hash]]) {
+      tipHeight=height;tipHash=hash;
+      assert.equal((await client.getTransactionStatus({txid:vector.display})).state,'unknown');
+      await assert.rejects(async()=>{for await(const _ of client.getSubtreeRoots({pool:'sapling',startIndex:0n,limit:1})){}},{code:'PROTOCOL_MISMATCH'});
+    }
+    tipHeight=1;tipHash=blockOne.verbose.hash;
+
     assert.equal((await client.getUtxos({addresses:[address]})).items[0].value,42n);
     const tree=await client.getTreeState({height:1});
     assert.equal(wire().decodeResponse('GetTreeState',tree.encoded).orchard_tree,'000000');

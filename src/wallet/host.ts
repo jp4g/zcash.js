@@ -2,6 +2,7 @@ import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, Vi
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { ownBytes } from '../clients/owned-plumbing.js';
 import type { ScanTarget, ScanPlan, ScanBatch, ScanReceipt, ScanBlock, ScanRewind, Completion } from './session.js';
+import type { EnhancementRequests, EnhancementApply } from './session.js';
 import type { WalletCommand, WalletReply } from './worker.js';
 import { walletErrorCodes } from './worker.js';
 
@@ -193,6 +194,10 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       rewind: (args: ScanRewind & Op) => call<ScanBlock>('scan_rewind', args),
       plan: (args: { target: ScanTarget } & Op) => call<ScanPlan>('scan_plan', args),
       ingest: (args: ScanBatch & Op) => call<ScanReceipt>('scan_ingest_batch', args),
+    },
+    enhancement: {
+      requests: (args?: Op) => call<EnhancementRequests>('enhancement_requests', args),
+      apply: (args: EnhancementApply & Op) => call<{ revision: string }>('enhancement_apply', args),
     },
     completion: (error: object) => receipts.get(error),
     crashed,

@@ -158,3 +158,23 @@ test('wallet-wide state reads and rewind preserve native points and commit recei
     && host.completion(error).completion === 'committed'
     && host.completion(error).value.point.height === 64);
 });
+
+test('enhancement application owns full transaction bytes and preserves stale-request failure', async t => {
+  const request = { kind: 'enhancement', txid: '06'.repeat(32) };
+  let writes = 0;
+  const { host } = local(t, (_g, _i, command, args) => {
+    if (command === 'enhancement_requests') return { revision: 'r1', requests: [request] };
+    assert.equal(command, 'enhancement_apply');
+    if (writes++) throw Object.assign(Error('STALE_REVISION'), { commit: 'none' });
+    assert.deepEqual(args.request, request);
+    assert.deepEqual([...args.result.transactions[0].bytes], [1, 2, 3]);
+    return { revision: 'r2' };
+  });
+  assert.deepEqual((await host.enhancement.requests()).requests, [request]);
+  const bytes = new Uint8Array([1, 2, 3]);
+  const args = { revision: 'r1', request, result: { transactions: [{ bytes, minedHeight: 100 }] } };
+  const pending = host.enhancement.apply(args); bytes.fill(9);
+  assert.equal((await pending).revision, 'r2');
+  await assert.rejects(host.enhancement.apply(args), error => error.code === 'CURSOR_STALE'
+    && error.stage === 'sync' && host.completion(error).completion === 'none');
+});

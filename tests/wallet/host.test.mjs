@@ -138,3 +138,23 @@ test('native scan admission errors retain completion and allow replanning', asyn
     && error.recovery === 'sync' && host.completion(error).completion === 'none');
   assert.equal((await host.scan.plan(args)).revision, 'new');
 });
+
+test('wallet-wide state reads and rewind preserve native points and commit receipts', async t => {
+  const controller = new AbortController();
+  const point = { height: 80, hash: '04'.repeat(32) };
+  const { host } = local(t, (_g, _i, command, args) => {
+    if (command === 'scan_state') return { revision: 'before', fullyScannedHeight: 100 };
+    if (command === 'scan_block_hash') { assert.equal(args.height, 80); return { revision: 'before', point }; }
+    assert.equal(command, 'scan_rewind');
+    assert.equal(args.revision, 'before'); assert.deepEqual(args.requestedPoint, point);
+    controller.abort();
+    return { revision: 'after', point: { height: 64, hash: '05'.repeat(32) } };
+  });
+  assert.equal((await host.scan.state()).fullyScannedHeight, 100);
+  assert.deepEqual((await host.scan.block({ height: 80 })).point, point);
+  const args = { revision: 'before', requestedPoint: { ...point }, signal: controller.signal };
+  const pending = host.scan.rewind(args); args.requestedPoint.height = 99;
+  await assert.rejects(pending, error => error.code === 'ABORTED'
+    && host.completion(error).completion === 'committed'
+    && host.completion(error).value.point.height === 64);
+});

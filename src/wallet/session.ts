@@ -1,5 +1,5 @@
 import { failure, invalidArgument } from '../errors.js';
-import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
+import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
 
 /** Accepted, already initialized VIEW owner. Construct and consume in its worker. */
 export interface InitializedViews {
@@ -21,6 +21,8 @@ export interface ScanBatch {
   readonly priorTreeState: Uint8Array; readonly blocks: readonly Uint8Array[];
 }
 export interface ScanReceipt { readonly revision: string; readonly start: number; readonly endExclusive: number; readonly blocks: number }
+export interface ScanBlock { readonly revision: string; readonly point: ScanTarget | null }
+export interface ScanRewind { readonly revision: string; readonly requestedPoint: ScanTarget }
 
 export type Completion = 'none' | 'committed' | 'unknown';
 
@@ -98,6 +100,9 @@ export class WalletSession {
   }
 
   readonly scan = {
+    state: (args?: Op) => this.invoke<ScanState>('scan_state', args),
+    block: (args: { height: number } & Op) => this.invoke<ScanBlock>('scan_block_hash', args),
+    rewind: (args: ScanRewind & Op) => this.invoke<ScanBlock>('scan_rewind', args),
     plan: (args: { target: ScanTarget } & Op) => this.invoke<ScanPlan>('scan_plan', args),
     ingest: (args: ScanBatch & Op) => this.invoke<ScanReceipt>('scan_ingest_batch', args),
   };

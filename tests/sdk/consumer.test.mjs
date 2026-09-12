@@ -27,7 +27,7 @@ async function exec(command, args, options = {}) {
     await rm(folder, { recursive: true, force: true });
   }
 }
-const implemented = ['accountIndex', 'blockHash', 'createLightClient', 'defineNetwork', 'diversifierIndex', 'formatZec', 'grpc', 'http', 'isZcashError', 'parseZec', 'txId'];
+const implemented = ['accountIndex', 'blockHash', 'createLightClient', 'createPublicClient', 'defineNetwork', 'diversifierIndex', 'formatZec', 'grpc', 'http', 'isZcashError', 'parseZec', 'txId'];
 
 test('packed private package imports and typechecks in an isolated Node consumer', async (t) => {
   const folder = await mkdtemp(join(tmpdir(), 'zcash-sdk-consumer-'));
@@ -78,7 +78,7 @@ test('packed private package imports and typechecks in an isolated Node consumer
     const caught: unknown = null;
     if (isZcashError(caught)) { const error: ZcashError = caught; error.paymentState?.steps; error.syncStatus?.scan; }
     // @ts-expect-error Frozen but unimplemented factories are absent from the SDK.
-    import { createWalletClient, createPublicClient } from 'zcash.js';
+    import { createWalletClient } from 'zcash.js';
     // @ts-expect-error Transport has no public raw-request escape hatch.
     transport.request('getblockchaininfo');
     // @ts-expect-error No implicit number-to-bigint coercion.

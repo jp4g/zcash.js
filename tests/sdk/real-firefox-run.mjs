@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { bundle } from './real-firefox-build.mjs';
 import { firefoxOptions } from '../../qualification/browser-runtime/firefox-options.mjs';
 import { verifiedPacket } from '../clients/public-transaction-reads-packet.mjs';
+import { publicResponse } from './public-client-fixture.mjs';
 import { fixtureResponses, methods } from './light-client-fixture.mjs';
 import { frame, concat, trailer, base64, media, service } from '../clients/grpc-web-fixtures.mjs';
 import { sha, verifyAssets, verifyResult } from './real-firefox-support.mjs';
@@ -36,7 +37,7 @@ process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
 const delay = ms => new Promise(done => setTimeout(done, ms));
 let server, driver, endpoint, session, browserIdentity, driverIdentity;
 let driverText = '', driverError;
-const lightRequests = [], requests = [], unexpected = [], timers = new Set();
+const publicRequests = [], lightRequests = [], requests = [], unexpected = [], timers = new Set();
 let abortStarted = false;
 function command(executable, args, cwd = root) {
   const out = join(runRoot, 'command.stdout'), err = join(runRoot, 'command.stderr');
@@ -68,8 +69,8 @@ async function request(route, method = 'GET', body, cleanup = false) {
 }
 try {
   const sourceCommit = command('git', ['rev-parse', 'HEAD']);
-  const acceptedCommit = command('git', ['rev-parse', 'c99d2ad^{commit}']);
-  command('git', ['diff', '--exit-code', acceptedCommit, '--', 'src', 'tsconfig.json', 'package-lock.json']);
+  const acceptedCommit = command('git', ['rev-parse', 'bc45e2b^{commit}']);
+  command('git', ['diff', '--exit-code', 'HEAD', '--', 'src', 'tsconfig.json', 'package-lock.json']);
   command('git', ['merge-base', '--is-ancestor', acceptedCommit, sourceCommit]);
   command('npm', ['run', 'build']);
   const [pack] = JSON.parse(command('npm', ['pack', '--offline', '--cache', join(runRoot, 'npm-cache'), '--ignore-scripts', '--json', '--pack-destination', runRoot]));
@@ -94,10 +95,10 @@ try {
     ['/', Buffer.from('<!doctype html><meta charset="utf-8"><title>SDK Firefox qualification</title><link rel="icon" href="data:,">')],
     ['/bundle.mjs', Buffer.from(code)],
     ['/light-vector.json', Buffer.from(JSON.stringify(vector))],
-    ...await Promise.all(['sdk/light-client-fixture.mjs','clients/light-chain-reads-fixtures.mjs','clients/grpc-web-fixtures.mjs'].map(async name=>['/'+name.replace(/^sdk\//,''),await readFile(new URL('../'+name,import.meta.url))])),
+    ...await Promise.all(['sdk/public-client-fixture.mjs','clients/public-chain-reads-fixtures.mjs','sdk/light-client-fixture.mjs','clients/light-chain-reads-fixtures.mjs','clients/grpc-web-fixtures.mjs'].map(async name=>['/'+name.replace(/^sdk\//,''),await readFile(new URL('../'+name,import.meta.url))])),
     ['/probe.mjs', await readFile(new URL('./real-firefox-browser.mjs', import.meta.url))],
     ['/negative-eager.mjs', Buffer.from("new Worker('/forbidden-worker.mjs');")],
-    ['/negative-unsupported.mjs', Buffer.from("import { createPublicClient } from '/package/dist/src/index.js'; export { createPublicClient };")],
+    ['/negative-unsupported.mjs', Buffer.from("import { createWalletClient } from '/package/dist/src/index.js'; export { createWalletClient };")],
   ]);
   async function collect(folder, prefix) {
     for (const item of await readdir(folder, { withFileTypes: true })) {
@@ -126,7 +127,7 @@ try {
       try {
         if (req.url === '/fixture-state' && req.method === 'GET') {
           res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-          res.end(JSON.stringify({ abortStarted, lightRequests })); return;
+          res.end(JSON.stringify({ abortStarted, lightRequests, publicRequests })); return;
         }
         if(req.method==='POST' && req.url.startsWith(service)) {
           const method=req.url.slice(service.length),mode=req.headers['x-fixture-mode']??'good';
@@ -141,6 +142,14 @@ try {
           res.writeHead(200,{'Content-Type':media,'Cache-Control':'no-store'});
           if((mode==='read-stall'&&method==='GetLatestBlock')||(mode==='stream-stall'&&method==='GetBlockRange')||(mode==='send-stall'&&method==='SendTransaction')) {res.flushHeaders();return;}
           res.end(base64(concat(frame(light.response(method)),trailer())));return;
+        }
+        if(req.url==='/public-rpc'&&req.method==='POST') {
+          let body='';for await(const chunk of req){body+=chunk;assert.ok(body.length<=4*1024*1024);}
+          const parsed=JSON.parse(body),mode=req.headers['x-fixture-mode']??'good';
+          const observed={method:parsed.method,mode,closed:false};publicRequests.push(observed);res.once('close',()=>{observed.closed=true;});
+          res.writeHead(200,{'Content-Type':'application/json'});
+          if((mode==='read-stall'&&parsed.method==='getrawtransaction')||(mode==='send-stall'&&parsed.method==='sendrawtransaction')){res.write('{');return;}
+          res.end(JSON.stringify({jsonrpc:'2.0',id:parsed.id,...publicResponse(parsed,vector,mode)}));return;
         }
         if (req.url === '/rpc' && req.method === 'POST') {
           let body = '';

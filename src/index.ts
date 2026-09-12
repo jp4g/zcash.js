@@ -1,3 +1,4 @@
+export { createPublicClient } from './public.js';
 export { defineNetwork } from './network.js';
 export { createLightClient } from './light.js';
 export { grpc } from './grpc.js';

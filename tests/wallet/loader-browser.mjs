@@ -11,7 +11,7 @@ export async function runBrowser() {
     network: { identity: 'synthetic-regtest', genesisHash: '03'.repeat(32), parametersFormat: 'zcash-js-network/1', parameters } };
   const check = (value, label) => { if (!value) throw Error(label); };
   const same = (a, b) => JSON.stringify(a, (_, v) => typeof v === 'bigint' ? String(v) : v) === JSON.stringify(b, (_, v) => typeof v === 'bigint' ? String(v) : v);
-  let account, addresses, workerDestructions = 0;
+  let account, addresses, previousScan, workerDestructions = 0;
   const NativeWorker = globalThis.Worker;
   globalThis.Worker = class extends NativeWorker {
     terminate() { workerDestructions++; return super.terminate(); }
@@ -35,6 +35,9 @@ export async function runBrowser() {
         const balance = await runtime.session.getBalance({ accountId: account.id,
           confirmations: { trusted: 1, untrusted: 1, allowZeroConfirmationShielding: true } });
         check(balance.accountId === account.id && balance.amounts === null, 'native balance');
+        check(typeof balance.scan.revision === 'string' && balance.scan.scanComplete === null, 'native scan state');
+        if (reopened) check(balance.scan.revision !== previousScan.revision, 'new owner revision');
+        previousScan = balance.scan;
       } finally { await runtime.close(); }
     }
     return { persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };

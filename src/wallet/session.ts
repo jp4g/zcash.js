@@ -79,8 +79,8 @@ export class WalletSession {
     at: args => this.invoke('address_at', args),
   };
 
-  /** Native accounting only; scan/revision is supplied by the eventual sync owner. */
-  getBalance(args: { accountId: string; confirmations: ConfirmationsPolicy } & Op): Promise<Pick<WalletBalance, 'accountId' | 'amounts'>> {
+  /** Amounts and scan revision come from one native database snapshot. */
+  getBalance(args: { accountId: string; confirmations: ConfirmationsPolicy } & Op): Promise<WalletBalance> {
     return this.invoke('account_balance', args);
   }
 

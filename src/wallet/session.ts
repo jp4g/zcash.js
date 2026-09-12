@@ -1,5 +1,6 @@
 import { failure, invalidArgument } from '../errors.js';
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
+import type { HistoryPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 
 /** Accepted, already initialized VIEW owner. Construct and consume in its worker. */
 export interface InitializedViews {
@@ -106,6 +107,14 @@ export class WalletSession {
   /** Amounts and scan revision come from one native database snapshot. */
   getBalance(args: { accountId: string; confirmations: ConfirmationsPolicy } & Op): Promise<WalletBalance> {
     return this.invoke('account_balance', args);
+  }
+
+  getHistory(args: Parameters<WalletClient['getHistory']>[0]): Promise<HistoryPage> {
+    return this.invoke('wallet_history', args);
+  }
+
+  getTransaction(args: Parameters<WalletClient['getTransaction']>[0]): Promise<WalletTransaction | null> {
+    return this.invoke('wallet_transaction', args);
   }
 
   readonly scan = {

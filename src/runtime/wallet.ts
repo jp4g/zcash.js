@@ -21,6 +21,7 @@ const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wa
 // Creation-snapshot profile is a candidate: these prior sync-only asset pins must be
 // replaced after the matching native package is reviewed. It cannot load the old profile.
 const reviewedAssets: Record<keyof typeof layout, string> = {
+  // Query-capable package pins are pending; the previous package cannot satisfy the new profile.
   'wallet.mjs': 'bebe7ddfad5d0a1d54e41b35f78694eca79060310e5bbffc3fa38d15ad2b8f78',
   'worker.mjs': '244154eae685e351cb92dcdaf4513a0b352451fb4b6908975a0292837e878741',
   'bindings_bg.wasm': 'b22febfc03544c3009f73ebdb42925961f994efe18aa90aee3e76b26a194b0b5',

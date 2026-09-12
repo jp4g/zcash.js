@@ -45,9 +45,10 @@ incorporation is needed for a byte adapter.
 
 The package root and browser transport are unchanged. Browser-condition bundling
 checks root import isolation and rejects the native subpath; it does not establish
-native gRPC in browsers. The root `grpc()` factory integration remains coordinator
-work. Local synthetic tests run with `npm run build` then
+native gRPC in browsers. The root `grpc()` factory integration remains unfinished.
+Local synthetic tests run with `npm run build` then
 `node tests/sdk/grpc-node.test.mjs`. Native TCP loopback tests require a host that
 permits listening. Native/admission checks and the packed-consumer SDK suite pass
-on the integrated cancellation correction. Independent review of that correction
-is pending; no live provider compatibility is claimed.
+on the integrated cancellation correction. A separate review agent accepted the
+correction and independently passed all eight native tests; no live provider
+compatibility is claimed.

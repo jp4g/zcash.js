@@ -87,9 +87,11 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     const fixtureBytes = await readFile(`${packet}/bundle/tests/views-fixture.json`);
     assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'), packetBuild.artifacts['tests/views-fixture.json']);
     const nativeFixture = JSON.parse(fixtureBytes);
+    const runtimePacket = process.env.WALLET_RUNTIME_PACKAGE;
+    const browserTest = runtimePacket ? 'runtime-browser' : 'host-browser';
     const assets = new Map([
       ['/', '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Wallet bridge fixture</title><script type="module" src="/entry.mjs"></script>'],
-      ['/entry.mjs', "import { runBrowser } from '/tests/wallet/host-browser.mjs'; runBrowser().then(value => { window.walletResult = { value }; }, error => { window.walletResult = { error: String(error), stack: error.stack }; });"],
+      ['/entry.mjs', `import { runBrowser } from '/tests/wallet/${browserTest}.mjs'; runBrowser().then(value => { window.walletResult = { value }; }, error => { window.walletResult = { error: String(error), stack: error.stack }; });`],
       ['/tests/wallet/host-browser.mjs', await readFile(new URL(import.meta.url))],
       ['/tests/clients/public-chain-reads-fixtures.mjs', await readFile(new URL('../clients/public-chain-reads-fixtures.mjs', import.meta.url))],
     ]);
@@ -102,6 +104,19 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       const bytes = await readFile(`${packet}/bundle/${name}`);
       assert.equal(createHash('sha256').update(bytes).digest('hex'), packetBuild.artifacts[name], name);
       assets.set(`/packet/${name}`, bytes);
+    }
+    if (runtimePacket) {
+      assets.set('/tests/wallet/runtime-browser.mjs', await readFile(new URL('./runtime-browser.mjs', import.meta.url)));
+      const manifestBytes = await readFile(`${runtimePacket}/manifest.json`);
+      const manifest = JSON.parse(manifestBytes);
+      report.manifestSha256 = createHash('sha256').update(manifestBytes).digest('hex');
+      assets.set('/runtime/manifest.json', manifestBytes);
+      for (const file of manifest.files) {
+        const bytes = await readFile(`${runtimePacket}/${file.url}`);
+        assert.equal(bytes.length, file.byteLength);
+        assert.equal(createHash('sha256').update(bytes).digest('hex'), file.sha256);
+        assets.set(`/runtime/${file.url}`, bytes);
+      }
     }
     assets.set('/fixture.json', JSON.stringify({ import: nativeFixture.import }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));

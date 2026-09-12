@@ -4,10 +4,18 @@
 `CustomLightTransport` adapter on Node only. Supply an `http://host:port` native
 plaintext endpoint or an `https://host:port` native TLS endpoint and
 `{ sourceId, timeoutMs, headers? }`. TLS uses grpc-js default certificate and
-hostname verification. URLs cannot contain credentials, paths, queries or fragments.
+hostname verification. Omitted or explicit scheme-default ports select HTTP 80 or
+HTTPS 443; custom ports are preserved, including bracketed IPv6 hosts.
+URLs cannot contain credentials, paths, queries or fragments.
 Headers are an asynchronous per-operation string metadata callback; binary request
 metadata and reserved transport headers are rejected. Response metadata is handled
-by grpc-js and is not exposed by the existing byte-only contract.
+by grpc-js/Node and is not exposed by the existing byte-only contract. The adapter
+enforces an 8192-byte outgoing metadata accounting ceiling; it supplies no matching
+inbound metadata bound (grpc-js 1.14.4 does not support `grpc.max_metadata_size`).
+Accepted own string data properties are consumed regardless of enumerability.
+Limits are snapshotted at construction; callback metadata is copied per operation
+after callback resolution. Subsequent caller mutation cannot change these snapshots.
+Proxies, accessors and symbol properties remain rejected.
 
 The seven unary and four server-streaming methods are the frozen public contract.
 Requests and responses are owned opaque protobuf bytes; there is no codec, network

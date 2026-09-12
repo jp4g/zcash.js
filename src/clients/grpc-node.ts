@@ -59,7 +59,7 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
     if (headers !== undefined && typeof headers !== 'function') throw invalidArgument();
     if (options.limits !== undefined) {
       record(options.limits, Object.keys(limits));
-      for (const key of Object.keys(options.limits) as (keyof typeof limits)[]) {
+      for (const key of Object.getOwnPropertyNames(options.limits) as (keyof typeof limits)[]) {
         const value = options.limits[key]; integer(value, limits[key]); limits[key] = value;
       }
     }
@@ -124,7 +124,8 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
           catch { check(); throw invalidArgument(); }
           record(supplied);
           let bytes = 0;
-          for (const [key, value] of Object.entries(supplied)) {
+          for (const key of Object.getOwnPropertyNames(supplied)) {
+            const value = supplied[key];
             if (!/^[0-9a-z_.-]+$/.test(key) || /^(grpc-|content-|:)|-bin$/.test(key)
               || ['host', 'connection', 'te', 'user-agent'].includes(key)
               || typeof value !== 'string' || /[^\x20-\x7e]/.test(value)) throw invalidArgument();
@@ -135,9 +136,9 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
         }
         check();
         // One owned channel per operation keeps disposal out of the custom transport contract.
-        client = new Client(endpoint.host, endpoint.protocol === 'https:' ? credentials.createSsl() : credentials.createInsecure(), {
+        client = new Client(`${endpoint.hostname}:${endpoint.port || (endpoint.protocol === 'https:' ? '443' : '80')}`, endpoint.protocol === 'https:' ? credentials.createSsl() : credentials.createInsecure(), {
           'grpc.enable_retries': 0, 'grpc.max_receive_message_length': limits.messageBytes,
-          'grpc.max_send_message_length': limits.messageBytes, 'grpc.max_metadata_size': 8192,
+          'grpc.max_send_message_length': limits.messageBytes,
           'grpc.enable_http_proxy': 0,
         });
         return { client, metadata };

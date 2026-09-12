@@ -181,7 +181,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       list: (args: Parameters<WalletAddressesApi['list']>[0]) => call<Awaited<ReturnType<WalletAddressesApi['list']>>>('address_list', args),
       at: (args: Parameters<WalletAddressesApi['at']>[0]) => call<Awaited<ReturnType<WalletAddressesApi['at']>>>('address_at', args),
     },
-    getBalance: (args: { accountId: string; confirmations: ConfirmationsPolicy } & Op) => call<Pick<WalletBalance, 'accountId' | 'amounts'>>('account_balance', args),
+    getBalance: (args: { accountId: string; confirmations: ConfirmationsPolicy } & Op) => call<WalletBalance>('account_balance', args),
     completion: (error: object) => receipts.get(error),
     crashed,
     close(): Promise<void> {

@@ -74,7 +74,7 @@ try {
   const fixtureBytes = await readFile('/home/jack/zakura-account-compose-scratch/fixes/r1/balance-build-03/bundle/tests/views-fixture.json');
   assert.equal(sha(fixtureBytes), '731843024627c13dd4a7b56a8b70220b1eac1ce56d2b56e0f883a1695ea18f44');
   const fixture = JSON.parse(fixtureBytes);
-  let account, addresses;
+  let account, addresses, previousScan;
   for (const reopen of [false, true]) {
     const opened = await openWalletRuntime(options('wallet'));
     try {
@@ -87,8 +87,14 @@ try {
         assert.deepEqual(await opened.session.accounts.get({ accountId: account.id }), account);
         assert.deepEqual(await opened.session.addresses.list({ accountId: account.id }), addresses);
       }
-      assert.deepEqual(await opened.session.getBalance({ accountId: account.id,
-        confirmations: { trusted: 1, untrusted: 1, allowZeroConfirmationShielding: true } }), { accountId: account.id, amounts: null });
+      const query = { accountId: account.id, confirmations: { trusted: 1, untrusted: 1, allowZeroConfirmationShielding: true } };
+      const balance = await opened.session.getBalance(query);
+      assert.equal(balance.accountId, account.id); assert.equal(balance.amounts, null);
+      assert.equal(typeof balance.scan.revision, 'string');
+      assert.deepEqual({ ...balance.scan, revision: null }, { revision: null, tipHeight: null, fullyScannedHeight: null, maxScannedHeight: null, scanComplete: null });
+      assert.deepEqual(await opened.session.getBalance(query), balance, 'read retains revision');
+      if (reopen) assert.notEqual(balance.scan.revision, previousScan.revision, 'reopen changes owner epoch');
+      previousScan = balance.scan;
       const closing = opened.close(); assert.equal(opened.close(), closing); await closing;
     } finally { await opened.close(); }
   }

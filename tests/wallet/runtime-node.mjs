@@ -99,8 +99,10 @@ for (const reopened of [false, true]) {
       assert.deepEqual(await host.accounts.get({ accountId: savedAccount.id }), savedAccount);
       assert.deepEqual(await host.addresses.list({ accountId: savedAccount.id }), savedAddresses);
     }
-    assert.deepEqual(await host.getBalance({ accountId: savedAccount.id,
-      confirmations: { trusted: 1, untrusted: 1, allowZeroConfirmationShielding: true } }), { accountId: savedAccount.id, amounts: null });
+    const balance = await host.getBalance({ accountId: savedAccount.id,
+      confirmations: { trusted: 1, untrusted: 1, allowZeroConfirmationShielding: true } });
+    assert.equal(balance.accountId, savedAccount.id); assert.equal(balance.amounts, null);
+    assert.equal(typeof balance.scan.revision, 'string'); assert.equal(balance.scan.scanComplete, null);
     const closed = host.close(); assert.equal(host.close(), closed); await closed;
   } finally { if (host) await host.close().catch(() => {}); else { port1.close(); await owner.stop(); } }
 }

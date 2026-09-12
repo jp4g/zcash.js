@@ -68,7 +68,7 @@ async function request(route, method = 'GET', body, cleanup = false) {
 }
 try {
   const sourceCommit = command('git', ['rev-parse', 'HEAD']);
-  const acceptedCommit = command('git', ['rev-parse', '0ff58d8^{commit}']);
+  const acceptedCommit = command('git', ['rev-parse', 'c99d2ad^{commit}']);
   command('git', ['diff', '--exit-code', acceptedCommit, '--', 'src', 'tsconfig.json', 'package-lock.json']);
   command('git', ['merge-base', '--is-ancestor', acceptedCommit, sourceCommit]);
   command('npm', ['run', 'build']);

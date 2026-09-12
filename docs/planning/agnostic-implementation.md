@@ -25,15 +25,17 @@ were installed using `npm ci --offline --ignore-scripts --no-audit --no-fund`.
 | `accountIndex`, `diversifierIndex` | Frozen integer bounds, no coercion/wrapping. | Both inclusive boundaries and out-of-range/type cases. |
 | `txId`, `blockHash` | Lowercase, exactly 64 display hex characters; no byte reversal or normalization. | Wrong width, uppercase, prefix, newline and invalid characters reject. |
 | `isZcashError(value: unknown): value is ZcashError` | Recognizes this module instance's errors using a private WeakSet; no foreign getters inspected. | Sanitized messages/stacks, foreign errors/lookalikes/proxies rejected. |
+| `defineNetwork(args): Promise<Network>` | Real Rust-validated immutable descriptor, admitted by a private instance registry; bounded copied canonical parameters and cancellation. | `tests/sdk/network.test.mjs`: actual packed Node import, lazy single native initialization, no fetch, Sapling branch vector, input ownership, forged-instance rejection and cancellation. |
 | `http(url, options): HttpTransport` | Lazy opaque transport with a real internal Fetch JSON-RPC 2.0 read engine. It has no public request method and currently no exported client that consumes it. | `tests/sdk/http.test.mjs`: serialization, IDs, policy validation/copying, exact response numbers, error/absence distinction, bounds, retries and cancellation. |
 
 Only the associated `AccountIndex`, `DiversifierIndex`, `TxId`, `BlockHash`,
-`ErrorCode`, `ErrorInfo`, `ZcashError`, `HttpTransport` and `TransportOptions` types
+`ErrorCode`, `ErrorInfo`, `ZcashError`, `HttpTransport`, `TransportOptions`,
+`Network`, `NetworkDefinition` and `Op` types
 are re-exported. Types reference the frozen declaration directly; TypeScript emits
 that declaration under `dist/docs/api` to preserve exact brands and optional error
 attachments without maintaining a divergent copy. It has no runtime import edge.
-The package export map exposes only `.`; internal files and unimplemented functions
-are not public subpaths. The existing API book and root README describe the earlier
+The export map exposes the root and the Node-only `grpc-node` subpath; internal
+files and unimplemented functions are not public subpaths. The existing API book and root README describe the earlier
 specification deliverable; this document records the current executable subset.
 
 The amount input grammar is an optional minus, one or more ASCII integer digits,
@@ -161,3 +163,24 @@ Broadcast needs qualified txid derivation from exact transaction bytes; transact
 observation needs a settled coherent inclusion/reorg mapping. Neither has placeholders.
 Wallet DB, scanning, signing/proving, secrets, custom cryptography, protocol codecs,
 live providers and deployment/publication remain outside this worker's slice.
+
+## Package-owned pure network codecs
+
+`defineNetwork` uses the accepted handle-free Rust consensus codec in a single
+package-owned ESM capsule. Importing the public root does not initialize WASM;
+the first admitted call loads the local capsule and initializes one native module.
+It creates no worker, native wallet handle or disposal obligation. The descriptor
+retains the caller's exact canonical parameters privately; neither identity nor
+genesis alone establishes network equality. Caller parameters are copied before
+any await, limited to256bytes; identity labels are limited to1024code units.
+Cancellation is checked at async boundaries; pure synchronous native validation
+finishes within its call. No mutable runtime URL or fetch supplies executable bytes.
+
+`src/runtime/primitive-capsule.json` records the accepted native receipt, every
+primitive artifact hash, the closed executable module set, generator and lockfile
+hashes and emitted capsule hash. `scripts/primitive-capsule.mjs --generate
+VERIFIED_NATIVE_BUILD` reproduces this selected asset from verified bytes using
+the existing locked bundler. Ordinary package builds only hash-check and copy the
+committed capsule and declarations; they need no local native artifact/build tools.
+This narrow host-local codec qualification does not claim the H1 configurable
+artifact-runtime contract, threaded scanning or any unimplemented client factory.

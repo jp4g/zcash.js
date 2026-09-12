@@ -1,6 +1,6 @@
 // Browser-only probe. The internal read hook is test access, never a public SDK export.
 const claims = ['packed-esm', 'packed-bundle', 'amounts-ids', 'no-eager', 'negative-eager',
-  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry'];
+  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry', 'public-network'];
 const check = (condition, label) => { if (!condition) throw Error(label); };
 const keys = ['Worker', 'SharedWorker', 'WebAssembly', 'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource'];
 export async function guarded(load) {
@@ -33,7 +33,7 @@ export async function run() {
     sdk = await import('/package/dist/src/index.js');
     bundled = await import('/bundle.mjs');
     for (const api of [sdk, bundled.sdk]) {
-      check(Object.keys(api).sort().join(',') === 'accountIndex,blockHash,diversifierIndex,formatZec,http,isZcashError,parseZec,txId', 'root exports');
+      check(Object.keys(api).sort().join(',') === 'accountIndex,blockHash,defineNetwork,diversifierIndex,formatZec,http,isZcashError,parseZec,txId', 'root exports');
       check(api.parseZec('9007199254740993.00000001') === 900719925474099300000001n, 'amount parse');
       check(api.formatZec(900719925474099300000001n) === '9007199254740993.00000001', 'amount format');
       check(api.txId('a'.repeat(64)) === 'a'.repeat(64) && api.blockHash('b'.repeat(64)) === 'b'.repeat(64), 'hash IDs');
@@ -55,6 +55,7 @@ export async function run() {
   let unsupported = false;
   try { await import('/negative-unsupported.mjs'); } catch (error) { unsupported = error instanceof SyntaxError; }
   check(unsupported, 'unimplemented named import must reject in Firefox');
+  const network = await networks([sdk, bundled.sdk]);
   const transport = bundled.sdk.http(`${location.origin}/rpc`, policy);
   const read = (mode, signal, t = transport) => bundled.readRpc(t, 'getblockhash', [mode, 7, true, '€'], signal);
   const good = await read('good');
@@ -88,6 +89,46 @@ export async function run() {
   await rejects('rpc-error', 'METHOD_NOT_SUPPORTED', undefined, bundled.sdk.http(`${location.origin}/rpc`,
     { ...policy, readRetry: { attempts: 3, delayMs: 0 } }));
   check(errors['rpc-error'].retryable === false, 'RPC error retryability');
-  return { ok: true, claims, eager, importResources, negativeEager, precision: good.value.text, utf8: good.text, errors,
+  return { ok: true, claims, network, eager, importResources, negativeEager, precision: good.value.text, utf8: good.text, errors,
     userAgent: navigator.userAgent, secureContext: isSecureContext, crossOriginIsolated };
+}
+
+async function networks(apis) {
+  const counts = { modules: 0, instances: 0, fetches: 0, workers: 0, descriptors: 0, cancelled: 0 };
+  const Module = WebAssembly.Module, Instance = WebAssembly.Instance;
+  const fetch = globalThis.fetch, Worker = globalThis.Worker, SharedWorker = globalThis.SharedWorker;
+  const definition = () => ({ identity: 'synthetic-regtest', genesisHash: '03'.repeat(32), parametersFormat: 'zcash-js-network/1',
+    parameters: new TextEncoder().encode('{"encoding":"regtest","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}') });
+  WebAssembly.Module = new Proxy(Module, { construct(target, args) { counts.modules++; return Reflect.construct(target, args); } });
+  WebAssembly.Instance = new Proxy(Instance, { construct(target, args) { counts.instances++; return Reflect.construct(target, args); } });
+  globalThis.fetch = () => { counts.fetches++; throw Error('network codec fetch'); };
+  globalThis.Worker = globalThis.SharedWorker = function () { counts.workers++; throw Error('network codec worker'); };
+  try {
+    for (const api of apis) {
+      const rejected = async (operation, code) => {
+        try { await operation; throw Error('unexpected network success'); }
+        catch (error) { check(api.isZcashError(error) && error.code === code, `network rejection ${code}`); }
+      };
+      await rejected(api.defineNetwork({ ...definition(), extra: true }), 'INVALID_ARGUMENT');
+      await rejected(api.defineNetwork({ ...definition(), parameters: new Uint8Array(257) }), 'RESOURCE_LIMIT');
+      await rejected(api.defineNetwork({ ...definition(), signal: AbortSignal.abort() }), 'ABORTED'); counts.cancelled++;
+      const controller = new AbortController();
+      const pending = api.defineNetwork({ ...definition(), signal: controller.signal }); controller.abort();
+      await rejected(pending, 'ABORTED'); counts.cancelled++;
+      check(counts.modules === counts.descriptors, 'cancel before native initialization');
+      const input = definition(), created = api.defineNetwork(input);
+      input.parameters.fill(0); input.identity = 'mutated';
+      const network = await created; counts.descriptors++;
+      check(Object.isFrozen(network) && network.identity === 'synthetic-regtest' && network.genesisHash === '03'.repeat(32), 'owned network descriptor');
+      check(Object.keys(network).sort().join(',') === 'genesisHash,identity', 'opaque network descriptor');
+      const synthetic = new AbortController(); synthetic.signal.dispatchEvent(new Event('abort'));
+      await api.defineNetwork({ ...definition(), signal: synthetic.signal });
+      check(counts.modules === counts.descriptors && counts.instances === counts.descriptors, 'one native instance per package module');
+    }
+    check(counts.fetches === 0 && counts.workers === 0, 'no codec workers or fetch');
+  } finally {
+    WebAssembly.Module = Module; WebAssembly.Instance = Instance;
+    globalThis.fetch = fetch; globalThis.Worker = Worker; globalThis.SharedWorker = SharedWorker;
+  }
+  return counts;
 }

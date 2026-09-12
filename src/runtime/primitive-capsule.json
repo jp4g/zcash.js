@@ -1,0 +1,23 @@
+{
+  "format": "zcash-js-pure-codec-capsule/1",
+  "generatorSha256": "a949b2e80fcc0ff65acd44ad4041c1ea06e3a32e3d4d46719ab5c29a9da5caa1",
+  "lockSha256": "16dab52ae86e372f96139e4c7664a0229dcf4973673ebd8c73fe8745ed037321",
+  "nativeReceipt": "57f268c0976cabc312b8337ab942c59272de0b146d18108d1dcbcab4acb6f346",
+  "nativeRevision": "022726c2dd626cf69099b35f9511d9e8570f377c",
+  "inputs": {
+    "bindings.d.ts": "c3e606a9080260c225f5ebe84790139ac0ddd0cc224243dd85345d6123800c02",
+    "bindings.js": "d6762eb5693bfc546b4bd7b03bdcfd939076de4732cd74ecebb125688fd8aa66",
+    "bindings_bg.wasm": "f04f11f3f64445978cc487ac52d7515fd719621aa7c3927b21a15fa266b05815",
+    "bindings_bg.wasm.d.ts": "8455a6b672e36a6a64494351cc1a952128e98d0d7b9adf7854eeab0c1640fe83",
+    "bytes.mjs": "408153ead4462acc2ec6069a27ee611b1ee4e386ff230c89454e42e72be6d7cd",
+    "network.mjs": "704970c6a2dedc085d3c89282dc1765373da033f646ef6dd5a25f3120f081496",
+    "transaction.mjs": "42408426c99f6984638dc4109e99dea76b45ab21c4ee260ed7f9d87cc9616dbd"
+  },
+  "modules": [
+    "bindings.js",
+    "bytes.mjs",
+    "network.mjs",
+    "transaction.mjs"
+  ],
+  "sha256": "3c33331f94b97e423841203fb3e1494a4931b7fe258e7f77c5c9e1b894b52e6c"
+}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 export const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 export const claims = ['packed-esm', 'packed-bundle', 'amounts-ids', 'no-eager', 'negative-eager',
-  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry'];
+  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry', 'public-network'];
 export function verifyAssets(manifest, assets) {
   assert.equal(assets.size, Object.keys(manifest.files).length, 'asset integrity count');
   for (const [name, expected] of Object.entries(manifest.files)) {
@@ -17,4 +17,5 @@ export function verifyResult(result) {
   assert.equal(result.precision, '9007199254740993');
   assert.equal(result.utf8, '€雪😀');
   assert.equal(result.negativeEager, 1);
+  assert.deepEqual(result.network, { modules: 2, instances: 2, fetches: 0, workers: 0, descriptors: 2, cancelled: 4 });
 }

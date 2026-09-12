@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:https';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
-import { scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks } from './scan-checks.mjs';
+import { scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
 import { openWalletRuntime } from '../../dist/src/runtime/wallet.js';
 
 assert.ok(process.argv[2], 'actual reviewed package directory required');
@@ -118,6 +118,7 @@ try {
   try {
     const balance = await reopened.session.getBalance(scanned.query);
     checkBalance(balance, fixture.scan);
+    await scanQueryChecks(reopened.session,fixture.scan,scanned.account.id,scanned.queries);
     assert.notEqual(balance.scan.revision, scanned.balance.scan.revision);
     assert.deepEqual(await reopened.session.accounts.get({ accountId: scanned.account.id }), scanned.account);
   } finally { await reopened.close(); }
@@ -133,8 +134,18 @@ try {
       if(reopen)assert.notEqual(revision,enhancedRevision);else enhancedRevision=revision;
     } finally {await opened.close();}
   }
+  assert.ok(fixture.history,'source-bound native paginated history fixture');
+  const historyOptions=options('history');
+  await mkdir(historyOptions.storage.path,{mode:0o700});
+  await writeFile(historyOptions.storage.path+'/wallet.db',Buffer.from(fixture.history.database,'hex'),{mode:0o600,flag:'wx'});
+  let cursor;
+  for(const reopen of [false,true]) {
+    const opened=await openWalletRuntime(historyOptions);
+    try {cursor=await historyPageChecks(opened.session,fixture.history,reopen?cursor:undefined);}
+    finally {await opened.close();}
+  }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 54, 'six pinned assets per open; no execution refetch');
-  console.log(JSON.stringify({ pass: true, emptyCompleted:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 66, 'six pinned assets per open; no execution refetch');
+  console.log(JSON.stringify({ pass: true, emptyCompleted:true, queries:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

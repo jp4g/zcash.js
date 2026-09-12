@@ -31,6 +31,7 @@ export async function emptyCompletionChecks(session,fixture,definition,reopened=
     return status.scan.revision;
   }finally{await sync.stop();}
 }
+const same=(a,b)=>JSON.stringify(a,(_,v)=>typeof v==='bigint'?String(v):v)===JSON.stringify(b,(_,v)=>typeof v==='bigint'?String(v):v);
 export async function scanChecks(session,fixture,definition) {
   const codec=wireCodec();initializePrimitive();
   const network=await defineNetwork(definition),target=fixture.target;
@@ -92,8 +93,9 @@ export async function scanChecks(session,fixture,definition) {
   const plan=await session.scan.plan({target});
   await session.scan.ingest({revision:plan.revision,target,priorTreeState:trees.get(request('GetTreeState',{height:'99'})),blocks:[blocks.get(100)]});
   const balance=await session.getBalance(query);checkBalance(balance,fixture);
+  const queries=await scanQueryChecks(session,fixture,account.id);
   await sync.stop();
-  return {account,balance,query,publicSync:true,watchShared:true,enhancementPending:true,rewoundTo:99};
+  return {account,balance,query,queries,publicSync:true,watchShared:true,enhancementPending:true,rewoundTo:99};
 }
 export async function enhancementChecks(session,fixture,reopened=false) {
   const pending=await session.enhancement.requests();
@@ -101,12 +103,55 @@ export async function enhancementChecks(session,fixture,reopened=false) {
   if(reopened)check(!request,'enhancement completion survives reopen');
   else {
     check(request,'native pending enhancement discovered without saved request ID');
+    check(await session.getTransaction({txid:fixture.txid})===null,'queued enhancement alone is not a local transaction record');
     await session.enhancement.apply({revision:pending.revision,request,result:{transactions:[{bytes:hex(fixture.raw),minedHeight:fixture.minedHeight}]}});
     check(!(await session.enhancement.requests()).requests.some(r=>r.kind==='enhancement'&&r.txid===fixture.txid),'enhancement request completed natively');
   }
+  const detail=await session.getTransaction({txid:fixture.txid});
+  check(detail!==null&&detail.raw instanceof Uint8Array&&encoded(detail.raw)===fixture.raw,'exact enhanced transaction bytes survive query/reopen');
+  check(detail.outputs.length===1&&detail.outputs[0].value===1000n&&detail.outputs[0].pool==='transparent','native enhanced output value');
+  check(same(detail.outputs[0].receivingAccountIds,[fixture.accountId]),'enhanced output retains receiving account');
+  const history=await session.getHistory({accountId:fixture.accountId});
+  check(history.items.some(row=>row.txid===fixture.txid&&row.accountId===fixture.accountId),'enhanced history is account relative');
   const balance=await session.getBalance({accountId:fixture.accountId,confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:true}});
   check(balance.amounts===fixture.expectedAmounts,'enhancement fixture does not claim populated funds');
   return balance.scan.revision;
+}
+export async function scanQueryChecks(session,fixture,accountId,saved) {
+  const before=await session.scan.state();
+  const history=await session.getHistory({accountId,limit:1});
+  check(history.historyComplete==='unknown'&&history.items.length===1&&history.nextCursor===null,'single native compact transaction history');
+  const row=history.items[0];
+  check(row.accountId===accountId&&typeof row.balanceDelta==='bigint'&&row.totalSpent===0n&&row.fee===null,'native account-relative receipt amounts and nullable fee');
+  check(row.totalReceived===BigInt(fixture.expectedAmounts.observedTotal)&&row.balanceDelta===row.totalReceived,'history amounts match native scanned fixture');
+  check(row.unsupportedLegacy==='legacyOrchard'&&same(row.pools,['sapling','ironwood']),'legacy funds retain separate history classification');
+  const detail=await session.getTransaction({txid:row.txid});
+  check(detail!==null&&detail.raw===null,'known compact transaction remains distinct from absent and enhanced');
+  check(same(detail.accounts,[row]),'wallet-wide detail retains account history');
+  check(detail.outputs.length===3&&detail.outputs.every(output=>output.txid===row.txid&&typeof output.value==='bigint'&&output.memo.kind==='unknown'&&same(output.receivingAccountIds,[accountId])),'native shielded outputs retain identity, unknown memo and receiving account');
+  check(same(detail.outputs.map(output=>output.pool),['sapling','legacyOrchard','ironwood']),'detail never relabels legacy pool');
+  check(await session.getTransaction({txid:'00'.repeat(32)})===null,'absent local transaction');
+  const after=await session.scan.state();
+  check(before.revision===after.revision&&history.scan.revision===before.revision&&detail.scan.revision===before.revision,'queries retain one native revision without writes');
+  const snapshot={history:history.items,outputs:detail.outputs,txid:detail.txid};
+  if(saved)check(same(snapshot,saved),'native history/detail survive owner destruction and reopen');
+  return snapshot;
+}
+export async function historyPageChecks(session,fixture,previousCursor) {
+  const args={accountId:fixture.accountId,limit:1};
+  const stale=async cursor=>{
+    try{await session.getHistory({...args,cursor});throw Error('stale cursor accepted');}
+    catch(error){check(error.code==='CURSOR_STALE','native mutation/reopen invalidates pagination');}
+  };
+  if(previousCursor)await stale(previousCursor);
+  const first=await session.getHistory(args);
+  check(typeof first.nextCursor==='string','native first page issues a real continuation cursor');
+  const second=await session.getHistory({...args,cursor:first.nextCursor});
+  check(second.nextCursor===null&&same([first.items[0].txid,second.items[0].txid],fixture.txids),'bounded pages preserve native ordering without loss or duplication');
+  check(first.items[0].accountId===fixture.accountId&&second.items[0].accountId===fixture.accountId,'pages stay account relative');
+  await session.scan.plan({target:fixture.target});
+  await stale(first.nextCursor);
+  return (await session.getHistory(args)).nextCursor;
 }
 export function checkBalance(balance, fixture) {
   const same = (a, b) => JSON.stringify(a, (_, value) => typeof value === 'bigint' ? String(value) : value) === JSON.stringify(b);

@@ -1,4 +1,4 @@
-import { scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks } from './scan-checks.mjs';
+import { scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
 // Real HTTPS acquisition -> verified Blob worker -> native OPFS persistence.
 export async function runBrowser() {
   const { openWalletRuntime } = await import('/dist/src/runtime/wallet.js');
@@ -56,6 +56,7 @@ export async function runBrowser() {
     try {
       const balance = await reopened.session.getBalance(scanned.query);
       checkBalance(balance, fixture.scan);
+      await scanQueryChecks(reopened.session,fixture.scan,scanned.account.id,scanned.queries);
       check(balance.scan.revision !== scanned.balance.scan.revision, 'scanned reopen epoch');
     } finally { await reopened.close(); }
     check(fixture.enhancement,'native enhancement fixture');
@@ -71,10 +72,21 @@ export async function runBrowser() {
         if(reopen)check(revision!==enhancedRevision,'enhanced reopen epoch');else enhancedRevision=revision;
       } finally {await opened.close();}
     }
-    return { emptyCompleted:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    check(fixture.history,'native paginated history fixture');
+    const historyOptions={...options,storage:{kind:'browser-opfs',name:name+'-history'}};
+    const historyDirectory=await(await navigator.storage.getDirectory()).getDirectoryHandle(historyOptions.storage.name,{create:true});
+    const historyFile=await historyDirectory.getFileHandle('wallet.db',{create:true}),historyWriter=await historyFile.createWritable();
+    await historyWriter.write(Uint8Array.from(fixture.history.database.match(/../g),byte=>parseInt(byte,16)));await historyWriter.close();
+    let cursor;
+    for(const reopen of [false,true]) {
+      const opened=await openWalletRuntime(historyOptions);
+      try {cursor=await historyPageChecks(opened.session,fixture.history,reopen?cursor:undefined);}
+      finally {await opened.close();}
+    }
+    return { emptyCompleted:true, queries:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
-    for (const entry of [name,`${name}-empty`, `${name}-scan`,`${name}-enhanced`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
+    for (const entry of [name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
       if (error.name !== 'NotFoundError') throw error;
     });
   }

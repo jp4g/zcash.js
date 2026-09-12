@@ -269,7 +269,8 @@ test('internal and root imports have no eager WASM, worker or network activity o
     const internal = await import(${JSON.stringify(build + '/src/clients/public-chain-reads.js')});
     const root = await import(${JSON.stringify(build + '/src/index.js')});
     assert.deepEqual(Object.keys(internal).sort(), ['getBlockHeader', 'getTip']);
-    for (const name of ['getTip', 'getBlockHeader', 'createPublicClient']) assert.equal(name in root, false);
+    for (const name of ['getTip', 'getBlockHeader']) assert.equal(name in root, false);
+    assert.equal(typeof root.createPublicClient, 'function');
     assert.equal(calls, 0);
   `], { timeout: 10000 });
 });

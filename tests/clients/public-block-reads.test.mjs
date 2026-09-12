@@ -236,7 +236,7 @@ for (const stage of [1, 2]) {
 test('module stays internal and import graph has no eager runtime dependency', async () => {
   const { readFile } = await import('node:fs/promises');
   const root = await import(`${build}/src/index.js`);
-  assert.equal('getBlock' in root, false); assert.equal('createPublicClient' in root, false);
+  assert.equal('getBlock' in root, false); assert.equal(typeof root.createPublicClient, 'function');
   const source = await readFile(`${build}/src/clients/public-block-reads.js`, 'utf8');
   assert.doesNotMatch(source, /WebAssembly|new Worker|transaction-codec|bindings|from ['"].*index/);
 });

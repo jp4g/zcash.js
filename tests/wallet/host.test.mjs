@@ -178,3 +178,15 @@ test('enhancement application owns full transaction bytes and preserves stale-re
   await assert.rejects(host.enhancement.apply(args), error => error.code === 'CURSOR_STALE'
     && error.stage === 'sync' && host.completion(error).completion === 'none');
 });
+
+test('completed tree snapshots own bytes and retain committed cancellation receipts', async t => {
+  const controller=new AbortController(),target={height:99,hash:'03'.repeat(32)};
+  const {host}=local(t,(_g,_i,command,args)=>{
+    assert.equal(command,'scan_complete');assert.equal(args.treeState[0],7);assert.equal(args.target.height,99);
+    controller.abort();return{revision:'completed'};
+  });
+  const treeState=new Uint8Array([7]),pending=host.scan.complete({revision:'before',target,treeState,signal:controller.signal});
+  treeState[0]=8;target.height=100;
+  await assert.rejects(pending,error=>error.code==='ABORTED'&&host.completion(error).completion==='committed'
+    &&host.completion(error).value.revision==='completed');
+});

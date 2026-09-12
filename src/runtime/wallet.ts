@@ -18,6 +18,8 @@ const resource = () => failure('RESOURCE_LIMIT', 'runtime', 'configure', 'Wallet
 const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wasm': 'wasm', 'node-fs.mjs': 'glue', 'opfs.mjs': 'glue' } as const;
 // Reviewed private producer + actual SDK bootstrap, not arbitrary same-profile JavaScript.
 // Updating this immutable executable closure requires reviewing the corresponding package.
+// Creation-snapshot profile is a candidate: these prior sync-only asset pins must be
+// replaced after the matching native package is reviewed. It cannot load the old profile.
 const reviewedAssets: Record<keyof typeof layout, string> = {
   'wallet.mjs': 'bebe7ddfad5d0a1d54e41b35f78694eca79060310e5bbffc3fa38d15ad2b8f78',
   'worker.mjs': '244154eae685e351cb92dcdaf4513a0b352451fb4b6908975a0292837e878741',

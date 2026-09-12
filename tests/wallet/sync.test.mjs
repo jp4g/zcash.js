@@ -34,6 +34,7 @@ test('reorg replay starts at the native actual checkpoint, not the requested anc
         : [{ start: scanned + 1, endExclusive: 101, priorState: { height: scanned, hash: oldHash } }] };
     },
     async ingest({ blocks }) { scanned += blocks.length; revision++; },
+    async complete() { return { revision: String(++revision) }; },
   }, enhancement: { async requests() { return { revision: String(revision), requests: [] }; } } };
   const light = {
     async getTreeState({ height }) { return { point: { height, hash: height === 100 ? newHash : oldHash }, encoded: new Uint8Array() }; },
@@ -58,6 +59,7 @@ test('finite sync follows native ranges in bounded batches and visits persistent
       async state() { return { revision: String(revision), maxScannedHeight: scanned || null, fullyScannedHeight: scanned || null }; },
       async plan() { return { revision: String(++revision), ranges: scanned === 20 ? [] : [{ start: scanned + 1, endExclusive: 21, priorState: { height: scanned, hash: null } }] }; },
       async ingest(args) { assert.equal(args.revision, String(revision)); batches.push(args.blocks.length); scanned += args.blocks.length; revision++; },
+      async complete(args) { assert.equal(args.revision,String(revision)); assert.deepEqual(args.target,target); return {revision:String(++revision)}; },
     },
     enhancement: {
       async requests() { return { revision: String(revision), requests: [{ kind: 'status', txid: hash }] }; },
@@ -73,6 +75,24 @@ test('finite sync follows native ranges in bounded batches and visits persistent
   };
   assert.equal((await syncWallet(session, light, target)).fullyScannedHeight, 20);
   assert.deepEqual(batches, [16, 4]); assert.equal(applications, 1); assert.equal(pins, 2);
+});
+
+test('empty wallet reaches a target only after native completion without invented scan heights', async () => {
+  for (const fail of [false,true]) {
+    let completed=0,revision='0';
+    const target={height:1,hash:'03'.repeat(32)};
+    const session={scan:{
+      async state(){return {revision,tipHeight:1,maxScannedHeight:null,fullyScannedHeight:null,scanComplete:null};},
+      async plan(){return {revision,ranges:[]};},
+      async complete(args){assert.equal(args.revision,revision);assert.deepEqual(args.treeState,new Uint8Array([7]));completed++;
+        if(fail)throw failure('SYNC_REQUIRED','sync','sync','Snapshot incomplete.');revision='1';return{revision};},
+    },enhancement:{async requests(){return{revision,requests:[]};}}};
+    const light={async getTreeState(){return {point:target,encoded:new Uint8Array([7])};}};
+    const owner=new WalletSync(session,light);
+    if(fail)await assert.rejects(owner.sync({target}),error=>error.code==='SYNC_REQUIRED'&&!error.syncStatus.targetReached);
+    else {const status=await owner.sync({target});assert.equal(status.targetReached,true);assert.equal(status.scan.fullyScannedHeight,null);assert.equal(status.scan.scanComplete,null);}
+    assert.equal(completed,1);
+  }
 });
 
 test('sync lifecycle returns committed stopped progress and attaches failed status', async () => {

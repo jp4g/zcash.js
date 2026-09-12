@@ -23,6 +23,7 @@ export interface ScanBatch {
 export interface ScanReceipt { readonly revision: string; readonly start: number; readonly endExclusive: number; readonly blocks: number }
 export interface ScanBlock { readonly revision: string; readonly point: ScanTarget | null }
 export interface ScanRewind { readonly revision: string; readonly requestedPoint: ScanTarget }
+export interface ScanCompletion { readonly revision: string; readonly target: ScanTarget; readonly treeState: Uint8Array }
 export type EnhancementRequest = { readonly kind: 'enhancement' | 'status'; readonly txid: string }
   | { readonly kind: 'address'; readonly address: string; readonly start: number; readonly endExclusive: number | null;
     readonly requestAt: number | null; readonly txStatus: 'mined' | 'mempool' | 'all'; readonly outputStatus: 'unspent' | 'all' };
@@ -111,6 +112,7 @@ export class WalletSession {
     state: (args?: Op) => this.invoke<ScanState>('scan_state', args),
     block: (args: { height: number } & Op) => this.invoke<ScanBlock>('scan_block_hash', args),
     rewind: (args: ScanRewind & Op) => this.invoke<ScanBlock>('scan_rewind', args),
+    complete: (args: ScanCompletion & Op) => this.invoke<{ readonly revision: string }>('scan_complete', args),
     plan: (args: { target: ScanTarget } & Op) => this.invoke<ScanPlan>('scan_plan', args),
     ingest: (args: ScanBatch & Op) => this.invoke<ScanReceipt>('scan_ingest_batch', args),
   };

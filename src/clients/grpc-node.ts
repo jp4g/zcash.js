@@ -179,13 +179,13 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
           op.own(call);
           call.on('error', () => {}); // Cancellation remains handled even between pulls.
           const terminal = new Promise<void>((resolve, reject) => call.once('status', value => {
-            if (value.code === status.OK) resolve(); else reject(normalize(value));
+            if (value.code === status.OK) resolve(); else reject(normalize(value, true));
           }));
           void terminal.catch(() => {});
           const iterator = call[Symbol.asyncIterator]();
           let total = 0, count = 0;
           for (;;) {
-            const item = await op.bounded(iterator.next());
+            const item = await op.bounded(iterator.next().catch(error => { throw normalize(error, true); }));
             if (item.done) break;
             total += item.value.length;
             if (total > limits.totalBytes || ++count > limits.messages) throw limit();

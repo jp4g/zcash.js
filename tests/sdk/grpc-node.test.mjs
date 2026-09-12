@@ -28,6 +28,14 @@ test('native transient status marks read-retry eligibility without replaying the
   assert.equal(calls, 1);
 });
 
+test('native terminal stream UNAVAILABLE retains transient status without replay', async t => {
+  let calls = 0;
+  const create = await fixture(t, (method, call) => { calls++; call.emit('error', { code: status.UNAVAILABLE, details: 'SECRET' }); });
+  const iterator = create().stream(args('GetMempoolStream'));
+  await assert.rejects(iterator.next(), error => error.code === 'TRANSPORT_ERROR' && error.retryable);
+  await iterator.return(); assert.equal(calls, 1);
+});
+
 async function fixture(t, handler) {
   const server = new Server();
   const service = {}, implementation = {};

@@ -202,7 +202,7 @@ export async function getTreeState(codec: Lightwire, transport: CustomLightTrans
   if (height !== undefined && (!Number.isInteger(height) || height < 0 || height > 0xffff_ffff)) throw invalidArgument();
   const requestedHash = hash === undefined ? undefined : blockHash(hash);
   const requestValue = height === undefined
-    ? { hash: requestedHash!.match(/../g)!.reverse().join('') } : { height: String(height) };
+    ? { hash: requestedHash } : { height: String(height) };
   const pending = operation(signal);
   try {
     pending.check();
@@ -220,7 +220,7 @@ export async function getTreeState(codec: Lightwire, transport: CustomLightTrans
     if (!dto || typeof dto.height !== 'string' || !/^(0|[1-9][0-9]{0,9})$/.test(dto.height)
       || BigInt(dto.height) > 0xffff_ffffn || typeof dto.hash !== 'string' || !/^[0-9a-f]{64}$/.test(dto.hash)) throw protocol();
     if (dto.network !== encoding) throw failure('NETWORK_MISMATCH', 'query', 'configure', 'Tree state network mismatch.');
-    // TreeState.hash is display-order text; BlockID request bytes use protocol order.
+    // Pinned lightwalletd GetTreeState uses display-order BlockID bytes as well as response text.
     const point = { height: Number(dto.height), hash: blockHash(dto.hash) };
     if ((height !== undefined && point.height !== height) || (requestedHash !== undefined && point.hash !== requestedHash)) throw protocol();
     if (point.height === 0 && point.hash !== network.genesisHash) throw failure('NETWORK_MISMATCH', 'query', 'configure', 'Tree state genesis mismatch.');

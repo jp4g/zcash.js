@@ -14,7 +14,7 @@ test('real codec preserves display hash, frontiers and owned encoded bytes for h
     const source = transport(async ({ method, request }) => {
       assert.equal(method, 'GetTreeState');
       assert.deepEqual(request, codec.encodeRequest(method, JSON.stringify('height' in selector
-        ? { height: '7' } : { hash: Buffer.from(hash).toString('hex') })));
+        ? { height: '7' } : { hash: display(hash) })));
       return encoded;
     });
     const result = await getTreeState(codec, source, network, 'regtest', selector);

@@ -18,6 +18,7 @@ const resource = () => failure('RESOURCE_LIMIT', 'runtime', 'configure', 'Wallet
 const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wasm': 'wasm', 'node-fs.mjs': 'glue', 'opfs.mjs': 'glue' } as const;
 // Reviewed private producer + actual SDK bootstrap, not arbitrary same-profile JavaScript.
 // Updating this immutable executable closure requires reviewing the corresponding package.
+// Inventory-capable package pins are pending; existing query-only assets cannot satisfy the candidate profile.
 const reviewedAssets: Record<keyof typeof layout, string> = {
   'wallet.mjs': 'd45f14a74aa752ac9bea1b39b1b71a56c0265daa76c1581a0489fc4f6fa05d07',
   'worker.mjs': 'f40818c6a4cf3ae2a097572fd6ae628bf50e1509e9adebf57d885ddff9b67d4c',

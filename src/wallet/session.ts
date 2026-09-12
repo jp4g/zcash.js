@@ -1,6 +1,6 @@
 import { failure, invalidArgument } from '../errors.js';
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
-import type { HistoryPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
+import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 
 /** Accepted, already initialized VIEW owner. Construct and consume in its worker. */
 export interface InitializedViews {
@@ -107,6 +107,14 @@ export class WalletSession {
   /** Amounts and scan revision come from one native database snapshot. */
   getBalance(args: { accountId: string; confirmations: ConfirmationsPolicy } & Op): Promise<WalletBalance> {
     return this.invoke('account_balance', args);
+  }
+
+  listNotes(args: Parameters<WalletClient['listNotes']>[0]): Promise<NotePage> {
+    return this.invoke('wallet_notes', args);
+  }
+
+  listUtxos(args: Parameters<WalletClient['listUtxos']>[0]): Promise<UtxoPage> {
+    return this.invoke('wallet_utxos', args);
   }
 
   getHistory(args: Parameters<WalletClient['getHistory']>[0]): Promise<HistoryPage> {

@@ -1,5 +1,5 @@
 import { failure, invalidArgument } from '../errors.js';
-import type { AccountRecord, AccountsApi, ViewingImport, WalletAddressesApi } from '../../docs/api/public-api.js';
+import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
 
 /** Accepted, already initialized VIEW owner. Construct and consume in its worker. */
 export interface InitializedViews {
@@ -78,6 +78,11 @@ export class WalletSession {
     list: args => this.invoke('address_list', args),
     at: args => this.invoke('address_at', args),
   };
+
+  /** Native accounting only; scan/revision is supplied by the eventual sync owner. */
+  getBalance(args: { accountId: string; confirmations: ConfirmationsPolicy } & Op): Promise<Pick<WalletBalance, 'accountId' | 'amounts'>> {
+    return this.invoke('account_balance', args);
+  }
 
   /** Drain accepted calls, close once, and reject new admission immediately.
    * The enclosing host must still destroy the dedicated worker, even on failure.

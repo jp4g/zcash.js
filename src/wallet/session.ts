@@ -27,7 +27,7 @@ export type EnhancementRequest = { readonly kind: 'enhancement' | 'status'; read
   | { readonly kind: 'address'; readonly address: string; readonly start: number; readonly endExclusive: number | null;
     readonly requestAt: number | null; readonly txStatus: 'mined' | 'mempool' | 'all'; readonly outputStatus: 'unspent' | 'all' };
 export interface EnhancementRequests { readonly revision: string; readonly requests: readonly EnhancementRequest[] }
-export type EnhancementResult = { readonly transactions: readonly { readonly bytes: Uint8Array; readonly minedHeight: number | null }[]; readonly asOfHeight?: number }
+export type EnhancementResult = { readonly transactions: readonly { readonly bytes: Uint8Array; readonly minedHeight: number | null }[]; readonly asOfHeight?: number; readonly complete?: boolean }
   | { readonly status: 'notRecognized' | 'notInMainChain' }
   | { readonly status: 'mined'; readonly height: number };
 export interface EnhancementApply { readonly revision: string; readonly request: EnhancementRequest; readonly result: EnhancementResult }

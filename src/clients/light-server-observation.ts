@@ -40,11 +40,6 @@ async function bridge(original?: AbortSignal) {
     apply(nativeAborted, original, []);
     const controller = new NativeController();
     const signal: AbortSignal = apply(nativeSignal, controller, []);
-    Object.defineProperties(signal, {
-      aborted: { get: () => apply(nativeAborted, signal, []) },
-      addEventListener: { value: nativeAdd.bind(signal) },
-      removeEventListener: { value: nativeRemove.bind(signal) },
-    });
     if (nodeRuntime) {
       const builtin = 'node:events';
       const { addAbortListener } = await import(builtin);

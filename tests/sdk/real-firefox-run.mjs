@@ -68,7 +68,7 @@ async function request(route, method = 'GET', body, cleanup = false) {
 }
 try {
   const sourceCommit = command('git', ['rev-parse', 'HEAD']);
-  const acceptedCommit = command('git', ['rev-parse', '4610463^{commit}']);
+  const acceptedCommit = command('git', ['rev-parse', '0ff58d8^{commit}']);
   command('git', ['diff', '--exit-code', acceptedCommit, '--', 'src', 'tsconfig.json', 'package-lock.json']);
   command('git', ['merge-base', '--is-ancestor', acceptedCommit, sourceCommit]);
   command('npm', ['run', 'build']);
@@ -135,6 +135,7 @@ try {
           const requestBytes=Buffer.from(body,'base64');
           assert.equal(requestBytes[0],0);assert.equal(requestBytes.readUInt32BE(1),requestBytes.length-5);
           assert.equal(req.headers['content-type'],media);
+          if(method==='GetTreeState')assert.equal(requestBytes.subarray(5).toString('hex'),'1220'+'03'.repeat(32),'genesis uses explicit hash selector');
           const observed={method,mode,request:requestBytes.subarray(5).toString('hex'),closed:false};
           lightRequests.push(observed);res.once('close',()=>{observed.closed=true;});
           res.writeHead(200,{'Content-Type':media,'Cache-Control':'no-store'});

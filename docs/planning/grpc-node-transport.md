@@ -27,7 +27,9 @@ SDK categories. There is no automatic retry or stream replay.
 
 Each operation owns a grpc-js channel and closes it on completion, failure,
 deadline or cancellation. Streams dispatch on first pull; iterator return cancels
-pending reads immediately. grpc-js's Node Readable supplies bounded object-mode
+pending reads immediately. Cancellation uses a private dependent AbortSignal so
+caller-dispatched events and listener propagation cannot alter native cancellation.
+grpc-js's Node Readable supplies bounded object-mode
 backpressure (its runtime high-water mark), with a 4 MiB per-message receive limit.
 The adapter additionally caps delivered bytes at 64 MiB and messages at 65,536.
 `limits: { messageBytes?, totalBytes?, messages? }` can lower these ceilings.
@@ -46,5 +48,6 @@ checks root import isolation and rejects the native subpath; it does not establi
 native gRPC in browsers. The root `grpc()` factory integration remains coordinator
 work. Local synthetic tests run with `npm run build` then
 `node tests/sdk/grpc-node.test.mjs`. Native TCP loopback tests require a host that
-permits listening. This implementation is pending independent review and host
-runtime verification; no live provider compatibility is claimed.
+permits listening. Native/admission checks and the packed-consumer SDK suite pass
+on the integrated cancellation correction. Independent review of that correction
+is pending; no live provider compatibility is claimed.

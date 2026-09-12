@@ -29,7 +29,7 @@ await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true }
 const runRoot = await mkdtemp(join(scratch, 'real-firefox-'));
 const resultPath = join(logs, `${runRoot.split('/').at(-1)}.json`);
 const report = { started: new Date().toISOString(), argv, node: process.version, runRoot,
-  status: 'failed', claims: [], limits: 'Accepted partial SDK only. Internal readRpc is test access. Public Network and full LightClient synthetic workflow; no live provider, wallet sync or release completion.' };
+  status: 'failed', claims: [], limits: 'Accepted partial SDK only. Internal readRpc is test access. Public Network, full LightClient and PublicClient synthetic workflows; no live provider, wallet sync or release completion.' };
 const stop = new AbortController();
 const deadline = setTimeout(() => stop.abort(Error('suite deadline 120s')), 120000);
 const onSignal = () => stop.abort(Error('interrupted'));
@@ -220,8 +220,11 @@ try {
     assert.deepEqual([...new Set(lightRequests.map(r=>r.method))].sort(),[...methods].sort());
     for(const mode of ['good','send-stall'])assert.equal(lightRequests.filter(r=>r.method==='SendTransaction'&&r.mode===mode).length,2);
     const closeUntil=Date.now()+3000;
-    while(lightRequests.some(r=>!r.closed)&&Date.now()<closeUntil)await delay(10);
+    while([...lightRequests,...publicRequests].some(r=>!r.closed)&&Date.now()<closeUntil)await delay(10);
     assert.ok(lightRequests.every(r=>r.closed),'all gRPC-Web responses closed after reads/cancellation');
+    assert.ok(publicRequests.every(r=>r.closed),'all public HTTP responses closed after reads/cancellation');
+    for(const mode of ['good','send-stall'])assert.equal(publicRequests.filter(r=>r.method==='sendrawtransaction'&&r.mode===mode).length,2);
+    report.publicRequests=publicRequests;
     report.lightRequests=lightRequests;
     assert.deepEqual(unexpected, []);
     report.processIdentities = { driver: driverIdentity, browser: browserIdentity };

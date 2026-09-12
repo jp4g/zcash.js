@@ -35,13 +35,21 @@ export async function applyEnhancement(session: Session, light: LightClient, rev
   const flush = async (complete: boolean) => {
     await apply({ transactions: batch, asOfHeight, complete });
     batch = []; bytes = 0;
+    if (!complete) {
+      const pending = await session.enhancement.requests(op);
+      revision = pending.revision;
+      return pending.requests.some(value => JSON.stringify(value) === JSON.stringify(request));
+    }
+    return false;
   };
   for await (const transaction of light.streamAddressTransactions({ address: request.address,
     fromHeight: request.start, toHeight: asOfHeight, ...op })) {
     const height = minedHeight(transaction);
     if (height < request.start || height >= request.endExclusive) throw protocol();
     if (transaction.raw.length > 2 * 1024 * 1024) throw limit();
-    if (batch.length === 16 || bytes + transaction.raw.length > 2 * 1024 * 1024) await flush(false);
+    if (batch.length === 16 || bytes + transaction.raw.length > 2 * 1024 * 1024) {
+      if (!await flush(false)) return; // Rust may have resolved the request by discovering its spend.
+    }
     batch.push({ bytes: transaction.raw, minedHeight: height }); bytes += transaction.raw.length;
   }
   await flush(true);

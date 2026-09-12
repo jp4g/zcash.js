@@ -1,3 +1,4 @@
+import { failure, invalidArgument } from '../errors.js';
 import type { AccountRecord, AccountsApi, ViewingImport, WalletAddressesApi } from '../../docs/api/public-api.js';
 
 /** Accepted, already initialized VIEW owner. Construct and consume in its worker. */
@@ -31,18 +32,29 @@ export class WalletSession {
   }
 
   private invoke<T>(operation: string, args: object = {}): Promise<T> {
-    if (this.closing) return Promise.reject(Error('SESSION_CLOSED'));
+    if (this.closing) {
+      const error = failure('CLOSED', 'runtime', 'none', 'Wallet session is closed.');
+      this.completions.set(error, 'none');
+      return Promise.reject(error);
+    }
     const result = this.tail.then(() => {
       try {
         // Check at dispatch, so queued input cannot bypass the fullScan boundary.
-        if (operation === 'account_import' && Object.getOwnPropertyDescriptor(args, 'birthday')?.value !== 'fullScan') {
-          throw Error('INVALID_ARGUMENT');
+        if (operation === 'account_import') {
+          let fullScan = false;
+          try { fullScan = Object.getOwnPropertyDescriptor(args, 'birthday')?.value === 'fullScan'; } catch { /* Uninspectable input is invalid. */ }
+          if (!fullScan) {
+            const error = invalidArgument();
+            this.completions.set(error, 'none');
+            throw error;
+          }
         }
         // The accepted owner supplies the frozen API DTOs, including bigint indices.
         return this.owner.call(this.generation, this.instance, operation, args) as T;
       } catch (error) {
-        if (typeof error === 'object' && error !== null) {
-          const commit = Object.getOwnPropertyDescriptor(error, 'commit')?.value;
+        if (typeof error === 'object' && error !== null && !this.completions.has(error)) {
+          let commit: unknown;
+          try { commit = Object.getOwnPropertyDescriptor(error, 'commit')?.value; } catch { /* Preserve the original rejection. */ }
           this.completions.set(error, commit === 'none' || commit === 'committed' ? commit : 'unknown');
         }
         throw error;

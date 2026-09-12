@@ -60,10 +60,10 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
   // Reserve native maximum, verified inventory + executable staging copies, one
   // WASM initialization copy, manifest working space, and admitted payload/control
   // records. This bounds owned-allocation admission, not the engine/process RSS.
-  // Scan lowering reserves 32 MiB separately: <=2 MiB copied blocks, <=4 MiB
-  // ASCII hex buffer, <=8 MiB hex strings and <=9 MiB serialized JSON/metadata.
-  const scanScratchBytes = 32 * 1024 * 1024;
-  const reserved = scanScratchBytes + 4096 * 65536 + 2 * policy.maxTotalAssetBytes + policy.maxAssetBytes
+  // Reserve conversion space for bounded scan lowering and <=6 MiB native query
+  // JSON, including parsed/projected records, <=2 MiB raw bytes and reply copies.
+  const nativeScratchBytes = 64 * 1024 * 1024;
+  const reserved = nativeScratchBytes + 4096 * 65536 + 2 * policy.maxTotalAssetBytes + policy.maxAssetBytes
     + 4 * policy.maxManifestBytes + runtime.maxQueuedBytes + 4096 * runtime.maxQueuedJobs;
   if (!Number.isSafeInteger(reserved) || runtime.maxMemoryBytes < reserved) throw resource();
   if (runtime.onDiagnostic !== undefined && typeof runtime.onDiagnostic !== 'function') throw invalidArgument();

@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:https';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
-import { scanChecks, checkBalance, enhancementChecks } from './scan-checks.mjs';
+import { scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks } from './scan-checks.mjs';
 import { openWalletRuntime } from '../../dist/src/runtime/wallet.js';
 
 assert.ok(process.argv[2], 'actual reviewed package directory required');
@@ -105,6 +105,12 @@ try {
       const closing = opened.close(); assert.equal(opened.close(), closing); await closing;
     } finally { await opened.close(); }
   }
+  let emptyRevision;
+  for(const reopen of [false,true]) {
+    const opened=await openWalletRuntime(options('empty'));
+    try {const revision=await emptyCompletionChecks(opened.session,fixture.scan,options('empty').network,reopen);if(reopen)assert.notEqual(revision,emptyRevision);else emptyRevision=revision;}
+    finally{await opened.close();}
+  }
   let scanned;
   const first = await openWalletRuntime(options('scanned'));
   try { scanned = await scanChecks(first.session, fixture.scan, options('scanned').network); } finally { await first.close(); }
@@ -129,6 +135,6 @@ try {
   }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 42, 'six pinned assets per open; no execution refetch');
-  console.log(JSON.stringify({ pass: true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 54, 'six pinned assets per open; no execution refetch');
+  console.log(JSON.stringify({ pass: true, emptyCompleted:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

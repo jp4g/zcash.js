@@ -5,14 +5,14 @@ import type { Completion, InitializedViews } from './session.js';
 
 export type WalletCommand = 'account_import' | 'account_list' | 'account_get' | 'account_balance'
   | 'enhancement_requests' | 'enhancement_apply'
-  | 'scan_state' | 'scan_block_hash' | 'scan_rewind' | 'scan_plan' | 'scan_ingest_batch' | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
+  | 'scan_state' | 'scan_block_hash' | 'scan_rewind' | 'scan_complete' | 'scan_plan' | 'scan_ingest_batch' | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
 export interface WalletReply {
   readonly id: number;
   readonly completion: Completion;
   readonly invalid: boolean;
   readonly outcome: { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: ErrorInfo };
 }
-export const walletWrites = new Set<WalletCommand>(['account_import', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'enhancement_apply']);
+export const walletWrites = new Set<WalletCommand>(['account_import', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
 
 const nativeCodes: Record<string, ErrorCode> = {
   RESOURCE_LIMIT: 'RESOURCE_LIMIT', STALE_REVISION: 'CURSOR_STALE',
@@ -63,6 +63,7 @@ export function installWalletWorker(owner: InitializedViews, port: MessagePort):
     address_list: session.addresses.list, address_at: session.addresses.at,
     scan_plan: session.scan.plan, scan_ingest_batch: session.scan.ingest,
     scan_state: session.scan.state, scan_block_hash: session.scan.block, scan_rewind: session.scan.rewind,
+    scan_complete: session.scan.complete,
     enhancement_requests: session.enhancement.requests, enhancement_apply: session.enhancement.apply,
     account_balance: session.getBalance.bind(session), close: () => session.close(),
   };

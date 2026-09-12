@@ -175,8 +175,8 @@ export class WalletSync {
       if (this.subscribers.size) this.publish(await this.getSyncStatus());
       const point = target ?? await this.light.getTip({ signal: dependent });
       this.target = Object.freeze({ height: point.height, hash: point.hash });
-      const scan = await syncWallet(this.session, this.light, this.target, dependent);
-      this.reached = scan.fullyScannedHeight !== null && scan.fullyScannedHeight >= this.target.height;
+      await syncWallet(this.session, this.light, this.target, dependent);
+      this.reached = true; // Native completion validates coverage, including an empty wallet.
       this.activity = 'idle';
       const status = await this.getSyncStatus(); this.publish(status); return status;
     } catch (caught) {
@@ -206,6 +206,7 @@ export async function syncWallet(session: Session, light: LightClient, target: C
     try {
       const tree = await light.getTreeState({ height: target.height, ...op });
       if (tree.point.hash !== target.hash) throw mismatch();
+      return tree;
     } catch (error) {
       if (isZcashError(error) && error.code === 'METHOD_NOT_SUPPORTED')
         throw failure('TARGET_PINNING_UNSUPPORTED', 'sync', 'configure', 'Source cannot pin the sync target.');
@@ -259,6 +260,8 @@ export async function syncWallet(session: Session, light: LightClient, target: C
     visited.add(JSON.stringify(request));
     await applyEnhancement(session, light, pending.revision, request, signal);
   }
-  await pin();
+  const tree = await pin();
+  const current = await session.scan.state(op);
+  await session.scan.complete({ revision: current.revision, target: nativeTarget, treeState: tree.encoded, ...op });
   return session.scan.state(op);
 }

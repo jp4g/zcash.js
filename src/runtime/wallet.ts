@@ -167,7 +167,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
       if (ready?.type !== 'ready' || !identity || !sameRecord(expected, {
         contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
-      }) || !sameRecord(identity.memory, { initialPages: 306, maximumPages: 4096, shared: false })) throw mismatch();
+      }) || !sameRecord(identity.memory, { initialPages: 307, maximumPages: 4096, shared: false })) throw mismatch();
       try { runtime.onDiagnostic?.(Object.freeze({ code: 'BASELINE_SELECTED', reason: 'requested' })); } catch { /* Diagnostics do not own startup. */ }
       check();
       const opened = await request({ type: 'open', storage, hostUrl: urls[node ? 'node-fs.mjs' : 'opfs.mjs'],

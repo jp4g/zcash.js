@@ -107,6 +107,47 @@ test('message, aggregate and count limits', async t => {
   }
 });
 
+test('native cancellation survives caller event interference and releases streams', async t => {
+  let cancelled = 0;
+  const create = await fixture(t, (_method, call) => {
+    call.on('cancelled', () => cancelled++);
+    call.write(Buffer.from([1]));
+  });
+  for (const pendingRead of [false, true]) {
+    const controller = new AbortController();
+    controller.signal.addEventListener('abort', event => event.stopImmediatePropagation());
+    const stream = create().stream({ ...args('GetBlockRange'), signal: controller.signal });
+    await stream.next();
+    const pending = pendingRead ? stream.next() : undefined;
+    const rejected = pending && assert.rejects(pending, code('ABORTED'));
+    controller.abort();
+    if (rejected) await rejected;
+    else await assert.rejects(stream.next(), code('ABORTED'));
+  }
+  await delay(50);
+  assert.equal(cancelled, 2);
+});
+
+test('synthetic abort events do not cancel metadata waits or hide later native abort', async t => {
+  const create = await fixture(t, (_method, call, callback) => callback(null, call.request));
+  for (const abort of [false, true]) {
+    const controller = new AbortController();
+    let entered, release;
+    const started = new Promise(resolve => { entered = resolve; });
+    const headers = new Promise(resolve => { release = resolve; });
+    const pending = create({ headers: () => { entered(); return headers; } })
+      .unary({ ...args('GetLatestBlock'), signal: controller.signal });
+    const result = abort ? assert.rejects(pending, code('ABORTED')) : pending;
+    await started;
+    controller.signal.dispatchEvent(new Event('abort'));
+    assert.equal(controller.signal.aborted, false);
+    if (abort) controller.abort();
+    else release({});
+    const value = await result;
+    if (!abort) assert.deepEqual(value, args('GetLatestBlock').request);
+  }
+});
+
 test('local validation, pre-abort and stalled metadata never dispatch', async () => {
   for (const url of ['http://user:SECRET@localhost', 'http://localhost/path', 'http://localhost?secret', 'ftp://localhost'])
     assert.throws(() => createGrpcNodeTransport(url, options), code('INVALID_ARGUMENT'));

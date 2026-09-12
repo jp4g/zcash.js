@@ -85,6 +85,8 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
   }
 
   function operation(signal?: AbortSignal) {
+    // Private dependent signals observe native cancellation, not caller-dispatched events.
+    const dependent = signal === undefined ? undefined : AbortSignal.any([signal]);
     const deadline = Date.now() + timeoutMs;
     let stopped: ZcashError | undefined, client: Client | undefined, call: { cancel(): void } | undefined;
     let rejectStop!: (error: ZcashError) => void;
@@ -98,14 +100,15 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
     const timer = setTimeout(() => stop(timeout()), timeoutMs);
     function cleanup() {
       clearTimeout(timer);
-      if (signal) EventTarget.prototype.removeEventListener.call(signal, 'abort', onAbort);
+      dependent?.removeEventListener('abort', onAbort);
       call?.cancel(); client?.close();
     }
     if (signal) {
-      EventTarget.prototype.addEventListener.call(signal, 'abort', onAbort, { once: true });
+      dependent!.addEventListener('abort', onAbort, { once: true });
       if (signalAborted.call(signal)) onAbort();
     }
     function check() {
+      if (signal !== undefined && signalAborted.call(signal)) onAbort();
       if (!stopped && Date.now() >= deadline) stop(timeout());
       if (stopped) throw stopped;
     }

@@ -66,7 +66,8 @@ try {
   assert.equal((await owner.call('account_import',{...fixture.import,birthday:'fullScan',viewingKey:fixture.uivk})).error,'INCOMING_ONLY_WALLET_UNSUPPORTED');
   assert.equal((await owner.call('close')).ok,true);
   assert.equal((await owner.call('close')).ok,true,'idempotent close');
-  assert.equal((await owner.call('account_list')).error,'SESSION_CLOSED');
+  const closedRead=await owner.call('account_list');
+  assert.equal(closedRead.error,'Wallet session is closed.');assert.equal(closedRead.commit,'none');
 }finally{await owner.destroy();}
 owner=start();
 try {

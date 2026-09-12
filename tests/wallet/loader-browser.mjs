@@ -1,3 +1,4 @@
+import { scanChecks, checkBalance } from './scan-checks.mjs';
 // Real HTTPS acquisition -> verified Blob worker -> native OPFS persistence.
 export async function runBrowser() {
   const { openWalletRuntime } = await import('/dist/src/runtime/wallet.js');
@@ -40,10 +41,20 @@ export async function runBrowser() {
         previousScan = balance.scan;
       } finally { await runtime.close(); }
     }
-    return { persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    const scanOptions = { ...options, storage: { kind: 'browser-opfs', name: `${name}-scan` } };
+    let scanned;
+    const first = await openWalletRuntime(scanOptions);
+    try { scanned = await scanChecks(first.session, fixture.scan); } finally { await first.close(); }
+    const reopened = await openWalletRuntime(scanOptions);
+    try {
+      const balance = await reopened.session.getBalance(scanned.query);
+      checkBalance(balance, fixture.scan);
+      check(balance.scan.revision !== scanned.balance.scan.revision, 'scanned reopen epoch');
+    } finally { await reopened.close(); }
+    return { scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
-    await (await navigator.storage.getDirectory()).removeEntry(name, { recursive: true }).catch(error => {
+    for (const entry of [name, `${name}-scan`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
       if (error.name !== 'NotFoundError') throw error;
     });
   }

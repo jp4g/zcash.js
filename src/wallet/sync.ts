@@ -1,5 +1,6 @@
-import type { ChainPoint, LightClient } from '../../docs/api/public-api.js';
-import { failure, isZcashError } from '../errors.js';
+import type { ChainPoint, ErrorInfo, LightClient, Op, SyncStatus } from '../../docs/api/public-api.js';
+import { failure, invalidArgument, isZcashError } from '../errors.js';
+import { blockHash } from '../primitives.js';
 import type { attachWalletWorker } from './host.js';
 import { applyEnhancement } from './enhancement.js';
 
@@ -7,6 +8,84 @@ type Session = ReturnType<typeof attachWalletWorker>;
 const reverse = (hash: string) => hash.match(/../g)!.reverse().join('');
 const mismatch = () => failure('PROTOCOL_MISMATCH', 'sync', 'sync', 'Sync source changed or returned inconsistent blocks.');
 const recovery = () => failure('RECOVERY_REQUIRED', 'sync', 'sync', 'No retained common checkpoint is available.');
+
+/** Wallet-owned finite sync lifecycle. The enclosing wallet owns and closes the worker. */
+export class WalletSync {
+  private activity: SyncStatus['activity'] = 'idle';
+  private target: ChainPoint | null = null;
+  private reached = false;
+  private lastError: ErrorInfo | null = null;
+  private controller: AbortController | undefined;
+  private running: Promise<SyncStatus> | undefined;
+  constructor(private readonly session: Session, private readonly light: LightClient) {}
+
+  async getSyncStatus(args: Op = {}): Promise<SyncStatus> {
+    // Both reads are local. Equal revisions bind their projections to one database state.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const scan = await this.session.scan.state(args);
+      const pending = await this.session.enhancement.requests(args);
+      if (scan.revision !== pending.revision) continue;
+      const delayed = pending.requests.filter(r => r.kind === 'address' && r.requestAt !== null && r.requestAt > Date.now()).length;
+      return { activity: this.activity, scan, target: this.target, targetReached: this.reached,
+        enhancement: { actionable: pending.requests.length - delayed, delayed }, workEstimate: null, lastError: this.lastError };
+    }
+    throw failure('STORAGE_BUSY', 'sync', 'none', 'Wallet changed during the status read.');
+  }
+
+  sync(args: { target?: ChainPoint } & Op = {}): Promise<SyncStatus> {
+    if (this.running) return Promise.reject(failure('STORAGE_BUSY', 'sync', 'none', 'Wallet sync is already running.'));
+    let target: ChainPoint | undefined, signal: AbortSignal | undefined;
+    try {
+      if (!args || ![Object.prototype, null].includes(Object.getPrototypeOf(args))) throw invalidArgument();
+      const input: Record<string, unknown> = {};
+      for (const key of Reflect.ownKeys(args)) {
+        if (key !== 'target' && key !== 'signal') throw invalidArgument();
+        const field = Object.getOwnPropertyDescriptor(args, key)!;
+        if (!Object.hasOwn(field, 'value')) throw invalidArgument();
+        input[key] = field.value;
+      }
+      signal = input.signal as AbortSignal | undefined;
+      if (input.target !== undefined) {
+        const value = input.target as ChainPoint;
+        const height = Object.getOwnPropertyDescriptor(value, 'height'), hash = Object.getOwnPropertyDescriptor(value, 'hash');
+        if (!height || !hash || !Object.hasOwn(height, 'value') || !Object.hasOwn(hash, 'value')
+          || Reflect.ownKeys(value).length !== 2 || !Number.isInteger(height.value) || height.value < 0 || height.value >= 0xffffffff) throw invalidArgument();
+        target = Object.freeze({ height: height.value, hash: blockHash(hash.value) });
+      }
+    } catch { return Promise.reject(invalidArgument()); }
+    this.controller = new AbortController();
+    this.running = this.run(target, signal).finally(() => { this.running = undefined; this.controller = undefined; });
+    return this.running;
+  }
+
+  private async run(target: ChainPoint | undefined, signal: AbortSignal | undefined): Promise<SyncStatus> {
+    this.activity = 'running'; this.reached = false; this.lastError = null; this.target = target ?? null;
+    try {
+      // Host admission validates the caller's native signal before composing dependencies.
+      await this.session.scan.state(signal === undefined ? {} : { signal });
+      const dependent = signal === undefined ? this.controller!.signal : AbortSignal.any([signal, this.controller!.signal]);
+      const point = target ?? await this.light.getTip({ signal: dependent });
+      this.target = Object.freeze({ height: point.height, hash: point.hash });
+      const scan = await syncWallet(this.session, this.light, this.target, dependent);
+      this.reached = scan.fullyScannedHeight !== null && scan.fullyScannedHeight >= this.target.height;
+      this.activity = 'idle';
+      return await this.getSyncStatus();
+    } catch (caught) {
+      const error = isZcashError(caught) ? caught : failure('RUNTIME_UNAVAILABLE', 'sync', 'reopen', 'Wallet sync failed.');
+      this.activity = error.code === 'ABORTED' ? 'stopped' : 'failed';
+      if (error.code !== 'ABORTED') this.lastError = { code: error.code, stage: error.stage, recovery: error.recovery, retryable: error.retryable, message: error.message };
+      let status: SyncStatus;
+      try { status = await this.getSyncStatus(); } catch { throw error; }
+      if (error.code === 'ABORTED') return status;
+      throw failure(error.code, error.stage, error.recovery, error.message, error.retryable, status);
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.controller?.abort();
+    await this.running?.catch(() => {});
+  }
+}
 
 /** Internal finite run used by the wallet owner; all scan decisions and writes remain native. */
 export async function syncWallet(session: Session, light: LightClient, target: ChainPoint, signal?: AbortSignal) {

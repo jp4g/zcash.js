@@ -1,4 +1,4 @@
-import type { ErrorInfo, ZcashError } from '../docs/api/public-api.js';
+import type { ErrorInfo, SyncStatus, ZcashError } from '../docs/api/public-api.js';
 
 // A local identity check never reads properties/getters from a foreign exception.
 const errors = new WeakSet<object>();
@@ -14,9 +14,11 @@ export function failure(
   recovery: ErrorInfo['recovery'],
   message: string,
   retryable = false,
+  syncStatus?: SyncStatus,
 ): ZcashError {
   const error: ZcashError = Object.assign(new Error(message), {
     name: 'ZcashError', code, stage, recovery, retryable,
+    ...(syncStatus === undefined ? {} : { syncStatus }),
   });
   errors.add(error);
   return Object.freeze(error);

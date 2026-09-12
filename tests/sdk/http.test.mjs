@@ -387,3 +387,57 @@ test('isolated HTTP server exercises real serialization, streaming, precision an
   await assert.rejects(internal.readRpc(transport, 'getblockchaininfo', ['stall']), { code: 'TIMEOUT' });
   assert.equal(requests.length, 2);
 });
+
+test('public RPC foundation owns structured reads and never replays dispatched writes', async (t) => {
+  const requests = [];
+  let mode = 'success', notify;
+  const server = createServer(async (req, res) => {
+    let text = ''; for await (const chunk of req) text += chunk;
+    const request = JSON.parse(text); requests.push(request); notify?.();
+    if (mode === 'stall') return;
+    if (mode === 'drop') { req.socket.destroy(); return; }
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ jsonrpc: '2.0', id: request.id, ...(mode === 'error'
+      ? { error: { code: -5, message: 'SECRET provider message' } } : { result: request.params }) }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const url = `http://127.0.0.1:${server.address().port}`;
+  let release;
+  const transport = sdk.http(url, options({ readRetry: { attempts: 3, delayMs: 0 },
+    headers: () => new Promise(resolve => { release = () => resolve({}); }) }));
+  assert.equal(internal.httpSourceId(transport), 'synthetic');
+  const addresses = ['original'];
+  const input = { addresses, chainInfo: true };
+  const reading = internal.readRpc(transport, 'getaddressutxos', [input]);
+  addresses[0] = 'mutated'; input.chainInfo = false;
+  await new Promise(resolve => setImmediate(resolve)); release();
+  assert.equal(JSON.stringify(await reading), JSON.stringify([{ addresses: ['original'], chainInfo: true }]));
+  for (const invalid of [{ addresses: [], chainInfo: true }, { addresses: ['a'], chainInfo: false },
+    { addresses: ['a'], chainInfo: true, extra: 1 }, { addresses: new Array(1025).fill('a'), chainInfo: true }]) {
+    await assert.rejects(internal.readRpc(transport, 'getaddressutxos', [invalid]), { code: 'INVALID_ARGUMENT' });
+  }
+  const direct = sdk.http(url, options({ readRetry: { attempts: 3, delayMs: 0 } }));
+  mode = 'error';
+  await assert.rejects(call(direct), error => internal.rpcErrorCode(error) === -5 && !error.message.includes('SECRET'));
+  assert.equal(internal.rpcErrorCode({ code: -5 }), undefined);
+  let before = requests.length;
+  const rejected = await internal.sendRawTransaction(direct, '00');
+  assert.equal(internal.rpcErrorCode(rejected.error), -5); assert.equal(requests.length, before + 1);
+  mode = 'drop'; before = requests.length;
+  assert.equal((await internal.sendRawTransaction(direct, '00')).error.code, 'TRANSPORT_ERROR');
+  assert.equal(requests.length, before + 1);
+  mode = 'stall'; before = requests.length;
+  const controller = new AbortController();
+  const received = new Promise(resolve => { notify = resolve; });
+  const sending = internal.sendRawTransaction(direct, '00', controller.signal);
+  await received; controller.abort();
+  assert.equal((await sending).error.code, 'ABORTED'); assert.equal(requests.length, before + 1);
+  await assert.rejects(internal.sendRawTransaction(direct, '00', controller.signal), { code: 'ABORTED' });
+  assert.equal(requests.length, before + 1);
+  const beforeHeaders = new AbortController();
+  const pending = internal.sendRawTransaction(transport, '00', beforeHeaders.signal);
+  await new Promise(resolve => setImmediate(resolve)); beforeHeaders.abort();
+  await assert.rejects(pending, { code: 'ABORTED' });
+  assert.equal(requests.length, before + 1); release();
+});

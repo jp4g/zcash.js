@@ -48,5 +48,8 @@ test('sync lifecycle returns committed stopped progress and attaches failed stat
   light.getTreeState = async () => { throw failure('TRANSPORT_ERROR', 'transport', 'configure', 'Source failed.'); };
   await assert.rejects(owner.sync({ target }), error => error.code === 'TRANSPORT_ERROR'
     && error.syncStatus.activity === 'failed' && error.syncStatus.scan.revision === '1');
-  assert.equal((await owner.getSyncStatus()).lastError.code, 'TRANSPORT_ERROR');
+  const status = await owner.getSyncStatus();
+  assert.equal(status.lastError.code, 'TRANSPORT_ERROR');
+  assert.throws(() => { status.lastError.message = 'mutated'; }, TypeError);
+  assert.equal((await owner.getSyncStatus()).lastError.message, 'Source failed.');
 });

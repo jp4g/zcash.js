@@ -73,7 +73,7 @@ export class WalletSync {
     } catch (caught) {
       const error = isZcashError(caught) ? caught : failure('RUNTIME_UNAVAILABLE', 'sync', 'reopen', 'Wallet sync failed.');
       this.activity = error.code === 'ABORTED' ? 'stopped' : 'failed';
-      if (error.code !== 'ABORTED') this.lastError = { code: error.code, stage: error.stage, recovery: error.recovery, retryable: error.retryable, message: error.message };
+      if (error.code !== 'ABORTED') this.lastError = Object.freeze({ code: error.code, stage: error.stage, recovery: error.recovery, retryable: error.retryable, message: error.message });
       let status: SyncStatus;
       try { status = await this.getSyncStatus(); } catch { throw error; }
       if (error.code === 'ABORTED') return status;

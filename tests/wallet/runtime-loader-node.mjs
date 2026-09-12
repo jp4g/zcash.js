@@ -148,5 +148,5 @@ try {
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
   assert.equal(requests.filter(path => path.startsWith('/good/')).length, 66, 'six pinned assets per open; no execution refetch');
-  console.log(JSON.stringify({ pass: true, emptyCompleted:true, queries:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  console.log(JSON.stringify({ pass: true, emptyCompleted:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

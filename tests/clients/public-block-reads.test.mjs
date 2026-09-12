@@ -144,15 +144,19 @@ test('selector, signal, transport and source label snapshot precedes async heade
 });
 
 for (const stage of [0, 1, 2]) {
-  test(`stage ${stage}: RPC errors remain sanitized failures, never absence`, async t => {
+  test(`stage ${stage}: only initial qualified absence becomes null; nested failures remain errors`, async t => {
     let errorCode;
     let index = 0;
     const f = await local(t, call => index++ === stage
       ? `"error":{"code":${errorCode},"message":"private-fixture","data":"private-fixture"}` : reply(call));
     for (const [rpc, expected] of [[-32601, 'METHOD_NOT_SUPPORTED'], [-8, 'TRANSPORT_ERROR'], [-5, 'TRANSPORT_ERROR'], [-1, 'TRANSPORT_ERROR']]) {
       errorCode = rpc; index = 0;
+      if (stage === 0 && rpc === -8) {
+        assert.equal(await adapter.getBlock(f.source, { height: 1 }), null);
+        assert.equal(index, 1); continue;
+      }
       await assert.rejects(adapter.getBlock(f.source, { height: 1 }), error => {
-        assert.equal(error.code, expected); assert.equal(error.retryable, false);
+        assert.equal(error.code, stage === 1 && rpc === -5 ? 'PROTOCOL_MISMATCH' : expected); assert.equal(error.retryable, false);
         assert.doesNotMatch(JSON.stringify(error) + error.message, /private-fixture|127\.0\.0\.1/); return true;
       });
       assert.equal(index, stage + 1);

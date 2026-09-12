@@ -1,4 +1,4 @@
-import { isZcashError } from '../errors.js';
+import { failure, invalidArgument, isZcashError } from '../errors.js';
 
 // Internal byte admission shared by finite light-client reads.
 const typedArray = Object.getPrototypeOf(Uint8Array.prototype);
@@ -17,4 +17,31 @@ export function ownBytes(bytes: Uint8Array, protocol: () => Error, resourceLimit
     if (length > 4 * 1024 * 1024) throw resourceLimit();
     return new Uint8Array(new Uint8Array(buffer, offsetOf.call(bytes), length));
   } catch (error) { throw isZcashError(error) ? error : protocol(); }
+}
+
+const resource = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Client input exceeds limit.');
+export function snapshot<T extends object>(args: T, keys: readonly string[]): T {
+  try {
+    if (!args || typeof args !== 'object' || ![null, Object.prototype].includes(Object.getPrototypeOf(args))) throw invalidArgument();
+    const output = Object.create(null);
+    for (const key of Reflect.ownKeys(args)) {
+      if (typeof key !== 'string' || !keys.includes(key)) throw invalidArgument();
+      const field = Object.getOwnPropertyDescriptor(args, key);
+      if (!field || !Object.hasOwn(field, 'value')) throw invalidArgument();
+      output[key] = field.value;
+    }
+    if ('bytes' in output) output.bytes = ownBytes(output.bytes, invalidArgument, resource);
+    if ('addresses' in output) {
+      const values = output.addresses;
+      if (!Array.isArray(values) || !values.length || values.length > 1000) throw invalidArgument();
+      const copy: string[] = [];
+      for (let index = 0; index < values.length; index++) {
+        const field = Object.getOwnPropertyDescriptor(values, String(index));
+        if (!field || !Object.hasOwn(field, 'value') || typeof field.value !== 'string') throw invalidArgument();
+        copy.push(field.value);
+      }
+      output.addresses = copy;
+    }
+    return output;
+  } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
 }

@@ -1,5 +1,5 @@
 import type { BlockHeader, BlockSelector, ChainTip, HttpTransport, Op } from '../../docs/api/public-api.js';
-import { readRpc } from '../http.js';
+import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
 import { JsonNumber, protocolError } from '../json.js';
 import { blockHash } from '../primitives.js';
@@ -120,7 +120,7 @@ export async function getTip(source: ChainReadSource, args: Op = {}): Promise<Ch
 }
 
 /** Resolve once, then pin the raw request to that identity even if the height reorganizes. */
-export async function getBlockHeader(source: ChainReadSource, args: BlockSelector & Op): Promise<BlockHeader> {
+export async function getBlockHeader(source: ChainReadSource, args: BlockSelector & Op): Promise<BlockHeader | null> {
   const { transport, sourceId } = validateSource(source);
   args = input(args, ['height', 'hash', 'signal']);
   const { height, hash: requestedHash } = args;
@@ -133,7 +133,9 @@ export async function getBlockHeader(source: ChainReadSource, args: BlockSelecto
   const owned = await bridge(args.signal);
   const { signal } = owned;
   try {
-    const value = await readRpc(transport, 'getblockheader', [selector, true], signal);
+    let value;
+    try { value = await readRpc(transport, 'getblockheader', [selector, true], signal); }
+    catch (error) { if (rpcErrorCode(error) === (requestedHash === undefined ? -8 : -5)) return null; throw error; }
     object(value);
     const point = { height: integer(value.height, 0, 0xffff_ffff), hash: hash(value.hash) };
     if ((height !== undefined && point.height !== height)

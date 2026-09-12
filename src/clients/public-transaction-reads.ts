@@ -1,5 +1,5 @@
 import type { HttpTransport, Op, PublicTransaction, TxId, Inclusion, TransactionObservation } from '../../docs/api/public-api.js';
-import { readRpc } from '../http.js';
+import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
 import { JsonNumber, protocolError } from '../json.js';
 import { txId, blockHash } from '../primitives.js';
@@ -88,8 +88,8 @@ function integer(value: unknown, minimum: number, maximum: number): number {
   return number;
 }
 
-/** Positive internal prerequisite only. Owner establishes source/network and historical
- * context independently; this module neither discovers context nor maps absence.
+/** Internal transaction read. Owner establishes source/network and historical context.
+ * Only a qualified initial transaction lookup can return absence.
  */
 export async function getTransaction(
   source: { readonly transport: HttpTransport; readonly sourceId: string },
@@ -97,7 +97,7 @@ export async function getTransaction(
     readonly bytes: Uint8Array; readonly txid: Uint8Array; readonly display: string;
   } },
   args: { readonly txid: TxId } & Op,
-): Promise<PublicTransaction> {
+): Promise<PublicTransaction | null> {
   source = input(source, ['transport', 'sourceId']);
   context = input(context, ['txid', 'decodeTransaction']);
   args = input(args, ['txid', 'signal']);
@@ -110,7 +110,9 @@ export async function getTransaction(
   const { signal } = owned;
   try {
     checkAbort(signal);
-    const value = await readRpc(transport, 'getrawtransaction', [requested, 1], signal);
+    let value;
+    try { value = await readRpc(transport, 'getrawtransaction', [requested, 1], signal); }
+    catch (error) { if (rpcErrorCode(error) === -5) return null; throw error; }
     checkAbort(signal);
     if (typeof value !== 'object' || value === null || Array.isArray(value) || value instanceof JsonNumber) throw protocolError();
     let dtoId, hash;
@@ -142,6 +144,7 @@ export async function getTransaction(
       if (hash !== undefined) {
         const block = await getBlock({ transport, sourceId }, { height, ...(signal === undefined ? {} : { signal }) });
         checkAbort(signal);
+        if (block === null) throw protocolError();
         if (block.point.hash === hash) {
           if (block.point.height !== height || !block.txids.includes(requested)) throw protocolError();
           state = 'mined'; inclusion = Object.freeze({ height, blockHash: hash, confirmations: null });

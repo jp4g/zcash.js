@@ -9,6 +9,16 @@ interface State {
   nextId: bigint;
 }
 const transports = new WeakMap<HttpTransport, State>();
+const rpcCodes = new WeakMap<object, number>();
+/** Only errors produced from a validated RPC envelope carry trusted status. */
+export function rpcErrorCode(error: unknown): number | undefined {
+  return typeof error === 'object' && error !== null ? rpcCodes.get(error) : undefined;
+}
+export function httpSourceId(transport: HttpTransport): string {
+  const state = transports.get(transport);
+  if (!state) throw invalidArgument();
+  return state.options.sourceId;
+}
 const readMethods = new Set(['getblockchaininfo', 'getblockhash', 'getblock', 'getblockheader',
   'getrawtransaction', 'getrawmempool', 'getaddressutxos', 'z_gettreestate', 'z_getsubtreesbyindex']);
 
@@ -78,7 +88,7 @@ function schedule(ms: number, callback: () => void): () => void {
 }
 
 /** One deadline includes the header callback, dispatch, body and parsing. */
-async function attempt(state: State, body: string, id: string, caller?: AbortSignal): Promise<Json> {
+async function attempt(state: State, body: string, id: string, caller?: AbortSignal, dispatched?: () => void): Promise<Json> {
   if (caller?.aborted) throw aborted();
   const controller = new AbortController();
   let stopped: ZcashError | undefined;
@@ -119,6 +129,7 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
     // Header callbacks and processing can block the timeout timer.
     if (performance.now() - started >= state.options.timeoutMs) throw timeout();
     // Cancel a late response even if a nonconforming injected fetch ignores abort.
+    dispatched?.();
     const fetching = fetch(state.url, { method: 'POST', body, headers, signal: controller.signal,
       credentials: 'omit', redirect: 'error', cache: 'no-store' }).then(value => {
       if (stopped) void value.body?.cancel().catch(() => {});
@@ -189,10 +200,11 @@ function parseEnvelope(text: string, id: string): Json {
     || !/^-?(?:0|[1-9][0-9]*)$/.test(error.code.text)
     || !Number.isSafeInteger(Number(error.code.text))
     || Object.keys(error).some(key => !['code', 'message', 'data'].includes(key))) throw protocolError();
-  if (error.code.text === '-32601') {
-    throw failure('METHOD_NOT_SUPPORTED', 'transport', 'configure', 'RPC method is not supported.');
-  }
-  throw transportError(false);
+  const normalized = error.code.text === '-32601'
+    ? failure('METHOD_NOT_SUPPORTED', 'transport', 'configure', 'RPC method is not supported.')
+    : transportError(false);
+  rpcCodes.set(normalized, Number(error.code.text));
+  throw normalized;
 }
 
 async function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -205,14 +217,34 @@ async function delay(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+type RpcParameter = string | number | boolean | { readonly addresses: readonly string[]; readonly chainInfo: true };
+function ownParameters(method: string, params: readonly RpcParameter[]): RpcParameter[] {
+  const parameters = [...params];
+  if (method === 'getaddressutxos' && parameters.length === 1 && typeof parameters[0] === 'object') {
+    const input = parameters[0];
+    record(input, ['addresses', 'chainInfo']);
+    const { addresses, chainInfo } = input;
+    if (!Array.isArray(addresses) || addresses.length < 1 || addresses.length > 1024 || chainInfo !== true) throw invalidArgument();
+    const owned: string[] = [];
+    const count = addresses.length;
+    for (let index = 0; index < count; index++) {
+      const value: unknown = addresses[index];
+      if (typeof value !== 'string' || !value.length || value.length > 512) throw invalidArgument();
+      owned.push(value);
+    }
+    return [{ addresses: owned, chainInfo: true }];
+  }
+  if (parameters.some(value => !['string', 'boolean'].includes(typeof value)
+    && !(typeof value === 'number' && Number.isSafeInteger(value)))) throw invalidArgument();
+  return parameters;
+}
+
 /** Internal read engine; no public raw-RPC escape hatch or broadcast replay. */
-export async function readRpc(transport: HttpTransport, method: string, params: readonly (string | number | boolean)[], signal?: AbortSignal): Promise<Json> {
+export async function readRpc(transport: HttpTransport, method: string, params: readonly RpcParameter[], signal?: AbortSignal): Promise<Json> {
   const state = transports.get(transport);
   if (!state || !readMethods.has(method) || !Array.isArray(params)
     || (signal !== undefined && !(signal instanceof AbortSignal))) throw invalidArgument();
-  const parameters = [...params];
-  if (parameters.some(value => !['string', 'boolean'].includes(typeof value)
-    && !(typeof value === 'number' && Number.isSafeInteger(value)))) throw invalidArgument();
+  const parameters = ownParameters(method, params);
   for (let index = 0; index < state.options.readRetry.attempts; index++) {
     const id = (++state.nextId).toString();
     const body = JSON.stringify({ jsonrpc: '2.0', id, method, params: parameters });
@@ -223,4 +255,16 @@ export async function readRpc(transport: HttpTransport, method: string, params: 
     }
   }
   throw invalidArgument();
+}
+
+/** Internal single-attempt write. Before dispatch errors throw; afterward uncertainty is explicit. */
+export async function sendRawTransaction(transport: HttpTransport, hex: string, signal?: AbortSignal): Promise<{ result: Json } | { error: unknown }> {
+  const state = transports.get(transport);
+  if (!state || typeof hex !== 'string' || !hex.length || hex.length > 4 * 1024 * 1024
+    || hex.length % 2 !== 0 || !/^[0-9a-f]+$/.test(hex) || (signal !== undefined && !(signal instanceof AbortSignal))) throw invalidArgument();
+  const id = (++state.nextId).toString();
+  const body = JSON.stringify({ jsonrpc: '2.0', id, method: 'sendrawtransaction', params: [hex] });
+  let dispatched = false;
+  try { return { result: await attempt(state, body, id, signal, () => { dispatched = true; }) }; }
+  catch (error) { if (!dispatched) throw error; return { error }; }
 }

@@ -88,7 +88,7 @@ test('empty wallet reaches a target only after native completion without invente
         if(fail)throw failure('SYNC_REQUIRED','sync','sync','Snapshot incomplete.');revision='1';return{revision};},
     },enhancement:{async requests(){return{revision,requests:[]};}}};
     const light={async getTreeState(){return {point:target,encoded:new Uint8Array([7])};}};
-    const owner=new WalletSync(session,light);
+    const owner=new WalletSync(session,light,{pollIntervalMs:10,maxBufferedUpdates:8});
     if(fail)await assert.rejects(owner.sync({target}),error=>error.code==='SYNC_REQUIRED'&&!error.syncStatus.targetReached);
     else {const status=await owner.sync({target});assert.equal(status.targetReached,true);assert.equal(status.scan.fullyScannedHeight,null);assert.equal(status.scan.scanComplete,null);}
     assert.equal(completed,1);
@@ -128,6 +128,7 @@ function observing({ maxBufferedUpdates = 8, getTip } = {}) {
     async state({ signal } = {}) { if (signal?.aborted) throw failure('ABORTED', 'sync', 'none', 'Stopped.'); return { ...scan }; },
     async block() { return { revision: '0', point }; },
     async plan() { return { revision: '0', ranges: [] }; },
+    async complete() { return { revision: '0' }; },
   }, enhancement: { async requests() { return { revision: '0', requests: [] }; } } };
   const light = {
     async getTip({ signal }) {

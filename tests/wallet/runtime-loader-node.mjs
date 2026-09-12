@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:https';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
+import { scanChecks, checkBalance } from './scan-checks.mjs';
 import { openWalletRuntime } from '../../dist/src/runtime/wallet.js';
 
 assert.ok(process.argv[2], 'actual reviewed package directory required');
@@ -50,6 +51,7 @@ const options = (name, mode = 'good') => ({ network, storage: { kind: 'node-file
 } });
 try {
   for (const [name, limits] of [['native-only-memory', { maxMemoryBytes: 256 * 1024 * 1024 }],
+    ['scan-scratch-memory', { maxMemoryBytes: 384 * 1024 * 1024 }],
     ['oversize-queue', { maxQueuedBytes: Number.MAX_SAFE_INTEGER }],
     ['oversize-control', { maxQueuedJobs: Number.MAX_SAFE_INTEGER }]]) {
     const input = options(name), before = requests.length;
@@ -71,8 +73,13 @@ try {
   startup.signal = readyAbort.signal; startup.runtime.onDiagnostic = () => readyAbort.abort();
   await assert.rejects(openWalletRuntime(startup), { code: 'ABORTED' });
   assert.equal(existsSync(`${root}/cancel-ready`), false);
-  const fixtureBytes = await readFile('/home/jack/zakura-account-compose-scratch/fixes/r1/balance-build-03/bundle/tests/views-fixture.json');
-  assert.equal(sha(fixtureBytes), '731843024627c13dd4a7b56a8b70220b1eac1ce56d2b56e0f883a1695ea18f44');
+  assert.ok(process.argv[3], 'source-bound native build directory required');
+  const nativeReceipt = await readFile(`${process.argv[3]}/build.json`);
+  const metadataBytes = await readFile(`${packet}/build.json`);
+  assert.equal(sha(metadataBytes), manifest.buildSha256);
+  assert.equal(sha(nativeReceipt), JSON.parse(metadataBytes).nativeBuildSha256);
+  const fixtureBytes = await readFile(`${process.argv[3]}/bundle/tests/views-fixture.json`);
+  assert.equal(sha(fixtureBytes), JSON.parse(nativeReceipt).artifacts['tests/views-fixture.json']);
   const fixture = JSON.parse(fixtureBytes);
   let account, addresses, previousScan;
   for (const reopen of [false, true]) {
@@ -98,8 +105,18 @@ try {
       const closing = opened.close(); assert.equal(opened.close(), closing); await closing;
     } finally { await opened.close(); }
   }
+  let scanned;
+  const first = await openWalletRuntime(options('scanned'));
+  try { scanned = await scanChecks(first.session, fixture.scan); } finally { await first.close(); }
+  const reopened = await openWalletRuntime(options('scanned'));
+  try {
+    const balance = await reopened.session.getBalance(scanned.query);
+    checkBalance(balance, fixture.scan);
+    assert.notEqual(balance.scan.revision, scanned.balance.scan.revision);
+    assert.deepEqual(await reopened.session.accounts.get({ accountId: scanned.account.id }), scanned.account);
+  } finally { await reopened.close(); }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 18, 'six pinned assets per open; no execution refetch');
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 30, 'six pinned assets per open; no execution refetch');
   console.log(JSON.stringify({ pass: true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

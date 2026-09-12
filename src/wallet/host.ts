@@ -1,6 +1,7 @@
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ViewingImport, WalletAddressesApi, WalletBalance, ZcashError } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
-import type { Completion } from './session.js';
+import { ownBytes } from '../clients/owned-plumbing.js';
+import type { ScanTarget, ScanPlan, ScanBatch, ScanReceipt, Completion } from './session.js';
 import type { WalletCommand, WalletReply } from './worker.js';
 import { walletErrorCodes } from './worker.js';
 
@@ -52,8 +53,12 @@ function snapshot(args: object, maximum: number) {
     if (typeof value === 'number' && Number.isSafeInteger(value)) return value;
     if (typeof value === 'string') { charge(value.length * 2); return value; }
     if (typeof value !== 'object' || value === null) throw invalidArgument();
+    if (ArrayBuffer.isView(value)) {
+      const owned = ownBytes(value as Uint8Array, invalidArgument, limitError);
+      charge(owned.byteLength); return owned;
+    }
     if (![Object.prototype, Array.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
-    if (Array.isArray(value) && value.length > 3) throw invalidArgument();
+    if (Array.isArray(value) && value.length > 16) throw invalidArgument();
     const result: Record<string, unknown> | unknown[] = Array.isArray(value) ? [] : {};
     for (const key of Reflect.ownKeys(value)) {
       if (Array.isArray(value) && key === 'length') continue;
@@ -154,8 +159,8 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     if (!data.outcome.ok) {
       const e = data.outcome.error;
       if (!e || !walletErrorCodes.has(e.code) || e.retryable !== false || typeof e.message !== 'string'
-        || !['validation', 'storage', 'runtime', 'account', 'address', 'query'].includes(e.stage)
-        || !['reopen', 'sync', 'none', 'correct-input'].includes(e.recovery)) { crashed(); return; }
+        || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync'].includes(e.stage)
+        || !['reopen', 'sync', 'none', 'correct-input', 'configure'].includes(e.recovery)) { crashed(); return; }
     } else if (data.invalid) { crashed(); return; }
     active = undefined; release(job);
     if (job.cancelled && data.outcome.ok) {
@@ -182,6 +187,10 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       at: (args: Parameters<WalletAddressesApi['at']>[0]) => call<Awaited<ReturnType<WalletAddressesApi['at']>>>('address_at', args),
     },
     getBalance: (args: { accountId: string; confirmations: ConfirmationsPolicy } & Op) => call<WalletBalance>('account_balance', args),
+    scan: {
+      plan: (args: { target: ScanTarget } & Op) => call<ScanPlan>('scan_plan', args),
+      ingest: (args: ScanBatch & Op) => call<ScanReceipt>('scan_ingest_batch', args),
+    },
     completion: (error: object) => receipts.get(error),
     crashed,
     close(): Promise<void> {

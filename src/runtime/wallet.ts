@@ -19,9 +19,9 @@ const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wa
 // Reviewed private producer + actual SDK bootstrap, not arbitrary same-profile JavaScript.
 // Updating this immutable executable closure requires reviewing the corresponding package.
 const reviewedAssets: Record<keyof typeof layout, string> = {
-  'wallet.mjs': '37ac0511e36de5f135a0ac701c3b3a322abf8292bc86bb1c2e984f54b7307293',
-  'worker.mjs': '492c5708cb138a5604f9a85e0f4a1c4d4e2772387c499b359f63c5871554345d',
-  'bindings_bg.wasm': '01a34e6dfbe2375f902abce3fd0a913c51c250659c92099b61c0cf8105962d0f',
+  'wallet.mjs': '82c1778980021ea9169f8f958426d0c701be8a7e75814c0da3443404d5c56563',
+  'worker.mjs': '5e2a81ab0b0dbcb34254c2428762915af76b20740b6904328b45ed971c2f3606',
+  'bindings_bg.wasm': '3ce81f819b16a3602edb959df85f0ef2739e99551c7b5a1ae86f105dbd26ab65',
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
 };
@@ -57,7 +57,10 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
   // Reserve native maximum, verified inventory + executable staging copies, one
   // WASM initialization copy, manifest working space, and admitted payload/control
   // records. This bounds owned-allocation admission, not the engine/process RSS.
-  const reserved = 4096 * 65536 + 2 * policy.maxTotalAssetBytes + policy.maxAssetBytes
+  // Scan lowering reserves 32 MiB separately: <=2 MiB copied blocks, <=4 MiB
+  // ASCII hex buffer, <=8 MiB hex strings and <=9 MiB serialized JSON/metadata.
+  const scanScratchBytes = 32 * 1024 * 1024;
+  const reserved = scanScratchBytes + 4096 * 65536 + 2 * policy.maxTotalAssetBytes + policy.maxAssetBytes
     + 4 * policy.maxManifestBytes + runtime.maxQueuedBytes + 4096 * runtime.maxQueuedJobs;
   if (!Number.isSafeInteger(reserved) || runtime.maxMemoryBytes < reserved) throw resource();
   if (runtime.onDiagnostic !== undefined && typeof runtime.onDiagnostic !== 'function') throw invalidArgument();

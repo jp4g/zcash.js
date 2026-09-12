@@ -82,7 +82,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   }
   try {
     report.sourceCommit = process.env.WALLET_HOST_COMMIT ?? null;
-    const packet = '/home/jack/zakura-account-compose-scratch/fixes/r1/balance-build-03';
+    const packet = process.env.WALLET_NATIVE_BUILD ?? '/home/jack/zakura-account-compose-scratch/fixes/r1/balance-build-03';
     const packetBuild = JSON.parse(await readFile(`${packet}/build.json`));
     const fixtureBytes = await readFile(`${packet}/bundle/tests/views-fixture.json`);
     assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'), packetBuild.artifacts['tests/views-fixture.json']);
@@ -96,7 +96,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       ['/tests/clients/public-chain-reads-fixtures.mjs', await readFile(new URL('../clients/public-chain-reads-fixtures.mjs', import.meta.url))],
     ]);
     assets.set('/tests/wallet/host-native-worker.mjs', await readFile(new URL('./host-native-worker.mjs', import.meta.url)));
-    for (const name of ['errors', 'wallet/host', 'wallet/worker', 'wallet/session']) {
+    for (const name of ['errors', 'clients/owned-plumbing', 'wallet/host', 'wallet/worker', 'wallet/session']) {
       assets.set(`/dist/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
     }
     for (const name of ['bindings.js', 'bindings_bg.wasm', 'views.mjs', 'wallet.mjs', 'bytes.mjs',
@@ -109,6 +109,9 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       assets.set('/tests/wallet/runtime-browser.mjs', await readFile(new URL('./runtime-browser.mjs', import.meta.url)));
       const manifestBytes = await readFile(`${runtimePacket}/manifest.json`);
       const manifest = JSON.parse(manifestBytes);
+      const metadataBytes = await readFile(`${runtimePacket}/build.json`);
+      assert.equal(createHash('sha256').update(metadataBytes).digest('hex'), manifest.buildSha256);
+      assert.equal(createHash('sha256').update(await readFile(`${packet}/build.json`)).digest('hex'), JSON.parse(metadataBytes).nativeBuildSha256);
       report.manifestSha256 = createHash('sha256').update(manifestBytes).digest('hex');
       assets.set('/runtime/manifest.json', manifestBytes);
       for (const file of manifest.files) {
@@ -119,13 +122,14 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       }
     }
     if (process.env.WALLET_LOADER) {
+      assets.set('/tests/wallet/scan-checks.mjs', await readFile(new URL('./scan-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/loader-browser.mjs', await readFile(new URL('./loader-browser.mjs', import.meta.url)));
       for (const name of ['runtime/wallet', 'runtime/artifacts', 'runtime/wallet-profile', 'network-parameters', 'primitives']) {
         assets.set(`/dist/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
       }
       assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
     }
-    assets.set('/fixture.json', JSON.stringify({ import: nativeFixture.import }));
+    assets.set('/fixture.json', JSON.stringify({ import: nativeFixture.import, scan: nativeFixture.scan }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
@@ -171,7 +175,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     assert.ok(!answer.error, JSON.stringify(answer));
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
-    assert.equal(answer.value.workerDestructions, 2);
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 4 : 2);
     report.status = 'passed';
   } catch (error) { if (report.interruptedBy) report.status = 'interrupted'; report.error = { code: error.code, message: String(error), stack: error.stack }; }
   finally {

@@ -4,16 +4,18 @@ import { WalletSession } from './session.js';
 import type { Completion, InitializedViews } from './session.js';
 
 export type WalletCommand = 'account_import' | 'account_list' | 'account_get' | 'account_balance'
-  | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
+  | 'scan_plan' | 'scan_ingest_batch' | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
 export interface WalletReply {
   readonly id: number;
   readonly completion: Completion;
   readonly invalid: boolean;
   readonly outcome: { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: ErrorInfo };
 }
-export const walletWrites = new Set<WalletCommand>(['account_import', 'address_next', 'address_at']);
+export const walletWrites = new Set<WalletCommand>(['account_import', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch']);
 
 const nativeCodes: Record<string, ErrorCode> = {
+  RESOURCE_LIMIT: 'RESOURCE_LIMIT', STALE_REVISION: 'CURSOR_STALE',
+  CHAIN_MISMATCH: 'PROTOCOL_MISMATCH', SCAN_FAILED: 'PROTOCOL_MISMATCH',
   INVALID_ARGUMENT: 'INVALID_ARGUMENT', INVALID_VIEWING_KEY: 'INVALID_ARGUMENT',
   INVALID_BIRTHDAY: 'INVALID_ARGUMENT', INCOHERENT_BIRTHDAY: 'NETWORK_MISMATCH',
   NETWORK_MISMATCH: 'NETWORK_MISMATCH', ACCOUNT_NOT_FOUND: 'ACCOUNT_NOT_FOUND',
@@ -42,8 +44,8 @@ function errorInfo(error: unknown, command: WalletCommand): { error: ErrorInfo; 
   code ??= 'RUNTIME_UNAVAILABLE';
   const storage = ['STORAGE_ERROR', 'STORAGE_BUSY', 'MIGRATION_REQUIRED'].includes(code);
   const stage: ErrorInfo['stage'] = invalid ? 'runtime' : storage ? 'storage' : code === 'INVALID_ARGUMENT' ? 'validation'
-    : command === 'account_balance' ? 'query' : command.startsWith('address_') ? 'address' : command === 'close' ? 'runtime' : 'account';
-  const recovery: ErrorInfo['recovery'] = invalid || storage ? 'reopen' : code === 'SYNC_REQUIRED' ? 'sync'
+    : command.startsWith('scan_') ? 'sync' : command === 'account_balance' ? 'query' : command.startsWith('address_') ? 'address' : command === 'close' ? 'runtime' : 'account';
+  const recovery: ErrorInfo['recovery'] = code === 'RESOURCE_LIMIT' ? 'configure' : invalid || storage ? 'reopen' : code === 'SYNC_REQUIRED' || command.startsWith('scan_') && ['CURSOR_STALE', 'PROTOCOL_MISMATCH'].includes(code) ? 'sync'
     : code === 'ABORTED' || code === 'CLOSED' ? 'none' : 'correct-input';
   return { error: { code, stage, recovery, retryable: false, message: 'Wallet operation failed.' }, invalid };
 }
@@ -55,6 +57,7 @@ export function installWalletWorker(owner: InitializedViews, port: MessagePort):
     account_import: session.accounts.import, account_list: session.accounts.list, account_get: session.accounts.get,
     address_current: session.addresses.current, address_next: session.addresses.next,
     address_list: session.addresses.list, address_at: session.addresses.at,
+    scan_plan: session.scan.plan, scan_ingest_batch: session.scan.ingest,
     account_balance: session.getBalance.bind(session), close: () => session.close(),
   };
   let lastId = 0, closed = false;

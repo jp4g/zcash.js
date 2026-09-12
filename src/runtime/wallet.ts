@@ -18,12 +18,10 @@ const resource = () => failure('RESOURCE_LIMIT', 'runtime', 'configure', 'Wallet
 const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wasm': 'wasm', 'node-fs.mjs': 'glue', 'opfs.mjs': 'glue' } as const;
 // Reviewed private producer + actual SDK bootstrap, not arbitrary same-profile JavaScript.
 // Updating this immutable executable closure requires reviewing the corresponding package.
-// Creation-snapshot profile is a candidate: these prior sync-only asset pins must be
-// replaced after the matching native package is reviewed. It cannot load the old profile.
 const reviewedAssets: Record<keyof typeof layout, string> = {
-  'wallet.mjs': 'bebe7ddfad5d0a1d54e41b35f78694eca79060310e5bbffc3fa38d15ad2b8f78',
-  'worker.mjs': '244154eae685e351cb92dcdaf4513a0b352451fb4b6908975a0292837e878741',
-  'bindings_bg.wasm': 'b22febfc03544c3009f73ebdb42925961f994efe18aa90aee3e76b26a194b0b5',
+  'wallet.mjs': '455752517515339cdfbc1c9604f34366feb7470316116c9cbd85787bc3be7fb5',
+  'worker.mjs': 'dfc659038c4f3a7e0d14509d28eb2d5d81a446a90d3f1429218f9f8b1d523a59',
+  'bindings_bg.wasm': '91df41805d010a16a7313fa77cf5a47bbffa11c0f14d14c299af943e1e3d822a',
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
 };

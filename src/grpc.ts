@@ -26,6 +26,8 @@ function integer(value: unknown, minimum: number, maximum = Number.MAX_SAFE_INTE
 export function grpc(url: string, options: TransportOptions): GrpcTransport {
   try {
     if (typeof url !== 'string' || /[\s\\?#]/.test(url) || !/^https?:\/\//.test(url)) throw invalidArgument();
+    const authority = /^https?:\/\/([^/]+)/.exec(url)?.[1];
+    if (!authority || authority.includes('@')) throw invalidArgument();
     const endpoint = new URL(url);
     if (endpoint.username || endpoint.password || endpoint.pathname !== '/') throw invalidArgument();
     const input = record(options, ['sourceId', 'timeoutMs', 'readRetry', 'maxResponseBytes', 'headers']);

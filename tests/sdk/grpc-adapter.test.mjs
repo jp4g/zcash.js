@@ -50,3 +50,8 @@ test('definitive status is not retried and configured response size is enforced'
   const oversized=await fixture(t,(_method,_call,callback)=>callback(null,Buffer.from([1,2])));
   await assert.rejects(oversized({maxResponseBytes:1}).unary({method:'GetLatestBlock',request:new Uint8Array()}),e=>e.code==='RESOURCE_LIMIT');
 });
+test('descriptor rejects empty userinfo without invoking headers or loading a platform',()=>{
+  let calls=0;
+  for(const url of ['http://@localhost','http://:@localhost'])assert.throws(()=>grpc(url,{...options,headers:async()=>{calls++;return {};}}),e=>e.code==='INVALID_ARGUMENT');
+  assert.equal(calls,0);
+});

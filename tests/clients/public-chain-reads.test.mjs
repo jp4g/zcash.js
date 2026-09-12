@@ -569,3 +569,52 @@ test('genuine signal mutation and abort preempt late native hash rejections at b
     } finally { fetching.mock.restore(); digest.mock.restore(); }
   }
 });
+
+{
+const { getTip, getBlockHeader } = adapter;
+const { isZcashError } = await import(`${build}/src/errors.js`);
+const { genesis } = await import('./public-chain-reads-fixtures.mjs');
+// R3-1: original reviewer assertions; native SHA256d still executes.
+for(const block of [false,true])for(const [method,stage] of [[getTip,'headers'],[getBlockHeader,'headers'],[getBlockHeader,'digest1'],[getBlockHeader,'digest2'],[getBlockHeader,'reject1'],[getBlockHeader,'reject2']])test(`${block?'REPRO suppressed':'CONTROL ordinary'} native abort ${method.name} ${stage}`,async t=>{
+ const ac=new AbortController();
+ if(block)ac.signal.addEventListener('abort',e=>e.stopImmediatePropagation(),{once:true});
+ let headers=0,calls=0,digests=0;const responses=[];
+ const source={sourceId:'r3',transport:http('http://127.0.0.1:1/rpc',{sourceId:'r3',timeoutMs:1000,maxResponseBytes:16384,readRetry:{attempts:1,delayMs:0},headers:async()=>{headers++;if(stage==='headers')ac.abort('private-reason');return {};}})};
+ t.mock.method(globalThis,'fetch',async(_url,init)=>{calls++;const c=JSON.parse(init.body);const response=new Response(JSON.stringify({jsonrpc:'2.0',id:c.id,result:method===getTip?{blocks:0,bestblockhash:genesis.verbose.hash}:c.params[1]?genesis.verbose:genesis.raw}));responses.push(response);return response;});
+ const native=crypto.subtle.digest.bind(crypto.subtle);
+ t.mock.method(crypto.subtle,'digest',async(...args)=>{const v=await native(...args);digests++;if(stage.endsWith(String(digests))){ac.abort('private-reason');if(stage.startsWith('reject'))throw Error('private-late-digest');}return v;});
+ let error,result;try{result=await method(source,method===getTip?{signal:ac.signal}:{height:0,signal:ac.signal});}catch(e){error=e;}
+ assert.equal(getEventListeners(ac.signal,'abort').length,0);assert.equal(responses.some(r=>r.body.locked),false);
+ assert.ok(isZcashError(error),'genuine caller abort must reject');assert.equal(error.code,'ABORTED');
+ if(stage==='headers')assert.equal(calls,0);
+});
+}
+
+for (const methodName of ['getTip', 'getBlockHeader']) {
+  test(`suppressed abort cancels a stalled body after synthetic events: ${methodName}`, async t => {
+    const controller = new AbortController();
+    controller.signal.addEventListener('abort', event => event.stopImmediatePropagation());
+    const originalListener = getEventListeners(controller.signal, 'abort')[0];
+    const responses = [];
+    let cancelled = 0;
+    t.mock.method(globalThis, 'fetch', async () => {
+      const response = new Response(new ReadableStream({
+        start(stream) {
+          stream.enqueue(new TextEncoder().encode('{'));
+          controller.signal.dispatchEvent(new Event('abort'));
+          setTimeout(() => controller.abort(), 5);
+        },
+        cancel() { cancelled++; },
+      }));
+      responses.push(response);
+      return response;
+    });
+    const source = { sourceId, transport: http('http://127.0.0.1:1/rpc', transportOptions) };
+    await assert.rejects(adapter[methodName](source, {
+      ...(methodName === 'getTip' ? {} : { height: 0 }), signal: controller.signal,
+    }), code('ABORTED'));
+    assert.equal(cancelled, 1);
+    assert.equal(responses[0].body.locked, false);
+    assert.deepEqual(getEventListeners(controller.signal, 'abort'), [originalListener]);
+  });
+}

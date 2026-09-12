@@ -116,6 +116,32 @@ export async function runBrowser() {
         check(calls === stage, 'native hash abort stage ' + stage);
       } finally { crypto.subtle.digest = native; }
     }
+    for (const method of [api.getTip, api.getBlockHeader]) {
+      const controller = new AbortController();
+      controller.signal.addEventListener('abort', event => event.stopImmediatePropagation(), { once: true });
+      const source = { sourceId, transport: http(`${location.origin}/rpc/invalid-input`, {
+        ...transportOptions, headers: async () => { controller.abort(); return {}; },
+      }) };
+      await rejects(method(source, { ...(method === api.getTip ? {} : { height: 0 }), signal: controller.signal }), 'ABORTED');
+    }
+    for (const stage of [1, 2]) for (const reject of [false, true]) {
+      const controller = new AbortController();
+      controller.signal.addEventListener('abort', event => event.stopImmediatePropagation(), { once: true });
+      const native = crypto.subtle.digest;
+      let calls = 0;
+      crypto.subtle.digest = async function (...args) {
+        const value = await native.apply(this, args);
+        if (++calls === stage) {
+          controller.abort();
+          if (reject) throw Error('private-late-digest');
+        }
+        return value;
+      };
+      try {
+        await rejects(api.getBlockHeader(context('genesis'), { height: 0, signal: controller.signal }), 'ABORTED');
+        check(calls === stage, 'suppressed abort at native digest ' + stage);
+      } finally { crypto.subtle.digest = native; }
+    }
     const tip = await api.getTip(context('good'));
     check(tip.height === 7 && tip.hash === hashA && tip.sourceId === sourceId, 'coherent tip');
     check(new Date(tip.observedAt).toISOString() === tip.observedAt, 'observation timestamp');
@@ -140,6 +166,7 @@ export async function runBrowser() {
     await rejects(api.getTip(context('stall', 40)), 'TIMEOUT');
     await rejects(api.getBlockHeader(context('raw-stall', 40), { height: 0 }), 'TIMEOUT');
     const controller = new AbortController();
+    controller.signal.addEventListener('abort', event => event.stopImmediatePropagation());
     const reading = rejects(api.getBlockHeader(context('raw-abort'), { height: 0, signal: controller.signal }), 'ABORTED');
     // This fixture streams a body prefix; wait until the raw request has reached the server.
     const until = Date.now() + 3000;
@@ -147,11 +174,18 @@ export async function runBrowser() {
       if (Date.now() > until) throw Error('raw abort request never arrived');
       await new Promise(resolve => setTimeout(resolve, 10));
     }
+    controller.signal.dispatchEvent(new Event('abort'));
+    check(!controller.signal.aborted, 'synthetic event does not cancel native signal');
     controller.abort(); await reading;
     check(eager.Worker === 0 && eager.WebAssembly === 0, 'reads load no worker or WASM');
     check(typeof crypto.subtle.digest === 'function', 'native Web Crypto');
     return { checks, eager, userAgent: navigator.userAgent };
   } finally { Object.assign(globalThis, originals); }
+}
+
+if (typeof window !== 'undefined') {
+  // Started by the document's module entry; WebDriver only observes this result.
+  window.chainReadsResult = runBrowser().then(value => ({ value }), error => ({ error: String(error), stack: error.stack }));
 }
 
 if (typeof process !== 'undefined' && process.versions?.node) {
@@ -161,21 +195,21 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
   const { createHash } = await import('node:crypto');
   const build = process.env.PUBLIC_CHAIN_READS_BUILD ?? '/home/jack/zcash-public-chain-reads-scratch/check/dist';
-  const logs = '/home/jack/zcash-public-chain-reads-logs';
-  const scratch = '/home/jack/zcash-public-chain-reads-scratch';
+  const logs = process.env.PUBLIC_CHAIN_READS_LOGS ?? '/home/jack/zcash-public-chain-reads-logs/fixes/authorized-r3';
+  const scratch = process.env.PUBLIC_CHAIN_READS_SCRATCH ?? '/home/jack/zcash-public-chain-reads-scratch/fixes/authorized-r3';
   await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true });
   const runRoot = await mkdtemp(`${scratch}/firefox-`);
   const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
   const report = { status: 'failed', runRoot, build, sandbox: 'unchanged', started: new Date().toISOString() };
   const stop = new AbortController();
   const deadline = setTimeout(() => stop.abort(), 90000);
-  const onSignal = () => stop.abort();
+  const onSignal = signal => { report.interrupted = signal; stop.abort(Error(signal)); };
   process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   let server, driver, driverIdentity, browserIdentity, session, endpoint, driverError, text = '';
   async function identity(pid) {
     try { const stat = (await readFile(`/proc/${pid}/stat`, 'utf8')).split(') ').at(-1).split(' ');
-      return { pid, start: stat[19], state: stat[0] }; }
+      return { pid, parent: Number(stat[1]), group: Number(stat[2]), start: stat[19], state: stat[0] }; }
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   }
   async function request(route, method = 'GET', body, cleanup = false) {
@@ -189,7 +223,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     report.sourcePin = execFileSync('git', ['-C', '/tmp/zakura-upstream-review', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
     assert.equal(report.sourcePin, '1e36d1bb6a8a9778a1bd316704b9c8cb75182de6');
     const assets = new Map([
-      ['/', '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Chain reads fixture</title>'],
+      ['/', '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Chain reads fixture</title><script type="module" src="/public-chain-reads-browser.mjs"></script>'],
       ['/public-chain-reads-browser.mjs', await readFile(new URL(import.meta.url))],
       ['/public-chain-reads-fixtures.mjs', await readFile(new URL('./public-chain-reads-fixtures.mjs', import.meta.url))],
     ]);
@@ -253,9 +287,12 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     assert.ok(session && driverIdentity && browserIdentity);
     report.processIdentities = { driver: driverIdentity, browser: browserIdentity };
     await request(`/session/${session}/timeouts`, 'POST', { script: 20000, pageLoad: 15000, implicit: 0 });
+    report.endpoint = endpoint; report.session = session;
+    report.stage = 'session-ready';
+    await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
     await request(`/session/${session}/url`, 'POST', { url: server.origin });
     const answer = await request(`/session/${session}/execute/async`, 'POST', {
-      script: "const done=arguments[arguments.length-1]; import('/public-chain-reads-browser.mjs').then(m=>m.runBrowser()).then(value=>done({value}),error=>done({error:String(error),stack:error.stack}));", args: [] });
+      script: "const done=arguments[arguments.length-1]; Promise.resolve(window.chainReadsResult).then(answer=>done(answer || {error:'page module did not start'}));", args: [] });
     assert.ok(!answer.error, JSON.stringify(answer));
     report.browserResult = answer.value;
     assert.deepEqual(answer.value.eager, { fetch: 0, Worker: 0, WebAssembly: 0 });
@@ -270,7 +307,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     if (driverIdentity) {
       for (const signal of ['SIGTERM', 'SIGKILL']) {
         const current = await identity(driverIdentity.pid);
-        if (!current || current.start === driverIdentity.start) {
+        if (!current) break;
+        if (current.start === driverIdentity.start && current.group === driverIdentity.pid) {
           try { process.kill(-driverIdentity.pid, signal); }
           catch (error) { if (error.code !== 'ESRCH') errors.push(String(error)); }
         } else { errors.push('driver PID reused; refusing group cleanup'); break; }
@@ -284,6 +322,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     const browserGone = !browser || browser.start !== browserIdentity.start || browser.state === 'Z';
     report.cleanup = { sessionDeleted, groupGone, browserGone, serverClosed: true, errors };
     if (!sessionDeleted || !groupGone || !browserGone || errors.length) report.status = 'failed';
+    report.stage = 'finished';
     report.finished = new Date().toISOString();
     await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
     await writeFile(reportPath + '.driver.log', text);

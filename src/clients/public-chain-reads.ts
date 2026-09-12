@@ -11,6 +11,7 @@ const NativeController = AbortController;
 const nativeSignal = Object.getOwnPropertyDescriptor(AbortController.prototype, 'signal')!.get!;
 const nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
 const nativeAbort = AbortController.prototype.abort;
+const nativeAny = AbortSignal.any.bind(AbortSignal);
 const nativeAdd = EventTarget.prototype.addEventListener;
 const nativeRemove = EventTarget.prototype.removeEventListener;
 const nodeRuntime = typeof globalThis === 'object'
@@ -28,7 +29,7 @@ async function bridge(original?: AbortSignal) {
       if ((await proxyCheck)(original)) throw invalidArgument();
     }
     // Browser Web IDL branding rejects proxies; Node additionally needs isProxy.
-    const alreadyAborted = nativeAborted.call(original);
+    nativeAborted.call(original);
     const controller = new NativeController();
     const signal: AbortSignal = nativeSignal.call(controller);
     Object.defineProperties(signal, {
@@ -36,12 +37,33 @@ async function bridge(original?: AbortSignal) {
       addEventListener: { value: nativeAdd.bind(signal) },
       removeEventListener: { value: nativeRemove.bind(signal) },
     });
-    const onAbort = () => {
+    if (nodeRuntime) {
+      const builtin = 'node:events';
+      const { addAbortListener } = await import(builtin);
+      // Node's helper reads public properties. Give it a native signal with
+      // trusted forwarding operations, never the caller's overrides.
+      const view: AbortSignal = nativeSignal.call(new NativeController());
+      Object.defineProperties(view, {
+        aborted: { get: () => nativeAborted.call(original) },
+        addEventListener: { value: (type: string, listener: EventListener, options: AddEventListenerOptions) =>
+          // Keep the resistant listener after synthetic events; only native
+          // cancellation consumes the operation, and finally always detaches it.
+          nativeAdd.call(original, type, listener, { ...options, once: false }) },
+        removeEventListener: { value: nativeRemove.bind(original) },
+      });
+      const subscription = addAbortListener(view, () => {
+        if (nativeAborted.call(original)) nativeAbort.call(controller);
+      });
       if (nativeAborted.call(original)) nativeAbort.call(controller);
-    };
-    nativeAdd.call(original, 'abort', onAbort);
-    if (alreadyAborted || nativeAborted.call(original)) nativeAbort.call(controller);
-    return { signal, close: () => nativeRemove.call(original, 'abort', onAbort) };
+      return { signal, close: () => subscription[(Symbol as SymbolConstructor & { readonly dispose: symbol }).dispose]() };
+    }
+    // Web IDL uses native state, not public overrides. Dependency propagation
+    // does not rely on delivery of an abort event on the caller's signal.
+    const dependent = nativeAny([original]);
+    const onAbort = () => nativeAbort.call(controller);
+    nativeAdd.call(dependent, 'abort', onAbort);
+    if (nativeAborted.call(dependent)) nativeAbort.call(controller);
+    return { signal, close: () => nativeRemove.call(dependent, 'abort', onAbort) };
   } catch { throw invalidArgument(); }
 }
 

@@ -51,7 +51,7 @@ export async function runBrowser() {
 if (typeof process !== 'undefined' && process.versions?.node) {
   const { default: assert } = await import('node:assert/strict');
   const { spawn } = await import('node:child_process');
-  const { readFile, writeFile, mkdir, mkdtemp } = await import('node:fs/promises');
+  const { readFile, writeFile, mkdir, mkdtemp, readdir } = await import('node:fs/promises');
   const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
   const { createHash } = await import('node:crypto');
   const build = process.env.WALLET_HOST_BUILD ?? '/home/jack/zcash-wallet-host-scratch/implementation/dist';
@@ -127,9 +127,17 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       for (const name of ['runtime/wallet', 'runtime/artifacts', 'runtime/wallet-profile', 'network-parameters', 'primitives']) {
         assets.set(`/dist/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
       }
+      for(const name of ['light-chain-reads-fixtures','grpc-web-fixtures'])assets.set(`/tests/clients/${name}.mjs`,await readFile(new URL(`../clients/${name}.mjs`,import.meta.url)));
+      async function modules(directory,prefix) {
+        for(const entry of await readdir(directory,{withFileTypes:true})) {
+          if(entry.isDirectory())await modules(`${directory}/${entry.name}`,`${prefix}/${entry.name}`);
+          else if(/\.m?js$/.test(entry.name))assets.set(`${prefix}/${entry.name}`,await readFile(`${directory}/${entry.name}`));
+        }
+      }
+      await modules(`${build}/src`,'/dist/src');
       assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
     }
-    assets.set('/fixture.json', JSON.stringify({ import: nativeFixture.import, scan: nativeFixture.scan }));
+    assets.set('/fixture.json', JSON.stringify({ import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
@@ -175,7 +183,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     assert.ok(!answer.error, JSON.stringify(answer));
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 4 : 2);
+    if(process.env.WALLET_LOADER){assert.equal(answer.value.publicSync,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 6 : 2);
     report.status = 'passed';
   } catch (error) { if (report.interruptedBy) report.status = 'interrupted'; report.error = { code: error.code, message: String(error), stack: error.stack }; }
   finally {

@@ -188,6 +188,7 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
     assert.equal(fixture.requests.length, report.result.requests);
     for (const request of fixture.requests) {
       assert.equal(request.body, request.path === service + 'GetLatestBlock' ? 'AAAAAAA='
+      : request.path === service + 'GetTreeState' ? base64(frame(new Uint8Array([8, 7])))
         : base64(frame(new Uint8Array([10, 2, 8, 7, 18, 2, 8, 8]))));
       assert.ok(!request.headers.cookie && !request.headers.referer);
     }

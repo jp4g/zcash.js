@@ -278,3 +278,63 @@ test('cancellation during final cleanup cannot become successful completion', as
   const iterator = internal.streamCompactBlocks(codec, customStream, { fromHeight: 7, toHeight: 7, signal: terminal.signal });
   await iterator.next(); await assert.rejects(iterator.next(), errorCode('ABORTED'));
 });
+
+for (const method of ['unary', 'stream']) {
+  for (const later of ['x'.repeat(1000000), { callerOwned: new Uint8Array(8) }]) {
+    test(`R1 ${method}: captures exactly one validated primitive (${typeof later})`, async () => {
+      let reads = 0;
+      const custom = { ...transport(), get sourceId() { return ++reads === 1 ? 'fixture' : later; },
+        unary() { return tipBytes(); }, stream() { return { async *[Symbol.asyncIterator]() { yield blockBytes(); } }; } };
+      const value = method === 'unary' ? await internal.getTip(codec, custom)
+        : (await collect(internal.streamCompactBlocks(codec, custom, { fromHeight: 7, toHeight: 7 })))[0];
+      assert.equal(value.sourceId, 'fixture');
+      assert.equal(reads, 1);
+    });
+  }
+  test(`R1 ${method}: rejects the captured invalid label before dispatch`, async () => {
+    for (const label of ['', 'x'.repeat(257), {}, undefined]) {
+      let reads = 0, calls = 0;
+      const custom = { ...transport(), get sourceId() { reads++; return label; },
+        unary() { calls++; return tipBytes(); }, stream() { calls++; throw Error('must not acquire'); } };
+      await assert.rejects(async () => method === 'unary' ? internal.getTip(codec, custom)
+        : collect(internal.streamCompactBlocks(codec, custom, range)), errorCode('INVALID_ARGUMENT'));
+      assert.equal(reads, 1); assert.equal(calls, 0);
+    }
+  });
+}
+
+for (const site of ['unary', 'stream', 'asyncIterator', 'next']) {
+  for (const cancel of [false, true]) {
+    test(`R2 ${site} accessor: ${cancel ? 'native abort prevents invocation' : 'receiver is preserved'}`, async () => {
+      const controller = new AbortController();
+      let reads = 0, calls = 0, releases = 0, pulls = 0;
+      const iterator = { [Symbol.asyncIterator]() { return this; },
+        next() { pulls++; return { done: false, value: blockBytes() }; },
+        return() { assert.equal(this, iterator); releases++; return { done: true }; } };
+      const custom = { ...transport(), unary() { return tipBytes(); }, stream() { return iterator; } };
+      const receiver = site === 'unary' || site === 'stream' ? custom : iterator;
+      const key = site === 'asyncIterator' ? Symbol.asyncIterator : site;
+      const original = receiver[key];
+      Object.defineProperty(receiver, key, { get() {
+        reads++; if (cancel) controller.abort();
+        return function (...args) { assert.equal(this, receiver); calls++; return original.apply(this, args); };
+      } });
+      const stream = site === 'unary' ? undefined : internal.streamCompactBlocks(codec, custom, { ...range, signal: controller.signal });
+      const result = site === 'unary' ? internal.getTip(codec, custom, { signal: controller.signal }) : stream.next();
+      if (cancel) await assert.rejects(bounded(result), errorCode('ABORTED'));
+      else { await result; await stream?.return(); }
+      assert.equal(reads, 1); assert.equal(calls, cancel ? 0 : 1);
+      assert.equal(pulls, site === 'unary' || cancel ? 0 : 1);
+      assert.equal(releases, site === 'unary' || (site === 'stream' && cancel) ? 0 : 1);
+    });
+  }
+}
+
+test('abort in acquisition body releases its distinct returned iterator once', async () => {
+  const controller = new AbortController(); let releases = 0, pulls = 0;
+  const iterator = { next() { pulls++; return { done: true }; }, return() { releases++; return { done: true }; } };
+  const iterable = { [Symbol.asyncIterator]() { assert.equal(this, iterable); controller.abort(); return iterator; } };
+  const custom = { ...transport(), stream() { return iterable; } };
+  await assert.rejects(internal.streamCompactBlocks(codec, custom, { ...range, signal: controller.signal }).next(), errorCode('ABORTED'));
+  assert.equal(releases, 1); assert.equal(pulls, 0);
+});

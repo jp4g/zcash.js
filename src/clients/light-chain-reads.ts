@@ -29,8 +29,9 @@ const unsupportedSignalProxy = (() => {
 function admit(transport: CustomLightTransport, args: Op, keys: readonly string[]): string {
   try {
     if (transport.protocolRevision !== revision) throw protocol();
-    if (transport.kind !== 'custom-lightwallet' || typeof transport.sourceId !== 'string'
-      || !transport.sourceId.length || transport.sourceId.length > 256) throw invalidArgument();
+    const sourceId = transport.sourceId;
+    if (transport.kind !== 'custom-lightwallet' || typeof sourceId !== 'string'
+      || !sourceId.length || sourceId.length > 256) throw invalidArgument();
     if (!args || typeof args !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(args))
       || Reflect.ownKeys(args).some(key => typeof key !== 'string' || !keys.includes(key)
         || !Object.hasOwn(Object.getOwnPropertyDescriptor(args, key)!, 'value'))) throw invalidArgument();
@@ -40,7 +41,7 @@ function admit(transport: CustomLightTransport, args: Op, keys: readonly string[
         || Object.hasOwn(args.signal, 'aborted') || Object.hasOwn(args.signal, 'reason')) throw invalidArgument();
       signalAborted.call(args.signal);
     }
-    return transport.sourceId;
+    return sourceId;
   } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
 }
 function point(dto: unknown) {
@@ -98,7 +99,9 @@ export async function getTip(codec: Lightwire, transport: CustomLightTransport, 
     let request: Uint8Array;
     try { request = codec.encodeRequest('GetLatestBlock', '{}'); } catch { throw protocol(); }
     pending.check();
-    const bytes = await pending.wait(transport.unary({ method: 'GetLatestBlock', request, signal: pending.signal }));
+    const unary = transport.unary;
+    pending.check();
+    const bytes = await pending.wait(unary.call(transport, { method: 'GetLatestBlock', request, signal: pending.signal }));
     pending.check();
     let checked;
     try { checked = point(codec.decodeResponse('GetLatestBlock', ownBytes(bytes))); }
@@ -137,13 +140,14 @@ export function streamCompactBlocks(codec: Lightwire, transport: CustomLightTran
   if (!Number.isInteger(fromHeight) || !Number.isInteger(toHeight) || fromHeight < 0
     || toHeight > 0xffff_ffff || toHeight < fromHeight || toHeight - fromHeight >= 1024) throw invalidArgument();
   let iterator: AsyncIterator<Uint8Array> | undefined;
+  let iterable: (AsyncIterable<Uint8Array> & Partial<AsyncIterator<Uint8Array>>) | undefined;
   let pending: ReturnType<typeof operation> | undefined;
   let height = fromHeight, previous: string | undefined, total = 0;
   let finished = false, busy = false, released = false;
-  function release() {
-    if (!iterator || released) return;
+  function release(acquired: Partial<AsyncIterator<Uint8Array>> | undefined = iterator) {
+    if (!acquired || released) return;
     released = true;
-    try { void Promise.resolve(iterator?.return?.()).catch(() => {}); }
+    try { void Promise.resolve(acquired.return?.()).catch(() => {}); }
     catch { /* Release is best effort for an uncooperative custom transport; never replace the outcome. */ }
   }
   return {
@@ -161,10 +165,18 @@ export function streamCompactBlocks(codec: Lightwire, transport: CustomLightTran
             start: { height: String(fromHeight) }, end: { height: String(toHeight) },
           })); } catch { throw protocol(); }
           pending.check();
-          iterator = transport.stream({ method: 'GetBlockRange', request, signal: pending.signal })[Symbol.asyncIterator]();
+          const stream = transport.stream;
+          pending.check();
+          iterable = stream.call(transport, { method: 'GetBlockRange', request, signal: pending.signal });
+          pending.check();
+          const acquire = iterable[Symbol.asyncIterator];
+          pending.check();
+          iterator = acquire.call(iterable);
         }
         pending.check();
-        const item = await pending.wait(iterator!.next());
+        const next = iterator!.next;
+        pending.check();
+        const item = await pending.wait(next.call(iterator));
         pending.check();
         if (item.done) {
           if (height !== toHeight + 1) throw protocol();
@@ -186,7 +198,7 @@ export function streamCompactBlocks(codec: Lightwire, transport: CustomLightTran
         return { done: false, value: { point: checked, previousHash, encoded, sourceId, observedAt: new Date().toISOString() } };
       } catch (error) {
         finished = true;
-        try { pending?.check(); } finally { pending?.close(); release(); }
+        try { pending?.check(); } finally { pending?.close(); release(iterator ?? iterable); }
         throw isZcashError(error) ? error : transportFailure();
       } finally { busy = false; }
     },

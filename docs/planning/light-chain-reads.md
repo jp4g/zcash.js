@@ -129,3 +129,41 @@ The final worker report, CLI result, test exits and retained receipts are under
 `/home/jack/zcash-light-chain-logs/`. RED→GREEN evidence is retained separately;
 repeated runs and overlapping case matrices must not be summed as independent
 coverage.
+
+## First R1 correction
+
+The initial independent HIGH review held `09576a7a47af5241a36ecd05c7844cea032e6924`
+for two P2 custom-transport defects. Admission now reads `sourceId` once, validates
+that exact primitive string, and retains only that value. Unary, stream,
+async-iterator acquisition and next methods are resolved before a native
+cancellation check and invoked with their original receivers. If cancellation
+prevents iterator acquisition, an already returned iterable's optional return is
+released best effort; an acquired distinct iterator is released once instead.
+Cleanup return remains permitted after cancellation because it releases resources.
+The authentic initialized codec methods are not caller transport acquisition sites.
+
+Regression tests were added before production edits: the original source passed
+26/36 and failed 10 cases across unary/stream label validation and all four getter
+cancellation sites. The copied independent required-contract diagnostic failed
+0/2, then passed 2/2. Corrected source passes 37/37 authentic-codec unit tests,
+including all original 22 and a distinct-iterator acquisition cleanup control.
+Local compiler/tests used installed Node 26.8.1; corrected-head Node 22 and ordinary
+Node HTTP/Firefox host qualification remain coordinator gates. Logs and retained
+RED output are under `/home/jack/zcash-light-chain-logs/fixes/r1` and external
+builds/helper under `/home/jack/zcash-light-chain-scratch/fixes/r1`.
+
+The earlier pending-parent statement above records the original worker handoff.
+Subsequent parent-01 exact-original-source Node 22 unit and ordinary Node/Firefox
+runs passed (each network matrix: 109 assertions/28 requests), source-bound by
+HIGH R1. Coordinator also executed the original helper SHA256
+`a11054862123353d172a9bac4c8264b0457f0ccf84416dee059e69cadaae2898` with exit 0;
+`review/r1/coordinator-interruptions.log` records all eight real SIGINT/SIGTERM
+Firefox acquisition/session controls. These original-source receipts do not
+qualify this correction. A new corrected-head/source/build-pinned helper preserves
+those controls for separate parent execution; timing misses remain failures.
+
+N1 remains a scoped observation about unsupported native signal descriptor
+mutation after admission. This correction makes no broad prototype/global
+immunity promise and does not reopen that nonblocking observation, codec,
+loader/profile, native gRPC, public factories, or unrelated implementation lanes.
+Independent HIGH R2 acceptance belongs to the coordinator.

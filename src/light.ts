@@ -2,39 +2,12 @@ import type { CustomLightTransport, GrpcTransport, LightClient, Network, Op } fr
 import { networkBinding } from './network.js';
 import { grpcAdapter, grpcBinding } from './grpc.js';
 import { failure, invalidArgument, isZcashError } from './errors.js';
-import { ownBytes } from './clients/owned-plumbing.js';
+import { snapshot } from './clients/owned-plumbing.js';
 import { ownCustomLightTransport } from './clients/custom-light.js';
 import * as chain from './clients/light-chain-reads.js';
 import * as transactions from './clients/light-transaction-reads.js';
 import * as transparent from './clients/light-transparent-reads.js';
 import { readLightdInfo } from './clients/light-server-observation.js';
-
-const resource = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Light client input exceeds limit.');
-function snapshot<T extends object>(args: T, keys: readonly string[]): T {
-  try {
-    if (!args || typeof args !== 'object' || ![null, Object.prototype].includes(Object.getPrototypeOf(args))) throw invalidArgument();
-    const output = Object.create(null);
-    for (const key of Reflect.ownKeys(args)) {
-      if (typeof key !== 'string' || !keys.includes(key)) throw invalidArgument();
-      const field = Object.getOwnPropertyDescriptor(args, key);
-      if (!field || !Object.hasOwn(field, 'value')) throw invalidArgument();
-      output[key] = field.value;
-    }
-    if ('bytes' in output) output.bytes = ownBytes(output.bytes, invalidArgument, resource);
-    if ('addresses' in output) {
-      const values = output.addresses;
-      if (!Array.isArray(values) || !values.length || values.length > 1000) throw invalidArgument();
-      const copy: string[] = [];
-      for (let index = 0; index < values.length; index++) {
-        const field = Object.getOwnPropertyDescriptor(values, String(index));
-        if (!field || !Object.hasOwn(field, 'value') || typeof field.value !== 'string') throw invalidArgument();
-        copy.push(field.value);
-      }
-      output.addresses = copy;
-    }
-    return output;
-  } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
-}
 
 /** Complete light-client composition; no connection or native initialization at construction. */
 export function createLightClient(args: { network: Network; transport: GrpcTransport | CustomLightTransport }): LightClient {

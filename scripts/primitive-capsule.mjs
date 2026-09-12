@@ -10,7 +10,7 @@ const generatorSha256=sha(await readFile(import.meta.filename));
 const lockSha256=sha(await readFile(join(root,'package-lock.json')));
 const profiles=[
   {name:'primitive',receipt:'57f268c0976cabc312b8337ab942c59272de0b146d18108d1dcbcab4acb6f346',directory:'primitive',receiptFile:'build.json',artifacts:'primitiveArtifacts',wasm:'bindings_bg.wasm',modules:['bindings.js','bytes.mjs','network.mjs','transaction.mjs']},
-  {name:'lightwire',receipt:'f0a385adffe4bdca50e39b951658f2d021ebb5011ceb00b6b78f63b988e3b5cc',directory:'',receiptFile:'receipt.json',artifacts:'artifacts',wasm:'wasm/zakura_lightwire_bg.wasm',modules:['codec.mjs','wasm/zakura_lightwire.js'],factory:'createLightwire'},
+  {name:'lightwire',receipt:'bed0c283d44a449c162ce240f332d092b99175c695725f9736b79d19fb24924f',directory:'',receiptFile:'receipt.json',artifacts:'artifacts',wasm:'wasm/zakura_lightwire_bg.wasm',modules:['codec.mjs','wasm/zakura_lightwire.js'],factory:'createLightwire'},
   {name:'transparent-address',receipt:'a5b377630be1496949b17a463767c48af99821c343db8caa0c50aca513a5cc4a',directory:'',receiptFile:'receipt.json',artifacts:'artifacts',wasm:'wasm/zakura_transparent_address_bg.wasm',modules:['codec.mjs','wasm/zakura_transparent_address.js'],factory:'createTransparentAddressCodec'},
 ];
 const generate=process.argv[2]?.startsWith('--generate');

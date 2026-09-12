@@ -30,6 +30,7 @@ test('packed light codecs are lazy, native, owned and bound to their capsule rec
     assert.equal(instances,0);
     const wire=wireModule.initialize();assert.equal(wireModule.initialize(),wire);
     assert.deepEqual(wire.encodeRequest('GetTreeState','{"height":"7","hash":""}'),new Uint8Array([8,7]));
+    assert.deepEqual(wire.encodeTreeState('{"height":"7","orchard_tree":"ab"}'),new Uint8Array([16,7,50,2,97,98]));
     assert.equal(wire.decodeResponse('GetLatestBlock',new Uint8Array([8,7])).height,'7');
     assert.equal(wire.decodeItem('GetBlockRange',new Uint8Array([16,7])).height,'7');
     assert.throws(()=>wire.decodeResponse('GetLatestBlock',new Uint8Array([255])));

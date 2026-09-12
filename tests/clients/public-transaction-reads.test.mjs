@@ -127,3 +127,17 @@ test('mined transaction composes block reads with a signal and preserves cancell
     assert.deepEqual(server.unexpected, []);
   } finally { await server.close(); }
 });
+
+test('validated mined height reaches native decoder; off-chain contexts remain null', async () => {
+  const v=vectors[0];
+  const {getTransaction}=await import(pathToFileURL(`${build}/src/clients/public-transaction-reads.js`));
+  const {http}=await import(pathToFileURL(`${build}/src/http.js`));
+  let mined=true, seen;
+  const server=await fixture(call=>result(call.method==='getrawtransaction'?{txid:v.display,hex:v.hex,in_active_chain:mined,...(mined?{height:1,blockhash:blockOne.verbose.hash,confirmations:1}:{})}:call.method==='getblock'?{...blockOne.verbose,nTx:1,tx:[v.display]}:call.params[1]?blockOne.verbose:blockOne.raw));
+  try {
+    const source={transport:http(server.origin+'/rpc',transportOptions),sourceId:'fixture'};
+    const context={txid:v.display,decodeTransaction(raw,height){seen=height;return decodeTransaction(raw,v.branch);}};
+    await getTransaction(source,context,{txid:v.display});assert.equal(seen,1);
+    mined=false;await getTransaction(source,context,{txid:v.display});assert.equal(seen,null);
+  }finally{await server.close();}
+});

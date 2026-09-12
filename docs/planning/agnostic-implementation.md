@@ -184,3 +184,13 @@ the existing locked bundler. Ordinary package builds only hash-check and copy th
 committed capsule and declarations; they need no local native artifact/build tools.
 This narrow host-local codec qualification does not claim the H1 configurable
 artifact-runtime contract, threaded scanning or any unimplemented client factory.
+
+Private LightClient codec capsules now package the accepted Lightwire and
+transparent-address Rust artifacts using the same offline capsule producer.
+`lightwire-capsule.mjs` and `transparent-address-capsule.mjs` each expose an internal
+`initialize()` returning the existing codec interface; import does not instantiate
+WASM, and repeated initialization reuses the stateless instance. Reproduce with
+`node scripts/primitive-capsule.mjs --generate-lightwire BUILD` or
+`--generate-transparent-address BUILD`. Normal builds verify the committed hashes
+and copy the capsules without fetching or building native code. This adds no
+public client factory; packed Node codec tests are not browser acceptance.

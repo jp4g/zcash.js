@@ -1,0 +1,19 @@
+{
+  "format": "zcash-js-pure-codec-capsule/1",
+  "profile": "lightwire",
+  "generatorSha256": "55f4a6ad207208e96e36b8e2ee4bddccd53faaee058a7db4880d53a480126311",
+  "lockSha256": "16dab52ae86e372f96139e4c7664a0229dcf4973673ebd8c73fe8745ed037321",
+  "nativeReceipt": "f0a385adffe4bdca50e39b951658f2d021ebb5011ceb00b6b78f63b988e3b5cc",
+  "inputs": {
+    "codec.mjs": "03ce82c6df4fb483b7d73e52a49988fd368cef33d1c1284c44378869a16f67da",
+    "wasm/zakura_lightwire.d.ts": "eb23fc6d6d74d168fcc2c03cd3efcfb1a98b323509e0b62fbec38e37229450e7",
+    "wasm/zakura_lightwire.js": "ce88b2db6c2b24c7935b85c2d4f6d9d5e1739234d35c39510d92b7c781c4e043",
+    "wasm/zakura_lightwire_bg.wasm": "4803d36718071fc1b114c1d0dce766b876da02234e3c2078979c5dc69ad37da9",
+    "wasm/zakura_lightwire_bg.wasm.d.ts": "e6ad0679fbf83685f4d5793f4ed83c96043d0c6e944ff5f49068bceffe62787a"
+  },
+  "modules": [
+    "codec.mjs",
+    "wasm/zakura_lightwire.js"
+  ],
+  "sha256": "34e278b92110f689fc5e52478e6304f55871edeb439169785960a095b4ad9264"
+}

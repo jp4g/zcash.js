@@ -27,7 +27,7 @@ const unsupportedSignalProxy = (() => {
   return host.process?.getBuiltinModule?.('node:util').types.isProxy ?? (() => true);
 })();
 
-function admit(transport: CustomLightTransport, args: Op, keys: readonly string[]): string {
+export function admit(transport: CustomLightTransport, args: Op, keys: readonly string[]): string {
   try {
     if (transport.protocolRevision !== revision) throw protocol();
     const sourceId = transport.sourceId;
@@ -62,7 +62,7 @@ const aborted = () => failure('ABORTED', 'query', 'none', 'Light-chain read abor
 
 // Native dependent signals propagate cancellation independently of caller event listeners.
 // Keep the dependent signal private: synthetic events on the caller/transport signal cannot cancel us.
-function operation(signal: AbortSignal | undefined, release: () => void = () => {}) {
+export function operation(signal: AbortSignal | undefined, release: () => void = () => {}) {
   const controller = new AbortController();
   const dependent = signal === undefined ? undefined : AbortSignal.any([signal]);
   let cancelled = false, closed = false;

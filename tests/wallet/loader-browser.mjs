@@ -1,4 +1,4 @@
-import { scanChecks, checkBalance } from './scan-checks.mjs';
+import { scanChecks, checkBalance, enhancementChecks } from './scan-checks.mjs';
 // Real HTTPS acquisition -> verified Blob worker -> native OPFS persistence.
 export async function runBrowser() {
   const { openWalletRuntime } = await import('/dist/src/runtime/wallet.js');
@@ -44,17 +44,30 @@ export async function runBrowser() {
     const scanOptions = { ...options, storage: { kind: 'browser-opfs', name: `${name}-scan` } };
     let scanned;
     const first = await openWalletRuntime(scanOptions);
-    try { scanned = await scanChecks(first.session, fixture.scan); } finally { await first.close(); }
+    try { scanned = await scanChecks(first.session, fixture.scan, options.network); } finally { await first.close(); }
     const reopened = await openWalletRuntime(scanOptions);
     try {
       const balance = await reopened.session.getBalance(scanned.query);
       checkBalance(balance, fixture.scan);
       check(balance.scan.revision !== scanned.balance.scan.revision, 'scanned reopen epoch');
     } finally { await reopened.close(); }
-    return { scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    check(fixture.enhancement,'native enhancement fixture');
+    const enhancedOptions={...options,storage:{kind:'browser-opfs',name:`${name}-enhanced`}};
+    const directory=await(await navigator.storage.getDirectory()).getDirectoryHandle(enhancedOptions.storage.name,{create:true});
+    const file=await directory.getFileHandle('wallet.db',{create:true}),writer=await file.createWritable();
+    await writer.write(Uint8Array.from(fixture.enhancement.database.match(/../g),byte=>parseInt(byte,16)));await writer.close();
+    let enhancedRevision;
+    for(const reopen of [false,true]) {
+      const opened=await openWalletRuntime(enhancedOptions);
+      try {
+        const revision=await enhancementChecks(opened.session,fixture.enhancement,reopen);
+        if(reopen)check(revision!==enhancedRevision,'enhanced reopen epoch');else enhancedRevision=revision;
+      } finally {await opened.close();}
+    }
+    return { publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
-    for (const entry of [name, `${name}-scan`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
+    for (const entry of [name, `${name}-scan`,`${name}-enhanced`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
       if (error.name !== 'NotFoundError') throw error;
     });
   }

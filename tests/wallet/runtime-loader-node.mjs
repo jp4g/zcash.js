@@ -1,11 +1,11 @@
 // Real TLS acquisition, reviewed executable bytes, actual worker/Rust filesystem wallet.
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, readdir } from 'node:fs/promises';
+import { readFile, mkdtemp, readdir, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:https';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
-import { scanChecks, checkBalance } from './scan-checks.mjs';
+import { scanChecks, checkBalance, enhancementChecks } from './scan-checks.mjs';
 import { openWalletRuntime } from '../../dist/src/runtime/wallet.js';
 
 assert.ok(process.argv[2], 'actual reviewed package directory required');
@@ -107,7 +107,7 @@ try {
   }
   let scanned;
   const first = await openWalletRuntime(options('scanned'));
-  try { scanned = await scanChecks(first.session, fixture.scan); } finally { await first.close(); }
+  try { scanned = await scanChecks(first.session, fixture.scan, options('scanned').network); } finally { await first.close(); }
   const reopened = await openWalletRuntime(options('scanned'));
   try {
     const balance = await reopened.session.getBalance(scanned.query);
@@ -115,8 +115,20 @@ try {
     assert.notEqual(balance.scan.revision, scanned.balance.scan.revision);
     assert.deepEqual(await reopened.session.accounts.get({ accountId: scanned.account.id }), scanned.account);
   } finally { await reopened.close(); }
+  assert.ok(fixture.enhancement,'source-bound native enhancement fixture');
+  const enhancedOptions=options('enhanced');
+  await mkdir(enhancedOptions.storage.path,{mode:0o700});
+  await writeFile(`${enhancedOptions.storage.path}/wallet.db`,Buffer.from(fixture.enhancement.database,'hex'),{mode:0o600,flag:'wx'});
+  let enhancedRevision;
+  for(const reopen of [false,true]) {
+    const opened=await openWalletRuntime(enhancedOptions);
+    try {
+      const revision=await enhancementChecks(opened.session,fixture.enhancement,reopen);
+      if(reopen)assert.notEqual(revision,enhancedRevision);else enhancedRevision=revision;
+    } finally {await opened.close();}
+  }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 30, 'six pinned assets per open; no execution refetch');
-  console.log(JSON.stringify({ pass: true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 42, 'six pinned assets per open; no execution refetch');
+  console.log(JSON.stringify({ pass: true, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

@@ -138,3 +138,43 @@ test('native scan admission errors retain completion and allow replanning', asyn
     && error.recovery === 'sync' && host.completion(error).completion === 'none');
   assert.equal((await host.scan.plan(args)).revision, 'new');
 });
+
+test('wallet-wide state reads and rewind preserve native points and commit receipts', async t => {
+  const controller = new AbortController();
+  const point = { height: 80, hash: '04'.repeat(32) };
+  const { host } = local(t, (_g, _i, command, args) => {
+    if (command === 'scan_state') return { revision: 'before', fullyScannedHeight: 100 };
+    if (command === 'scan_block_hash') { assert.equal(args.height, 80); return { revision: 'before', point }; }
+    assert.equal(command, 'scan_rewind');
+    assert.equal(args.revision, 'before'); assert.deepEqual(args.requestedPoint, point);
+    controller.abort();
+    return { revision: 'after', point: { height: 64, hash: '05'.repeat(32) } };
+  });
+  assert.equal((await host.scan.state()).fullyScannedHeight, 100);
+  assert.deepEqual((await host.scan.block({ height: 80 })).point, point);
+  const args = { revision: 'before', requestedPoint: { ...point }, signal: controller.signal };
+  const pending = host.scan.rewind(args); args.requestedPoint.height = 99;
+  await assert.rejects(pending, error => error.code === 'ABORTED'
+    && host.completion(error).completion === 'committed'
+    && host.completion(error).value.point.height === 64);
+});
+
+test('enhancement application owns full transaction bytes and preserves stale-request failure', async t => {
+  const request = { kind: 'enhancement', txid: '06'.repeat(32) };
+  let writes = 0;
+  const { host } = local(t, (_g, _i, command, args) => {
+    if (command === 'enhancement_requests') return { revision: 'r1', requests: [request] };
+    assert.equal(command, 'enhancement_apply');
+    if (writes++) throw Object.assign(Error('STALE_REVISION'), { commit: 'none' });
+    assert.deepEqual(args.request, request);
+    assert.deepEqual([...args.result.transactions[0].bytes], [1, 2, 3]);
+    return { revision: 'r2' };
+  });
+  assert.deepEqual((await host.enhancement.requests()).requests, [request]);
+  const bytes = new Uint8Array([1, 2, 3]);
+  const args = { revision: 'r1', request, result: { transactions: [{ bytes, minedHeight: 100 }] } };
+  const pending = host.enhancement.apply(args); bytes.fill(9);
+  assert.equal((await pending).revision, 'r2');
+  await assert.rejects(host.enhancement.apply(args), error => error.code === 'CURSOR_STALE'
+    && error.stage === 'sync' && host.completion(error).completion === 'none');
+});

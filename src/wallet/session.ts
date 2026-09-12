@@ -1,5 +1,5 @@
 import { failure, invalidArgument } from '../errors.js';
-import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
+import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
 
 /** Accepted, already initialized VIEW owner. Construct and consume in its worker. */
 export interface InitializedViews {
@@ -21,6 +21,16 @@ export interface ScanBatch {
   readonly priorTreeState: Uint8Array; readonly blocks: readonly Uint8Array[];
 }
 export interface ScanReceipt { readonly revision: string; readonly start: number; readonly endExclusive: number; readonly blocks: number }
+export interface ScanBlock { readonly revision: string; readonly point: ScanTarget | null }
+export interface ScanRewind { readonly revision: string; readonly requestedPoint: ScanTarget }
+export type EnhancementRequest = { readonly kind: 'enhancement' | 'status'; readonly txid: string }
+  | { readonly kind: 'address'; readonly address: string; readonly start: number; readonly endExclusive: number | null;
+    readonly requestAt: number | null; readonly txStatus: 'mined' | 'mempool' | 'all'; readonly outputStatus: 'unspent' | 'all' };
+export interface EnhancementRequests { readonly revision: string; readonly requests: readonly EnhancementRequest[] }
+export type EnhancementResult = { readonly transactions: readonly { readonly bytes: Uint8Array; readonly minedHeight: number | null }[]; readonly asOfHeight?: number; readonly complete?: boolean }
+  | { readonly status: 'notRecognized' | 'notInMainChain' }
+  | { readonly status: 'mined'; readonly height: number };
+export interface EnhancementApply { readonly revision: string; readonly request: EnhancementRequest; readonly result: EnhancementResult }
 
 export type Completion = 'none' | 'committed' | 'unknown';
 
@@ -98,8 +108,16 @@ export class WalletSession {
   }
 
   readonly scan = {
+    state: (args?: Op) => this.invoke<ScanState>('scan_state', args),
+    block: (args: { height: number } & Op) => this.invoke<ScanBlock>('scan_block_hash', args),
+    rewind: (args: ScanRewind & Op) => this.invoke<ScanBlock>('scan_rewind', args),
     plan: (args: { target: ScanTarget } & Op) => this.invoke<ScanPlan>('scan_plan', args),
     ingest: (args: ScanBatch & Op) => this.invoke<ScanReceipt>('scan_ingest_batch', args),
+  };
+
+  readonly enhancement = {
+    requests: (args?: Op) => this.invoke<EnhancementRequests>('enhancement_requests', args),
+    apply: (args: EnhancementApply & Op) => this.invoke<{ revision: string }>('enhancement_apply', args),
   };
 
   /** Drain accepted calls, close once, and reject new admission immediately.

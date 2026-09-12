@@ -66,7 +66,7 @@ node tests/wallet/session.test.mjs
 WALLET_TEST_ROOT=/assigned/scratch node tests/wallet/session-node.mjs /accepted/mnemonic-build-04/bundle
 ```
 
-## Pending acceptance
+## Session review, 2026-09-12
 
 `tests/wallet/session-browser.mjs` adapts the existing VIEW browser lifecycle
 fixture and shares `views-worker.mjs`. It requires the original lifecycle
@@ -75,9 +75,10 @@ directory (with trailing slash). The host must serve the owned test files and
 compiled SDK at their repository-relative paths, including
 `/dist/src/errors.js`, now imported by `/dist/src/wallet/session.js`. A fixed
 browser asset map must include that runtime dependency. This slice adds no server or
-browser runner. Coordinator1398279 owns eligibility, Firefox execution,
-independent HIGH review, and integration; browser source syntax checks alone are
-not Firefox acceptance.
+browser runner. The standalone source and evidence review accepted the local
+error/completion change at `b90e5fda333664b70cdfae29ae26489d55d416ba` within
+the synchronous worker-local contract described above. See
+[the review record](wallet-session-review.md). No coordinator is active.
 
 No WalletClient factory/export, Network, MemorySigner, public birthday
 projection, public error/recovery integration, balance, or loader acceptance is

@@ -45,10 +45,19 @@ const network = { identity: 'fixture', genesisHash: '03'.repeat(32), parametersF
   parameters: new TextEncoder().encode('{"encoding":"regtest","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}') };
 const options = (name, mode = 'good') => ({ network, storage: { kind: 'node-filesystem', path: `${root}/${name}` }, runtime: {
   baseline: { manifestUrl: `${origin}/${mode}/manifest.json`, manifestSha256: sha(mode === 'unreviewed' ? alteredManifest : manifestBytes) },
-  threading: { mode: 'baseline' }, maxMemoryBytes: 268435456, maxQueuedBytes: 65536,
+  threading: { mode: 'baseline' }, maxMemoryBytes: 512 * 1024 * 1024, maxQueuedBytes: 65536,
   maxQueuedJobs: 8, scanBatchSize: 10, maxPcztBytes: 1048576,
 } });
 try {
+  for (const [name, limits] of [['native-only-memory', { maxMemoryBytes: 256 * 1024 * 1024 }],
+    ['oversize-queue', { maxQueuedBytes: Number.MAX_SAFE_INTEGER }],
+    ['oversize-control', { maxQueuedJobs: Number.MAX_SAFE_INTEGER }]]) {
+    const input = options(name), before = requests.length;
+    Object.assign(input.runtime, limits);
+    await assert.rejects(openWalletRuntime(input), { code: 'RESOURCE_LIMIT' });
+    assert.equal(requests.length, before, 'memory admission precedes fetch');
+    assert.equal(existsSync(`${root}/${name}`), false, 'memory admission precedes storage');
+  }
   for (const [mode, code] of [['tamper', 'RUNTIME_UNAVAILABLE'], ['unreviewed', 'PROTOCOL_MISMATCH']]) {
     await assert.rejects(openWalletRuntime(options(mode, mode)), { code });
     assert.equal(existsSync(`${root}/${mode}`), false);

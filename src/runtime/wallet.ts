@@ -54,7 +54,12 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
   for (const key of ['maxMemoryBytes', 'maxQueuedBytes', 'maxQueuedJobs', 'scanBatchSize', 'maxPcztBytes']) {
     if (!Number.isSafeInteger(runtime[key]) || runtime[key] <= 0) throw invalidArgument();
   }
-  if (runtime.maxMemoryBytes < 4096 * 65536) throw resource();
+  // Reserve native maximum, verified inventory + executable staging copies, one
+  // WASM initialization copy, manifest working space, and admitted payload/control
+  // records. This bounds owned-allocation admission, not the engine/process RSS.
+  const reserved = 4096 * 65536 + 2 * policy.maxTotalAssetBytes + policy.maxAssetBytes
+    + 4 * policy.maxManifestBytes + runtime.maxQueuedBytes + 4096 * runtime.maxQueuedJobs;
+  if (!Number.isSafeInteger(reserved) || runtime.maxMemoryBytes < reserved) throw resource();
   if (runtime.onDiagnostic !== undefined && typeof runtime.onDiagnostic !== 'function') throw invalidArgument();
   const storage = record(input.storage, ['kind', 'path', 'name']);
   if (storage.kind !== (node ? 'node-filesystem' : 'browser-opfs')) throw unavailable();

@@ -60,7 +60,13 @@ async function transaction(source: LightTransactionSource, dto: unknown, sourceI
   const minedHeight = state === 'mined' ? height(value.height) : null;
   const raw = bytes(value.data);
   if (!raw.length) throw protocol();
-  const result = await decoded(source, raw, minedHeight);
+  let result;
+  try { result = await decoded(source, raw, minedHeight); }
+  catch (error) {
+    // These bytes came from the endpoint; caller input errors remain distinct on submission.
+    if (isZcashError(error) && error.code === 'INVALID_ARGUMENT') throw protocol();
+    throw error;
+  }
   const observation = { sourceId, observedAt: new Date().toISOString() };
   return { ...result, ...observation, observation: { ...observation, txid: result.txid, state,
     inclusion: minedHeight === null ? null : { height: minedHeight, blockHash: null, confirmations: null },

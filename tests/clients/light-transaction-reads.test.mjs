@@ -58,6 +58,19 @@ test('subtrees retain wire order, pool/index and bounded pulls; return releases'
   await bounded.next(); await assert.rejects(bounded.next(), { code: 'RESOURCE_LIMIT' });
   assert.equal(state.returns, 2);
 });
+
+test('native decoder input rejection means malformed endpoint bytes, while cancellation and submission retain identity', async () => {
+  const { source } = fixture();
+  const invalid = failure('INVALID_ARGUMENT', 'validation', 'correct-input', 'Invalid transaction.');
+  source.decodeTransaction = () => { throw invalid; };
+  await assert.rejects(methods.getTransaction(source, { txid: id }), { code: 'PROTOCOL_MISMATCH' });
+  await assert.rejects(methods.broadcastTransaction(source, { bytes: raw }), error => error === invalid);
+  for (const code of ['ABORTED', 'TRANSPORT_ERROR']) {
+    const error = failure(code, 'query', 'none', 'Interrupted.');
+    source.decodeTransaction = () => { throw error; };
+    await assert.rejects(methods.getTransaction(source, { txid: id }), actual => actual === error);
+  }
+});
 test('address range and mempool stream do not silently admit wrong transaction states', async () => {
   const { source, state } = fixture();
   state.items = [{ data: '0102ff', height: '3' }];

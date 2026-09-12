@@ -129,6 +129,7 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
       ['/light-transparent-reads-browser.mjs', readFileSync(new URL('./light-transparent-reads-browser.mjs', import.meta.url))],
       ['/grpc-web-fixtures.mjs', readFileSync(new URL('./grpc-web-fixtures.mjs', import.meta.url))],
       ['/src/clients/grpc-web.js', readFileSync(build + '/src/clients/grpc-web.js')],
+      ['/src/clients/grpc-status.js', readFileSync(build + '/src/clients/grpc-status.js')],
       ['/src/clients/light-transparent-reads.js', readFileSync(build + '/src/clients/light-transparent-reads.js')],
       ['/src/clients/owned-plumbing.js', readFileSync(build + '/src/clients/owned-plumbing.js')],
       ['/src/primitives.js', readFileSync(build + '/src/primitives.js')],

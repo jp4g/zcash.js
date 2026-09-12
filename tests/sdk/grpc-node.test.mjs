@@ -4,6 +4,7 @@ import { build } from 'vite';
 import { readFileSync } from 'node:fs';
 import { Server, ServerCredentials, Metadata, status } from '@grpc/grpc-js';
 import { createGrpcNodeTransport } from '../../dist/src/clients/grpc-node.js';
+import { isGrpcNotFound } from '../../dist/src/clients/grpc-status.js';
 
 const unary = ['GetLatestBlock', 'GetLightdInfo', 'GetTransaction', 'GetAddressUtxos', 'GetTaddressBalance', 'GetTreeState', 'SendTransaction'];
 const streams = ['GetSubtreeRoots', 'GetBlockRange', 'GetTaddressTransactions', 'GetMempoolStream'];
@@ -11,6 +12,21 @@ const options = { sourceId: 'synthetic', timeoutMs: 1000 };
 const args = (method, request = new Uint8Array([8, 1, 18, 2, 0, 255])) => ({ method, request });
 const code = expected => error => error.code === expected && !error.message.includes('SECRET');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+test('only actual native NOT_FOUND retains private absence identity', async t => {
+  const create = await fixture(t, (method, call, callback) => callback({ code: status.NOT_FOUND, details: 'SECRET' }));
+  await assert.rejects(create().unary(args('GetTransaction')), error => error.code === 'TRANSPORT_ERROR' && isGrpcNotFound(error));
+  assert.equal(isGrpcNotFound({ code: 5 }), false);
+  await assert.rejects(create({ headers: async () => { throw { code: 5 }; } }).unary(args('GetTransaction')),
+    error => error.code === 'INVALID_ARGUMENT' && !isGrpcNotFound(error));
+});
+
+test('native transient status marks read-retry eligibility without replaying the adapter call', async t => {
+  let calls = 0;
+  const create = await fixture(t, (method, call, callback) => { calls++; callback({ code: status.UNAVAILABLE, details: 'SECRET' }); });
+  await assert.rejects(create().unary(args('GetTransaction')), error => error.code === 'TRANSPORT_ERROR' && error.retryable);
+  assert.equal(calls, 1);
+});
 
 async function fixture(t, handler) {
   const server = new Server();

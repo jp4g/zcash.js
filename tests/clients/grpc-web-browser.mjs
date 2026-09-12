@@ -181,6 +181,7 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
       ['/grpc-web-browser.mjs', readFileSync(new URL('./grpc-web-browser.mjs', import.meta.url))],
       ['/grpc-web-fixtures.mjs', readFileSync(new URL('./grpc-web-fixtures.mjs', import.meta.url))],
       ['/src/clients/grpc-web.js', readFileSync(new URL('../../dist/src/clients/grpc-web.js', import.meta.url))],
+      ['/src/clients/grpc-status.js', readFileSync(new URL('../../dist/src/clients/grpc-status.js', import.meta.url))],
       ['/src/errors.js', readFileSync(new URL('../../dist/src/errors.js', import.meta.url))],
     ]);
     const hash = bytes => createHash('sha256').update(bytes).digest('hex');

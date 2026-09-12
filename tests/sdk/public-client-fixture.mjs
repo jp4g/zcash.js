@@ -1,3 +1,4 @@
+import {scalar,bytesField,concat} from '../clients/light-chain-reads-fixtures.mjs';
 import { genesis, blockOne } from '../clients/public-chain-reads-fixtures.mjs';
 import { address, networkDefinition } from './light-client-fixture.mjs';
 export function publicResponse(call, vector, mode='good') {
@@ -24,7 +25,9 @@ export async function publicClientChecks(api, makeTransport, vector, waitForDisp
   check((await client.getUtxos({addresses:[address]})).items[0].value===42n,'UTXO');
   const tree=await client.getTreeState({height:1});
   // All three tree strings are encoded by native prost, including legacy Orchard tag 6.
-  check(tree.sapling.length===3&&tree.ironwood.length===3&&tree.encoded.includes(50),'native TreeState encoder');
+  const text=(field,value)=>bytesField(field,new TextEncoder().encode(value));
+  const encoded=concat(text(1,'main'),scalar(2,1),text(3,blockOne.verbose.hash),scalar(4,blockOne.verbose.time),text(5,'000000'),text(6,'000000'),text(7,'000000'));
+  check(tree.sapling.length===3&&tree.ironwood.length===3&&tree.encoded.length===encoded.length&&tree.encoded.every((byte,index)=>byte===encoded[index]),'exact native TreeState encoder with Orchard');
   const roots=[];for await(const root of client.getSubtreeRoots({pool:'sapling',startIndex:0n,limit:1}))roots.push(root);
   check(roots.length===1&&roots[0].completingBlock.hash===blockOne.verbose.hash,'subtrees');
   const raw=Uint8Array.from(vector.hex.match(/../g),v=>parseInt(v,16));

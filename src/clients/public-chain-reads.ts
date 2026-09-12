@@ -1,3 +1,4 @@
+import { nodeEvents, nodeIsProxy } from './owned-plumbing.js';
 import type { BlockHeader, BlockSelector, ChainTip, HttpTransport, Op } from '../../docs/api/public-api.js';
 import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
@@ -16,17 +17,12 @@ const nativeAdd = EventTarget.prototype.addEventListener;
 const nativeRemove = EventTarget.prototype.removeEventListener;
 const nodeRuntime = typeof globalThis === 'object'
   && typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string';
-let proxyCheck: Promise<(value: unknown) => boolean> | undefined;
 
 async function bridge(original?: AbortSignal) {
   if (original === undefined) return { signal: undefined, close() {} };
   try {
     if (nodeRuntime) {
-      // Dynamic and Node-only: works across the public Node engine range, including
-      // versions predating process.getBuiltinModule; browsers never resolve this URL.
-      const builtin = 'node:util';
-      proxyCheck ??= import(builtin).then(module => module.types.isProxy);
-      if ((await proxyCheck)(original)) throw invalidArgument();
+      if (nodeIsProxy(original)) throw invalidArgument();
     }
     // Browser Web IDL branding rejects proxies; Node additionally needs isProxy.
     nativeAborted.call(original);
@@ -38,8 +34,7 @@ async function bridge(original?: AbortSignal) {
       removeEventListener: { value: nativeRemove.bind(signal) },
     });
     if (nodeRuntime) {
-      const builtin = 'node:events';
-      const { addAbortListener } = await import(builtin);
+      const { addAbortListener } = nodeEvents();
       // Node's helper reads public properties. Give it a native signal with
       // trusted forwarding operations, never the caller's overrides.
       const view: AbortSignal = nativeSignal.call(new NativeController());

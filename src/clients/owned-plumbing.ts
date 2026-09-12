@@ -45,3 +45,11 @@ export function snapshot<T extends object>(args: T, keys: readonly string[]): T 
     return output;
   } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
 }
+
+// Node >=20.19 exposes these builtins without putting Node imports in browser bundles.
+const nodeHost = (globalThis as typeof globalThis & { process?: { getBuiltinModule(name: string): {
+  types: { isProxy(value: unknown): boolean };
+  addAbortListener(signal: AbortSignal, callback: () => void): { [key: symbol]: () => void };
+} } }).process;
+export const nodeIsProxy = (value: unknown) => nodeHost!.getBuiltinModule('util').types.isProxy(value);
+export const nodeEvents = () => nodeHost!.getBuiltinModule('events');

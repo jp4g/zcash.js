@@ -1,3 +1,4 @@
+import { nodeEvents } from './owned-plumbing.js';
 import type { BlockSelector, HttpTransport, Op, PublicBlock } from '../../docs/api/public-api.js';
 import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
@@ -26,8 +27,7 @@ async function bindSignal(original?: AbortSignal) {
     if (!closed && apply(nativeAborted, original, [])) apply(nativeAbort, controller, []);
   };
   if (nodeRuntime) {
-    const builtin = 'node:events';
-    const { addAbortListener } = await import(builtin);
+    const { addAbortListener } = nodeEvents();
     const view: AbortSignal = apply(nativeSignal, new NativeController(), []);
     Object.defineProperties(view, {
       aborted: { get: () => apply(nativeAborted, original, []) },

@@ -1,0 +1,185 @@
+// Existing client Firefox lifecycle with the real OPFS wallet worker fixture.
+import { fixture } from '../clients/public-chain-reads-fixtures.mjs';
+export async function runBrowser() {
+  const { attachWalletWorker } = await import('/dist/src/wallet/host.js');
+  const fixture = await (await fetch('/fixture.json')).json();
+  const root = `sdk-host-${crypto.randomUUID()}`;
+  const parameters = new TextEncoder().encode('{"encoding":"regtest","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}');
+  let workerDestructions = 0;
+  const check = (ok, label) => { if (!ok) throw Error(label); };
+  async function open(create) {
+    const worker = new Worker('/tests/wallet/host-native-worker.mjs', { type: 'module' });
+    const { port1, port2 } = new MessageChannel();
+    const host = attachWalletWorker(port1, async () => { worker.terminate(); workerDestructions++; },
+      { maxQueuedJobs: 8, maxQueuedBytes: 65536 });
+    worker.onerror = host.crashed;
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(Error('OPFS startup deadline')), 15000);
+        worker.onmessage = ({ data }) => { clearTimeout(timer); data.ready ? resolve() : reject(Error(data.error)); };
+        worker.addEventListener('error', () => { clearTimeout(timer); reject(Error('OPFS worker failed')); }, { once: true });
+        worker.postMessage({ port: port2, bundle: new URL('/packet/', location.href).href, root, create,
+          format: 'zcash-js-network/1', parameters, genesis: new Uint8Array(32).fill(3) }, [port2]);
+      });
+    } catch (error) { host.crashed(); await host.close().catch(() => {}); throw error; }
+    return host;
+  }
+  let host = await open(true), account, addresses;
+  try {
+    const controller = new AbortController(); controller.abort();
+    try { await host.accounts.import({ ...fixture.import, birthday: 'fullScan', signal: controller.signal }); throw Error('expected cancellation'); }
+    catch (error) { check(error.code === 'ABORTED', 'native pre-admission cancellation'); }
+    check((await host.accounts.list()).length === 0, 'cancelled import wrote nothing');
+    account = await host.accounts.import({ ...fixture.import, birthday: 'fullScan' });
+    const next = await host.addresses.next({ accountId: account.id, request: { format: 'transparent' } });
+    addresses = await host.addresses.list({ accountId: account.id });
+    check(addresses.some(item => item.address === next.address), 'persisted address');
+    const balance = await host.getBalance({ accountId: account.id,
+      confirmations: { trusted: 1, untrusted: 1, allowZeroConfirmationShielding: true } });
+    check(balance.accountId === account.id && balance.amounts === null && !('scan' in balance), 'native unsynced balance');
+  } finally { await host.close(); }
+  host = await open(false);
+  const same = (a, b) => JSON.stringify(a, (_, v) => typeof v === 'bigint' ? String(v) : v) === JSON.stringify(b, (_, v) => typeof v === 'bigint' ? String(v) : v);
+  try {
+    check(same(await host.accounts.get({ accountId: account.id }), account), 'OPFS persisted account');
+    check(same(await host.addresses.list({ accountId: account.id }), addresses), 'OPFS persisted addresses');
+  } finally { await host.close(); }
+  await (await navigator.storage.getDirectory()).removeEntry(root, { recursive: true });
+  return { workerDestructions, addresses: addresses.length, persisted: true, userAgent: navigator.userAgent };
+}
+
+if (typeof process !== 'undefined' && process.versions?.node) {
+  const { default: assert } = await import('node:assert/strict');
+  const { spawn } = await import('node:child_process');
+  const { readFile, writeFile, mkdir, mkdtemp } = await import('node:fs/promises');
+  const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
+  const { createHash } = await import('node:crypto');
+  const build = process.env.WALLET_HOST_BUILD ?? '/home/jack/zcash-wallet-host-scratch/implementation/dist';
+  const logs = process.env.WALLET_HOST_LOGS ?? '/home/jack/zcash-wallet-host-logs';
+  const scratch = process.env.WALLET_HOST_SCRATCH ?? '/home/jack/zcash-wallet-host-scratch';
+  await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true });
+  const runRoot = await mkdtemp(`${scratch}/firefox-`);
+  const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
+  const report = { status: 'failed', runRoot, build, sandbox: 'unchanged', started: new Date().toISOString() };
+  const stop = new AbortController();
+  const deadline = setTimeout(() => stop.abort(), 90000);
+  const onSignal = signal => { report.interruptedBy = signal; stop.abort(); };
+  process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let server, driver, driverIdentity, browserIdentity, session, endpoint, driverError, text = '';
+  async function identity(pid) {
+    try { const stat = (await readFile(`/proc/${pid}/stat`, 'utf8')).split(') ').at(-1).split(' ');
+      return { pid, start: stat[19], state: stat[0] }; }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  }
+  async function request(route, method = 'GET', body, cleanup = false) {
+    const response = await fetch(endpoint + route, { method, headers: { 'content-type': 'application/json' },
+      signal: cleanup ? AbortSignal.timeout(5000) : AbortSignal.any([stop.signal, AbortSignal.timeout(30000)]),
+      body: body === undefined ? undefined : JSON.stringify(body) });
+    const data = await response.json();
+    assert.ok(response.ok && !data.value?.error, JSON.stringify(data));
+    return data.value;
+  }
+  try {
+    report.sourceCommit = process.env.WALLET_HOST_COMMIT ?? null;
+    const packet = '/home/jack/zakura-account-compose-scratch/fixes/r1/balance-build-03';
+    const packetBuild = JSON.parse(await readFile(`${packet}/build.json`));
+    const fixtureBytes = await readFile(`${packet}/bundle/tests/views-fixture.json`);
+    assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'), packetBuild.artifacts['tests/views-fixture.json']);
+    const nativeFixture = JSON.parse(fixtureBytes);
+    const assets = new Map([
+      ['/', '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Wallet bridge fixture</title><script type="module" src="/entry.mjs"></script>'],
+      ['/entry.mjs', "import { runBrowser } from '/tests/wallet/host-browser.mjs'; runBrowser().then(value => { window.walletResult = { value }; }, error => { window.walletResult = { error: String(error), stack: error.stack }; });"],
+      ['/tests/wallet/host-browser.mjs', await readFile(new URL(import.meta.url))],
+      ['/tests/clients/public-chain-reads-fixtures.mjs', await readFile(new URL('../clients/public-chain-reads-fixtures.mjs', import.meta.url))],
+    ]);
+    assets.set('/tests/wallet/host-native-worker.mjs', await readFile(new URL('./host-native-worker.mjs', import.meta.url)));
+    for (const name of ['errors', 'wallet/host', 'wallet/worker', 'wallet/session']) {
+      assets.set(`/dist/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
+    }
+    for (const name of ['bindings.js', 'bindings_bg.wasm', 'views.mjs', 'wallet.mjs', 'bytes.mjs',
+      'wallet-host/storage-host.mjs', 'wallet-host/opfs.mjs']) {
+      const bytes = await readFile(`${packet}/bundle/${name}`);
+      assert.equal(createHash('sha256').update(bytes).digest('hex'), packetBuild.artifacts[name], name);
+      assets.set(`/packet/${name}`, bytes);
+    }
+    assets.set('/fixture.json', JSON.stringify({ import: nativeFixture.import }));
+    report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
+    for (const [name, bytes] of assets) {
+      const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
+      await mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true }); await writeFile(path, bytes);
+    }
+    server = await fixture(() => { throw Error('No RPC in local wallet test'); }, assets);
+    report.origin = server.origin;
+    const args = ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', runRoot];
+    driver = spawn('/snap/bin/geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    driver.on('error', error => { driverError = error; });
+    driver.on('exit', (code, signal) => { driverError = Error(`driver exit ${code}/${signal}`); });
+    driverIdentity = await identity(driver.pid);
+    for (const stream of [driver.stdout, driver.stderr]) stream.on('data', chunk => { text += chunk; });
+    const until = Date.now() + 15000;
+    while (!endpoint) {
+      stop.signal.throwIfAborted(); if (driverError) throw driverError;
+      const match = text.match(/Listening on 127\.0\.0\.1:(\d+)/);
+      if (match) endpoint = `http://127.0.0.1:${match[1]}`;
+      else { assert.ok(Date.now() < until, 'driver startup deadline'); await pause(30); }
+    }
+    const value = await request('/session', 'POST', { capabilities: { alwaysMatch: {
+      browserName: 'firefox', acceptInsecureCerts: false, 'moz:firefoxOptions': firefoxOptions() } } });
+    session = value.sessionId; report.capabilities = value.capabilities;
+    assert.equal(value.capabilities.browserName, 'firefox');
+    assert.equal(value.capabilities.acceptInsecureCerts, false);
+    browserIdentity = await identity(value.capabilities['moz:processID']);
+    assert.ok(session && driverIdentity && browserIdentity);
+    report.processIdentities = { driver: driverIdentity, browser: browserIdentity };
+    report.endpoint = endpoint;
+    stop.signal.throwIfAborted();
+    await request(`/session/${session}/timeouts`, 'POST', { script: 20000, pageLoad: 15000, implicit: 0 });
+    await request(`/session/${session}/url`, 'POST', { url: server.origin });
+    let answer;
+    const resultDeadline = Date.now() + 45000;
+    while (!answer) {
+      stop.signal.throwIfAborted(); assert.ok(Date.now() < resultDeadline, 'page result deadline');
+      answer = await request(`/session/${session}/execute/sync`, 'POST', { script: 'return window.walletResult || null;', args: [] });
+      if (!answer) await pause(50);
+    }
+    assert.ok(!answer.error, JSON.stringify(answer));
+    report.browserResult = answer.value;
+    assert.deepEqual(server.unexpected, []);
+    assert.equal(answer.value.workerDestructions, 2);
+    report.status = 'passed';
+  } catch (error) { if (report.interruptedBy) report.status = 'interrupted'; report.error = { code: error.code, message: String(error), stack: error.stack }; }
+  finally {
+    clearTimeout(deadline);
+    const errors = []; let sessionDeleted = !session, groupGone = !driverIdentity;
+    if (session) try { await request(`/session/${session}`, 'DELETE', undefined, true); sessionDeleted = true; }
+    catch (error) { errors.push(String(error)); }
+    if (driverIdentity) {
+      for (const signal of ['SIGTERM', 'SIGKILL']) {
+        const current = await identity(driverIdentity.pid);
+        if (!current || current.start === driverIdentity.start) {
+          try { process.kill(-driverIdentity.pid, signal); }
+          catch (error) { if (error.code !== 'ESRCH') errors.push(String(error)); }
+        } else { errors.push('driver PID reused; refusing group cleanup'); break; }
+        await pause(200);
+      }
+      const cleanupUntil = Date.now() + 3000;
+      while (!groupGone && Date.now() < cleanupUntil) {
+        try { process.kill(-driverIdentity.pid, 0); }
+        catch (error) { if (error.code === 'ESRCH') groupGone = true; else { errors.push(String(error)); break; } }
+        if (!groupGone) await pause(30);
+      }
+    }
+    if (server) { report.requests = server.calls; report.unexpected = server.unexpected; await server.close(); }
+    const browser = browserIdentity && await identity(browserIdentity.pid);
+    const browserGone = !browser || browser.start !== browserIdentity.start || browser.state === 'Z';
+    report.cleanup = { sessionDeleted, groupGone, browserGone, serverClosed: true, errors };
+    if (!sessionDeleted || !groupGone || !browserGone || errors.length) report.status = 'failed';
+    report.finished = new Date().toISOString();
+    await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
+    await writeFile(reportPath + '.driver.log', text);
+    process.removeListener('SIGINT', onSignal); process.removeListener('SIGTERM', onSignal);
+    console.log(JSON.stringify({ status: report.status, reportPath, error: report.error }));
+    process.exitCode = report.status === 'passed' ? 0 : 1;
+  }
+}

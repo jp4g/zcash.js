@@ -59,7 +59,8 @@ test('status errors are sanitized, NOT_FOUND stays failure, no broadcast replay'
   const create = await fixture(t, (method, call, callback) => {
     calls++;
     const error = { code: method === 'GetLightdInfo' ? status.UNIMPLEMENTED : status.NOT_FOUND, details: 'SECRET' };
-    if (callback) callback(error); else { call.write(Buffer.from([1])); setTimeout(() => call.destroy(error), 20); }
+    // grpc-js finalizes status on error + end; destroy prevents writable finalization.
+    if (callback) callback(error); else { call.write(Buffer.from([1])); setTimeout(() => call.emit('error', error), 20); }
   });
   const transport = create();
   await assert.rejects(transport.unary(args('GetLightdInfo')), code('METHOD_NOT_SUPPORTED'));
@@ -67,6 +68,7 @@ test('status errors are sanitized, NOT_FOUND stays failure, no broadcast replay'
   const iterator = transport.stream(args('GetBlockRange'));
   assert.deepEqual([...(await iterator.next()).value], [1]);
   await assert.rejects(iterator.next(), code('TRANSPORT_ERROR'));
+  assert.equal((await iterator.next()).done, true);
   assert.equal(calls, 3);
 });
 

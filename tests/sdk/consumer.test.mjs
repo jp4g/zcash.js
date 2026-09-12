@@ -43,12 +43,15 @@ test('packed private package imports and typechecks in an isolated Node consumer
   await exec('npm', ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', join(folder, packed.filename)], { cwd: consumer });
   const manifest = JSON.parse(await readFile(join(consumer, 'node_modules/zcash.js/package.json'), 'utf8'));
   assert.equal(manifest.private, true);
-  assert.equal(manifest.dependencies, undefined);
+  assert.deepEqual(manifest.dependencies, { '@grpc/grpc-js': '1.14.4' });
   const runtime = await exec(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict';
     Object.defineProperty(globalThis, 'WebAssembly', { get() { throw Error('WASM forbidden'); } });
     globalThis.fetch = () => { throw Error('Import/construction must be lazy'); };
     const sdk = await import('zcash.js');
+    const native = await import('zcash.js/grpc-node');
+    assert.deepEqual(Object.keys(native), ['createGrpcNodeTransport']);
+    assert.equal(native.createGrpcNodeTransport('http://127.0.0.1:1', { sourceId: 'fixture', timeoutMs: 10 }).kind, 'custom-lightwallet');
     assert.equal(sdk.parseZec('9007199254740993.00000001'), 900719925474099300000001n);
     sdk.http('https://synthetic.invalid', { sourceId: 'fixture', timeoutMs: 10, readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 256 });
     await assert.rejects(import('zcash.js/dist/src/http.js'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
@@ -85,6 +88,24 @@ test('packed private package imports and typechecks in an isolated Node consumer
   await exec(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '-p', join(consumer, 'tsconfig.json')]);
   // The same actual installed declarations must resolve for browser bundlers.
   await exec(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '-p', join(consumer, 'tsconfig.json'), '--module', 'ESNext', '--moduleResolution', 'Bundler']);
+  // Native declarations resolve under NodeNext, while browser Bundler conditions exclude them.
+  await writeFile(join(consumer, 'native.ts'), `
+    import { createGrpcNodeTransport } from 'zcash.js/grpc-node';
+    import type { GrpcNodeOptions } from 'zcash.js/grpc-node';
+    const options: GrpcNodeOptions = { sourceId: 'fixture', timeoutMs: 10 };
+    const transport = createGrpcNodeTransport('http://127.0.0.1:1', options);
+    const result: Promise<Uint8Array> = transport.unary({ method: 'GetLatestBlock', request: new Uint8Array() });
+    // @ts-expect-error Unary methods exclude streaming RPCs.
+    transport.unary({ method: 'GetBlockRange', request: new Uint8Array() });
+    // @ts-expect-error Native transport is absent from the root API.
+    import { createGrpcNodeTransport as rootNative } from 'zcash.js';
+  `);
+  await exec(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--ignoreConfig', '--noEmit', '--strict', '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', join(consumer, 'native.ts')]);
+  await writeFile(join(consumer, 'native.ts'), `
+    // @ts-expect-error Node-only subpath is unavailable to browser bundlers.
+    import { createGrpcNodeTransport } from 'zcash.js/grpc-node';
+  `);
+  await exec(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--ignoreConfig', '--noEmit', '--strict', '--target', 'ES2022', '--module', 'ESNext', '--moduleResolution', 'Bundler', join(consumer, 'native.ts')]);
 });
 
 test('browser bundle imports and executes reads without Node globals or WASM', async () => {

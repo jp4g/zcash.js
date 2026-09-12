@@ -22,9 +22,10 @@ test('no-eager gate restores globals and detects even swallowed accesses', async
   assert.deepEqual(Object.getOwnPropertyDescriptor(globalThis, 'WebAssembly'), before);
   const counts = await guarded(async () => {});
   assert.ok(Object.values(counts).every(n => n === 0));
-  const valid = { ok: true, claims, eager: counts, precision: '9007199254740993', utf8: '€雪😀', negativeEager: 1 };
+  const valid = { ok: true, claims, eager: counts, precision: '9007199254740993', utf8: '€雪😀', negativeEager: 1, network: { modules: 2, instances: 2, fetches: 0, workers: 0, descriptors: 2, cancelled: 4 } };
   assert.doesNotThrow(() => verifyResult(valid));
   assert.throws(() => verifyResult({ ...valid, eager: { ...counts, Worker: 1 } }));
+  assert.throws(() => verifyResult({ ...valid, network: { ...valid.network, modules: 0 } }));
 });
 
 import { sanitized } from './real-firefox-browser.mjs';

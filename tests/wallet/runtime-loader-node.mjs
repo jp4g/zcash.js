@@ -52,6 +52,7 @@ const options = (name, mode = 'good') => ({ network, storage: { kind: 'node-file
 try {
   for (const [name, limits] of [['native-only-memory', { maxMemoryBytes: 256 * 1024 * 1024 }],
     ['scan-scratch-memory', { maxMemoryBytes: 384 * 1024 * 1024 }],
+    ['query-scratch-memory', { maxMemoryBytes: 416 * 1024 * 1024 }],
     ['oversize-queue', { maxQueuedBytes: Number.MAX_SAFE_INTEGER }],
     ['oversize-control', { maxQueuedJobs: Number.MAX_SAFE_INTEGER }]]) {
     const input = options(name), before = requests.length;

@@ -53,10 +53,12 @@ async function decoded(source: LightTransactionSource, raw: Uint8Array, minedHei
   if (hex(owned) !== hex(raw) || id.length !== 32 || hex(id.reverse()) !== result.display) throw protocol();
   return { raw: owned, txid: txId(result.display) };
 }
-async function transaction(source: LightTransactionSource, dto: unknown, sourceId: string): Promise<PublicTransaction> {
+async function transaction(source: LightTransactionSource, dto: unknown, sourceId: string, mempool = false): Promise<PublicTransaction> {
   if (!dto || typeof dto !== 'object') throw protocol();
   const value = dto as { data: unknown; height: unknown };
-  const state = value.height === '0' ? 'mempool' : value.height === '18446744073709551615' ? 'offMainChain' : 'mined';
+  // GetMempoolStream uses height as a tip marker, not transaction inclusion.
+  if (mempool) height(value.height);
+  const state = mempool || value.height === '0' ? 'mempool' : value.height === '18446744073709551615' ? 'offMainChain' : 'mined';
   const minedHeight = state === 'mined' ? height(value.height) : null;
   const raw = bytes(value.data);
   if (!raw.length) throw protocol();
@@ -173,8 +175,7 @@ export function streamAddressTransactions(source: LightTransactionSource, args: 
 export function streamMempool(source: LightTransactionSource, args: Op = {}): AsyncIterableIterator<PublicTransaction> {
   const sourceId = admit(source.transport, args, ['signal']);
   return stream(source, 'GetMempoolStream', {}, args.signal, async dto => {
-    const result = await transaction(source, dto, sourceId);
-    if (result.observation.state !== 'mempool') throw protocol();
+    const result = await transaction(source, dto, sourceId, true);
     return result;
   });
 }
@@ -193,8 +194,12 @@ export async function broadcastTransaction(source: LightTransactionSource, args:
     try {
       const response = await pending.wait(Reflect.apply(unary, source.transport, [{ method: 'SendTransaction', request, signal: pending.signal }]));
       pending.check();
-      const dto = source.wire.decodeResponse('SendTransaction', ownBytes(response, protocol, resource)) as { error_code: unknown };
+      const dto = source.wire.decodeResponse('SendTransaction', ownBytes(response, protocol, resource)) as { error_code: unknown; error_message: unknown };
       if (!dto || typeof dto.error_code !== 'number' || !Number.isInteger(dto.error_code) || dto.error_code < -2147483648 || dto.error_code > 2147483647) throw protocol();
+      // Pinned lightwalletd returns the raw JSON sendrawtransaction result (quoted display txid).
+      // A successful status alone cannot acknowledge different or unidentified bytes.
+      if (dto.error_code === 0 && (typeof dto.error_message !== 'string'
+        || JSON.parse(dto.error_message) !== result.txid)) throw protocol();
       outcome = dto.error_code === 0 ? 'acknowledged' : 'rejected';
       diagnosticCode = dto.error_code === 0 ? null : `grpc-send:${dto.error_code}`;
     } catch { /* No retry, and no raw provider message or exception escapes into the report. */ }

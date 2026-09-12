@@ -78,8 +78,14 @@ test('address range and mempool stream do not silently admit wrong transaction s
   assert.equal((await address.next()).value.observation.inclusion.height, 3);
   assert.equal((await address.next()).done, true); assert.equal(state.returns, 1);
   const mempool = methods.streamMempool(source);
-  await assert.rejects(mempool.next(), { code: 'PROTOCOL_MISMATCH' });
+  const result = (await mempool.next()).value;
+  assert.equal(result.observation.state, 'mempool'); assert.equal(result.observation.inclusion, null);
+  assert.equal(state.contexts.at(-1), null); await mempool.return();
   assert.equal(state.returns, 2);
+  for (const height of ['18446744073709551615', '4294967296', '-1']) {
+    state.items = [{ data: '0102ff', height }];
+    await assert.rejects(methods.streamMempool(source).next(), { code: 'PROTOCOL_MISMATCH' });
+  }
 });
 test('real abort interrupts stalled custom pull and return; synthetic abort does not', async () => {
   const { source, state } = fixture(); const controller = new AbortController();
@@ -97,12 +103,18 @@ test('real abort interrupts stalled custom pull and return; synthetic abort does
 test('broadcast owns bytes before await and attempts once; ambiguity never becomes rejection', async () => {
   const { source, state } = fixture();
   for (const [code, outcome] of [[0, 'acknowledged'], [-26, 'rejected']]) {
-    state.response = { error_code: code, error_message: 'SECRET' };
+    state.response = { error_code: code, error_message: code === 0 ? JSON.stringify(id) : 'SECRET' };
     const input = new Uint8Array(raw), pending = methods.broadcastTransaction(source, { bytes: input }); input.fill(0);
     const result = await pending;
     assert.equal(result.outcome, outcome); assert.equal(result.txid, id);
     assert.equal(decode(state.calls.at(-1).request).data, '0102ff');
     assert.doesNotMatch(JSON.stringify(result), /SECRET/);
+  }
+  for (const message of ['', 'SECRET', JSON.stringify('ff'.repeat(32)), '{}']) {
+    state.response = { error_code: 0, error_message: message };
+    const before = state.calls.length;
+    assert.equal((await methods.broadcastTransaction(source, { bytes: raw })).outcome, 'unknown');
+    assert.equal(state.calls.length, before + 1);
   }
   let dispatches = 0;
   source.transport.unary = async () => { dispatches++; throw Error('SECRET'); };
@@ -136,7 +148,7 @@ test('accepted native protobuf and all13 native transaction vectors compose with
     }
     assert.equal(method, 'SendTransaction');
     assert.deepEqual(request, bytesField(1, Buffer.from(vector.hex, 'hex')));
-    return new Uint8Array(); // protobuf default SendResponse:error_code=0
+    return bytesField(2, new TextEncoder().encode(JSON.stringify(vector.display))); // code0 + exact server txid
   };
   for (vector of vectors) {
     const result = await methods.getTransaction(source, { txid: vector.display });

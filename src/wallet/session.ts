@@ -9,6 +9,19 @@ export interface InitializedViews {
   close(generation: number, instance: string): void;
 }
 
+/** Private scanner points use protocol-order hash hex; public points use display order. */
+export interface ScanTarget { readonly height: number; readonly hash: string }
+export interface ScanPlan {
+  readonly revision: string; readonly target: ScanTarget;
+  readonly ranges: readonly { readonly start: number; readonly endExclusive: number; readonly priority: string;
+    readonly priorState: { readonly height: number; readonly hash: string | null } }[];
+}
+export interface ScanBatch {
+  readonly revision: string; readonly target: ScanTarget;
+  readonly priorTreeState: Uint8Array; readonly blocks: readonly Uint8Array[];
+}
+export interface ScanReceipt { readonly revision: string; readonly start: number; readonly endExclusive: number; readonly blocks: number }
+
 export type Completion = 'none' | 'committed' | 'unknown';
 
 /** Internal composition only; not a WalletClient or a public factory.
@@ -83,6 +96,11 @@ export class WalletSession {
   getBalance(args: { accountId: string; confirmations: ConfirmationsPolicy } & Op): Promise<WalletBalance> {
     return this.invoke('account_balance', args);
   }
+
+  readonly scan = {
+    plan: (args: { target: ScanTarget } & Op) => this.invoke<ScanPlan>('scan_plan', args),
+    ingest: (args: ScanBatch & Op) => this.invoke<ScanReceipt>('scan_ingest_batch', args),
+  };
 
   /** Drain accepted calls, close once, and reject new admission immediately.
    * The enclosing host must still destroy the dedicated worker, even on failure.

@@ -108,3 +108,33 @@ test('malformed worker failure invalidates rather than leaving a pending request
   t.after(async () => { await host.close().catch(() => {}); });
   await assert.rejects(host.accounts.list(), error => error.code === 'WORKER_CRASHED' && host.completion(error).completion === 'unknown');
 });
+
+test('scan batches own binary inputs and share queue bounds and committed cancellation', async t => {
+  const target = { height: 100, hash: '03'.repeat(32) };
+  const controller = new AbortController(); let calls = 0;
+  const { host } = local(t, (_g, _i, operation, args) => {
+    calls++; assert.equal(operation, 'scan_ingest_batch');
+    assert.equal(args.blocks.length, 16); assert.equal(args.blocks[0][0], 7);
+    assert.equal(args.priorTreeState[0], 8); assert.deepEqual(args.target, target);
+    controller.abort(); return { revision: 'next', start: 100, endExclusive: 101, blocks: 16 };
+  }, undefined, { maxQueuedJobs: 4, maxQueuedBytes: 65536 });
+  const bytes = new Uint8Array([7]), prior = new Uint8Array([8]);
+  const args = { target, revision: 'old', blocks: Array.from({ length: 16 }, () => bytes), priorTreeState: prior, signal: controller.signal };
+  const pending = host.scan.ingest(args); bytes.fill(9); prior.fill(9);
+  await assert.rejects(pending, error => error.code === 'ABORTED'
+    && host.completion(error).completion === 'committed' && host.completion(error).value.revision === 'next');
+  await assert.rejects(host.scan.ingest({ ...args, signal: undefined, blocks: [new Uint8Array(65536)] }), { code: 'RESOURCE_LIMIT' });
+  await assert.rejects(host.scan.ingest({ ...args, signal: undefined, blocks: [new Uint8Array(new SharedArrayBuffer(1))] }), { code: 'INVALID_ARGUMENT' });
+  assert.equal(calls, 1);
+});
+test('native scan admission errors retain completion and allow replanning', async t => {
+  let calls = 0;
+  const { host } = local(t, () => {
+    if (++calls === 1) throw Object.assign(Error('STALE_REVISION'), { commit: 'none' });
+    return { revision: 'new', target: { height: 100, hash: '03'.repeat(32) }, ranges: [] };
+  });
+  const args = { target: { height: 100, hash: '03'.repeat(32) } };
+  await assert.rejects(host.scan.plan(args), error => error.code === 'CURSOR_STALE' && error.stage === 'sync'
+    && error.recovery === 'sync' && host.completion(error).completion === 'none');
+  assert.equal((await host.scan.plan(args)).revision, 'new');
+});

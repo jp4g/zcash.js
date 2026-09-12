@@ -105,5 +105,17 @@ export async function chainChecks(codec, internal, createGrpcWebByteTransport, o
         equal(releases, site === 'unary' || (site === 'stream' && actualAbort) ? 0 : 1);
     }
   }
+  const network = Object.freeze({ identity: 'synthetic-regtest', genesisHash: display(hash) });
+  const tree = (mode, signal) => { requests++; return internal.getTreeState(codec, transport(mode), network, 'regtest', { height: 7, ...(signal ? { signal } : {}) }); };
+  const state = await tree('tree-good');
+  equal(state.point, { height: 7, hash: display(hash) }); equal(state.network, network);
+  equal([...state.sapling], [0, 0, 0]); equal(state.ironwood, null);
+  equal(codec.decodeResponse('GetTreeState', state.encoded).hash, state.point.hash);
+  await rejects(() => tree('tree-network'), 'NETWORK_MISMATCH');
+  await rejects(() => tree('tree-height'), 'PROTOCOL_MISMATCH');
+  const cancellation = new AbortController();
+  const stalledTree = tree('tree-stall', cancellation.signal);
+  setTimeout(() => cancellation.abort(), 50);
+  await rejects(() => stalledTree, 'ABORTED');
   return { ok: true, assertions, requests };
 }

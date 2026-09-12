@@ -55,7 +55,7 @@ function record(value: ReturnType<ViewingAuthority['derive']>): AddressRecord {
   return { address: value.address, index: diversifierIndex(BigInt(value.index)), receiverTypes: [...value.receiverTypes], intendedPools: [...value.intendedPools] };
 }
 
-/** Candidate composition; public entry exports await matching native capsule qualification. */
+/** Caller-owned native viewing authority, independent of wallet storage. */
 export async function accountFromViewingKey(args: { network: Network; format: 'ufvk' | 'uivk'; encoded: string; enabledPools: NonEmpty<Pool> } & Op): Promise<AccountDescriptor> {
   const owned = snapshot(args, ['network', 'format', 'encoded', 'enabledPools', 'signal']);
   const bound = networkBinding(owned.network);

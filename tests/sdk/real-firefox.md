@@ -87,3 +87,11 @@ fetches or workers; four cancellation checks passed. All31served assets and four
 executable harness hashes were compared to retained/current bytes. Session,
 process-group, browser-process and server cleanup all passed. Source is1f8d885;
 this later harness commit changes no production source.
+
+The public LightClient matrix runs all eleven methods through the packed ESM
+entry and consumer bundle against the same synthetic gRPC-Web fixture. It uses
+verified transaction corpus bytes and checks read cancellation, pending-stream
+return, and an unknown broadcast outcome after dispatched cancellation. The
+receipt retains every request payload and requires all response connections to
+close, in addition to the existing browser/session/server cleanup checks. This
+qualifies the public transport composition, not wallet sync or live providers.

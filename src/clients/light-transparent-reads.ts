@@ -42,10 +42,9 @@ async function read<T>(addressCodec: AddressCodec, codec: Lightwire, transport: 
   const input = options(args), original = input.signal;
   if (original !== undefined) {
     try {
-      const host = globalThis as typeof globalThis & { process?: { versions?: { node?: string } } };
+      const host = globalThis as typeof globalThis & { process?: { versions?: { node?: string }; getBuiltinModule(name: string): unknown } };
       if (host.process?.versions?.node) {
-        const builtin = 'node:util';
-        if ((await import(builtin)).types.isProxy(original)) throw invalidArgument();
+        if ((host.process.getBuiltinModule('node:util') as typeof import('node:util')).types.isProxy(original)) throw invalidArgument();
       }
       if (Object.getPrototypeOf(original) !== AbortSignal.prototype || Object.hasOwn(original, 'aborted')
         || Object.hasOwn(original, 'reason')) throw invalidArgument();

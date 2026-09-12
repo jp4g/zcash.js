@@ -9,17 +9,18 @@ const state = ({ height = 7, network = 'regtest', h = display(hash), sapling = '
   concat(text(1, network), scalar(2, height), text(3, h), text(5, sapling), text(7, ironwood));
 const transport = unary => ({ kind: 'custom-lightwallet', sourceId: 'fixture', protocolRevision: revision, unary });
 test('real codec preserves display hash, frontiers and owned encoded bytes for height/hash selectors', async () => {
-  for (const selector of [{ height: 7 }, { hash: display(hash) }]) {
-    const encoded = state();
+  for (const selector of [{ height: 7 }, { hash: display(hash) }, { height: 0 }]) {
+    const height = selector.height === 0 ? 0 : 7;
+    const encoded = state({ height });
     const source = transport(async ({ method, request }) => {
       assert.equal(method, 'GetTreeState');
-      assert.deepEqual(request, codec.encodeRequest(method, JSON.stringify('height' in selector
-        ? { height: '7' } : { hash: Buffer.from(hash).toString('hex') })));
+      assert.deepEqual(request, codec.encodeRequest(method, JSON.stringify(selector.height === 7
+        ? { height: '7' } : { hash: display(hash) })));
       return encoded;
     });
     const result = await getTreeState(codec, source, network, 'regtest', selector);
     assert.equal(result.network, network); assert.equal(result.sourceId, 'fixture');
-    assert.deepEqual(result.point, { height: 7, hash: display(hash) });
+    assert.deepEqual(result.point, { height, hash: display(hash) });
     assert.deepEqual(result.sapling, new Uint8Array(3)); assert.equal(result.ironwood, null);
     assert.deepEqual(result.encoded, encoded); encoded.fill(255);
     assert.notEqual(result.encoded[0], 255);

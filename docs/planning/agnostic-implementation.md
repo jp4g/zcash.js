@@ -1,5 +1,28 @@
 # Initial WASM-independent implementation
 
+## Current public light client
+
+The root now exports `defineNetwork`, `grpc` and the complete `createLightClient`.
+All eleven light methods compose the packaged Rust network, transaction, Lightwire
+and transparent-address codecs. Construction is lazy; first use checks server
+protocol, activation/branch context and the configured genesis hash. These are
+endpoint observations, not wallet scanning or full consensus verification.
+
+`grpc` selects native gRPC on Node and gRPC-Web in browsers. Configured retries
+apply only to transient unary reads. Streams are pull-bounded and never replayed;
+broadcast makes one attempt, verifies the returned transaction ID, and preserves
+an unknown outcome if cancellation interrupts a dispatched submission. Custom
+adapters receive the same owned byte and cancellation boundaries.
+
+The root also exports `GrpcTransport`, `CustomLightTransport`, `LightClient`,
+`LightUnaryMethod` and `LightStreamMethod` types. `tests/sdk/light-client-node.test.mjs`
+exercises the packed public API over actual local native gRPC, including all eleven
+methods and three cancelled-call cleanups. These synthetic fixtures do not qualify
+any live provider. Public wallet and full-node factories remain unfinished.
+
+The sections below retain the earlier implementation history; their original
+sequencing and export lists describe those earlier slices.
+
 Owner sequencing amendment, 2026-09-11: production code demonstrably independent
 of WASM qualification proceeds alongside issues #2/#3. Wallet, storage, scanning,
 signing and proving remain gated. This owned slice does not change qualification
@@ -184,3 +207,13 @@ the existing locked bundler. Ordinary package builds only hash-check and copy th
 committed capsule and declarations; they need no local native artifact/build tools.
 This narrow host-local codec qualification does not claim the H1 configurable
 artifact-runtime contract, threaded scanning or any unimplemented client factory.
+
+Private LightClient codec capsules now package the accepted Lightwire and
+transparent-address Rust artifacts using the same offline capsule producer.
+`lightwire-capsule.mjs` and `transparent-address-capsule.mjs` each expose an internal
+`initialize()` returning the existing codec interface; import does not instantiate
+WASM, and repeated initialization reuses the stateless instance. Reproduce with
+`node scripts/primitive-capsule.mjs --generate-lightwire BUILD` or
+`--generate-transparent-address BUILD`. Normal builds verify the committed hashes
+and copy the capsules without fetching or building native code. This adds no
+public client factory; packed Node codec tests are not browser acceptance.

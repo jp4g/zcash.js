@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { media, service, base64, frame, concat, trailer, good, serveFixtures, unaryMethods, streamMethods } from './grpc-web-fixtures.mjs';
 const internal = await import('../../dist/src/clients/grpc-web.js').catch(() => ({}));
+const { isGrpcNotFound } = await import('../../dist/src/clients/grpc-status.js');
 const options = (extra = {}) => ({ timeoutMs: 1000, ...extra });
 const create = (url = 'https://synthetic.invalid', extra = {}) => internal.createGrpcWebByteTransport(url, options(extra));
 const unary = (transport, request = new Uint8Array([8, 1]), signal) => transport.unary({ method: 'GetLatestBlock', request, ...(signal ? { signal } : {}) });
@@ -43,7 +44,8 @@ test('terminal statuses support body/headers-only and never turn failed lookup i
         : reply(base64(trailer(`grpc-status: ${status}\r\ngrpc-message: private-secret\r\n`)));
       await assert.rejects(unary(create()), error => {
         assert.equal(error.code, status === 12 ? 'METHOD_NOT_SUPPORTED' : 'TRANSPORT_ERROR');
-        assert.equal(error.retryable, false);
+        assert.equal(error.retryable, status === 4 || status === 14);
+        assert.equal(isGrpcNotFound(error), status === 5);
         assert.doesNotMatch(`${error.stack} ${JSON.stringify(error)}`, /private-secret/);
         return true;
       });

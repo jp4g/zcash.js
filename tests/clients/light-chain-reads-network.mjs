@@ -24,7 +24,7 @@ try {
     report.sources[path] = hash(readFileSync(new URL('../../' + path, import.meta.url)));
   }
   report.compiled = {};
-  for (const path of ['src/clients/light-chain-reads.js', 'src/clients/grpc-web.js', 'src/errors.js', 'src/primitives.js']) {
+  for (const path of ['src/clients/light-chain-reads.js', 'src/clients/grpc-web.js', 'src/clients/grpc-status.js', 'src/errors.js', 'src/primitives.js']) {
     report.compiled[path] = hash(readFileSync(build + '/' + path));
   }
   save();

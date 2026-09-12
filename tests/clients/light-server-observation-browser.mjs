@@ -129,7 +129,7 @@ catch (error) { window.lightObservationResult = { ok: false, error: String(error
     for (const name of ['light-server-observation-browser.mjs', 'light-server-observation-fixtures.mjs', 'light-server-observation-checks.mjs', 'grpc-web-fixtures.mjs']) {
       assets.set('/' + name, readFileSync(new URL('./' + name, import.meta.url)));
     }
-    for (const name of ['src/clients/light-server-observation.js', 'src/clients/grpc-web.js', 'src/errors.js']) assets.set('/' + name, readFileSync(build + '/' + name));
+    for (const name of ['src/clients/light-server-observation.js', 'src/clients/grpc-web.js', 'src/clients/grpc-status.js', 'src/errors.js']) assets.set('/' + name, readFileSync(build + '/' + name));
     for (const name of ['codec.mjs', 'wasm/zakura_lightwire.js', 'wasm/zakura_lightwire_bg.wasm']) assets.set('/codec/' + name, packet.assets.get(name));
     const hash = bytes => createHash('sha256').update(bytes).digest('hex');
     report.assets = Object.fromEntries([...assets].map(([path, bytes]) => [path, hash(bytes)]));

@@ -3,13 +3,14 @@ import { types } from 'node:util';
 import { Client, Metadata, credentials, status } from '@grpc/grpc-js';
 import type { CustomLightTransport, LightUnaryMethod, LightStreamMethod, ZcashError } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
+import { recordNotFound } from './grpc-status.js';
 
 const service = '/cash.z.wallet.sdk.rpc.CompactTxStreamer/';
 const revision = 'lightwire:80575dbe59a9bf2e6b79e2391eb78679c453f1a0477292eb97ea3b58bb6c8b10:d8d0c8aaa5ceec7d5dcc188ef25b04011df2ec0254901620fce982fc13aeb32d';
 const unaryMethods = new Set(['GetLatestBlock', 'GetLightdInfo', 'GetTransaction', 'GetAddressUtxos', 'GetTaddressBalance', 'GetTreeState', 'SendTransaction']);
 const streamMethods = new Set(['GetSubtreeRoots', 'GetBlockRange', 'GetTaddressTransactions', 'GetMempoolStream']);
 const aborted = () => failure('ABORTED', 'transport', 'none', 'Request aborted.');
-const timeout = () => failure('TIMEOUT', 'transport', 'none', 'Request timed out.');
+const timeout = () => failure('TIMEOUT', 'transport', 'none', 'Request timed out.', true);
 const limit = () => failure('RESOURCE_LIMIT', 'transport', 'configure', 'gRPC byte or message limit exceeded.');
 const typedArray = Object.getPrototypeOf(Uint8Array.prototype);
 const bufferOf = Object.getOwnPropertyDescriptor(typedArray, 'buffer')!.get!;
@@ -33,14 +34,15 @@ function record(value: unknown, keys?: readonly string[]): asserts value is Reco
 function integer(value: unknown, max: number): asserts value is number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > max) throw invalidArgument();
 }
-function normalize(error: unknown): ZcashError {
+function normalize(error: unknown, wireStatus = false): ZcashError {
   if (isZcashError(error)) return error;
   const code = (error as { code?: number } | null)?.code;
   if (code === status.DEADLINE_EXCEEDED) return timeout();
   if (code === status.CANCELLED) return aborted();
   if (code === status.RESOURCE_EXHAUSTED) return limit();
-  return failure(code === status.UNIMPLEMENTED ? 'METHOD_NOT_SUPPORTED' : 'TRANSPORT_ERROR',
-    'transport', 'configure', 'gRPC request failed.');
+  const result = failure(code === status.UNIMPLEMENTED ? 'METHOD_NOT_SUPPORTED' : 'TRANSPORT_ERROR',
+    'transport', 'configure', 'gRPC request failed.', wireStatus && code === status.UNAVAILABLE);
+  return wireStatus && code === status.NOT_FOUND ? recordNotFound(result) : result;
 }
 
 /** Node-only bounded protobuf adapter. No handshake, decoding, retries, or provider selection. */
@@ -157,7 +159,7 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
         const response = await op.bounded(new Promise<Uint8Array>((resolve, reject) => {
           op.own(client.makeUnaryRequest(service + owned.method, Buffer.from, bytes => new Uint8Array(bytes),
             owned.request, metadata, { deadline: op.deadline }, (error, value) => {
-              if (error) reject(error); else if (value === undefined) reject(failure('PROTOCOL_MISMATCH', 'transport', 'configure', 'Missing gRPC response.'));
+              if (error) reject(normalize(error, true)); else if (value === undefined) reject(failure('PROTOCOL_MISMATCH', 'transport', 'configure', 'Missing gRPC response.'));
               else resolve(value);
             }));
         }));
@@ -177,13 +179,13 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
           op.own(call);
           call.on('error', () => {}); // Cancellation remains handled even between pulls.
           const terminal = new Promise<void>((resolve, reject) => call.once('status', value => {
-            if (value.code === status.OK) resolve(); else reject(normalize(value));
+            if (value.code === status.OK) resolve(); else reject(normalize(value, true));
           }));
           void terminal.catch(() => {});
           const iterator = call[Symbol.asyncIterator]();
           let total = 0, count = 0;
           for (;;) {
-            const item = await op.bounded(iterator.next());
+            const item = await op.bounded(iterator.next().catch(error => { throw normalize(error, true); }));
             if (item.done) break;
             total += item.value.length;
             if (total > limits.totalBytes || ++count > limits.messages) throw limit();

@@ -27,7 +27,7 @@ const unsupportedSignalProxy = (() => {
   return host.process?.getBuiltinModule?.('node:util').types.isProxy ?? (() => true);
 })();
 
-function admit(transport: CustomLightTransport, args: Op, keys: readonly string[]): string {
+export function admit(transport: CustomLightTransport, args: Op, keys: readonly string[]): string {
   try {
     if (transport.protocolRevision !== revision) throw protocol();
     const sourceId = transport.sourceId;
@@ -62,7 +62,7 @@ const aborted = () => failure('ABORTED', 'query', 'none', 'Light-chain read abor
 
 // Native dependent signals propagate cancellation independently of caller event listeners.
 // Keep the dependent signal private: synthetic events on the caller/transport signal cannot cancel us.
-function operation(signal: AbortSignal | undefined, release: () => void = () => {}) {
+export function operation(signal: AbortSignal | undefined, release: () => void = () => {}) {
   const controller = new AbortController();
   const dependent = signal === undefined ? undefined : AbortSignal.any([signal]);
   let cancelled = false, closed = false;
@@ -201,8 +201,8 @@ export async function getTreeState(codec: Lightwire, transport: CustomLightTrans
   if (!['main', 'test', 'regtest'].includes(encoding) || (height === undefined) === (hash === undefined)) throw invalidArgument();
   if (height !== undefined && (!Number.isInteger(height) || height < 0 || height > 0xffff_ffff)) throw invalidArgument();
   const requestedHash = hash === undefined ? undefined : blockHash(hash);
-  const requestValue = height === undefined
-    ? { hash: requestedHash!.match(/../g)!.reverse().join('') } : { height: String(height) };
+  const requestValue = height === undefined || height === 0
+    ? { hash: requestedHash ?? network.genesisHash } : { height: String(height) };
   const pending = operation(signal);
   try {
     pending.check();
@@ -220,7 +220,7 @@ export async function getTreeState(codec: Lightwire, transport: CustomLightTrans
     if (!dto || typeof dto.height !== 'string' || !/^(0|[1-9][0-9]{0,9})$/.test(dto.height)
       || BigInt(dto.height) > 0xffff_ffffn || typeof dto.hash !== 'string' || !/^[0-9a-f]{64}$/.test(dto.hash)) throw protocol();
     if (dto.network !== encoding) throw failure('NETWORK_MISMATCH', 'query', 'configure', 'Tree state network mismatch.');
-    // TreeState.hash is display-order text; BlockID request bytes use protocol order.
+    // Pinned lightwalletd GetTreeState uses display-order BlockID bytes as well as response text.
     const point = { height: Number(dto.height), hash: blockHash(dto.hash) };
     if ((height !== undefined && point.height !== height) || (requestedHash !== undefined && point.hash !== requestedHash)) throw protocol();
     if (point.height === 0 && point.hash !== network.genesisHash) throw failure('NETWORK_MISMATCH', 'query', 'configure', 'Tree state genesis mismatch.');

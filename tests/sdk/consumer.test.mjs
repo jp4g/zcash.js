@@ -27,7 +27,7 @@ async function exec(command, args, options = {}) {
     await rm(folder, { recursive: true, force: true });
   }
 }
-const implemented = ['accountIndex', 'blockHash', 'defineNetwork', 'diversifierIndex', 'formatZec', 'http', 'isZcashError', 'parseZec', 'txId'];
+const implemented = ['accountIndex', 'blockHash', 'createLightClient', 'defineNetwork', 'diversifierIndex', 'formatZec', 'grpc', 'http', 'isZcashError', 'parseZec', 'txId'];
 
 test('packed private package imports and typechecks in an isolated Node consumer', async (t) => {
   const folder = await mkdtemp(join(tmpdir(), 'zcash-sdk-consumer-'));
@@ -59,10 +59,13 @@ test('packed private package imports and typechecks in an isolated Node consumer
   `], { cwd: consumer });
   assert.deepEqual(JSON.parse(runtime.stdout), implemented);
   await writeFile(join(consumer, 'consumer.ts'), `
-    import { parseZec, formatZec, txId, blockHash, accountIndex, diversifierIndex, http, isZcashError, defineNetwork } from 'zcash.js';
-    import type { TxId, BlockHash, AccountIndex, DiversifierIndex, HttpTransport, ZcashError, Network, NetworkDefinition } from 'zcash.js';
+    import { parseZec, formatZec, txId, blockHash, accountIndex, diversifierIndex, http, grpc, createLightClient, isZcashError, defineNetwork } from 'zcash.js';
+    import type { TxId, BlockHash, AccountIndex, DiversifierIndex, HttpTransport, LightClient, ZcashError, Network, NetworkDefinition } from 'zcash.js';
     const definition: NetworkDefinition = null!;
     const network: Promise<Network> = defineNetwork(definition);
+    const light: LightClient = createLightClient({ network: null! as Network, transport: grpc('https://synthetic.invalid', {
+      sourceId: 'fixture', timeoutMs: 1000, readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4096,
+    }) });
     const amount: bigint = parseZec('1.234');
     const text: string = formatZec(amount);
     const tx: TxId = txId('a'.repeat(64));
@@ -121,7 +124,7 @@ test('browser bundle imports and executes reads without Node globals or native i
   assert.doesNotMatch(code, /__vite-browser-external|require\(/);
   let calls = 0;
   const globals = { URL, Headers, Response, ReadableStream, TextEncoder, TextDecoder,
-    AbortController, AbortSignal, performance, setTimeout, clearTimeout,
+    AbortController, AbortSignal, EventTarget, performance, setTimeout, clearTimeout,
     fetch: async (_url, init) => {
       calls++;
       assert.equal(init.credentials, 'omit');

@@ -195,18 +195,19 @@ export function createPublicClient(args: { network: Network; transport: HttpTran
   };
   function iterate<T>(signal: AbortSignal | undefined, produce: (signal: AbortSignal) => AsyncGenerator<T>): AsyncIterableIterator<T> {
     checkSignal(signal);
-    const pending = operation(signal); let iterator: AsyncGenerator<T> | undefined, finished = false, reading = false;
+    let pending: ReturnType<typeof operation> | undefined;
+    let iterator: AsyncGenerator<T> | undefined, finished = false, reading = false;
     return {
       [Symbol.asyncIterator]() { return this; },
       async next() {
         if (finished) return { done: true, value: undefined };
         if (reading) throw invalidArgument();
         reading = true;
-        try { pending.check(); iterator ??= produce(pending.signal); const result = await pending.wait(iterator.next()); if (result.done) { finished = true; pending.close(); } return result; }
-        catch (error) { finished = true; pending.cancel(); throw error; }
+        try { pending ??= operation(signal); pending.check(); iterator ??= produce(pending.signal); const result = await pending.wait(iterator.next()); if (result.done) { finished = true; pending.close(); } return result; }
+        catch (error) { finished = true; pending?.cancel(); throw error; }
         finally { reading = false; }
       },
-      async return() { finished = true; pending.cancel(); await iterator?.return(undefined); return { done: true, value: undefined }; },
+      async return() { finished = true; pending?.cancel(); await iterator?.return(undefined); return { done: true, value: undefined }; },
     };
   }
   function watch(signal: AbortSignal | undefined, read: (signal: AbortSignal) => Promise<TransactionObservation>): AsyncIterableIterator<TransactionObservation> {

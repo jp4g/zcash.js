@@ -100,3 +100,14 @@ test('public observation cancellation, overlap, overflow and dispatched broadcas
     assert.deepEqual(server.unexpected,[]);
   }finally{await server.close();}
 });
+
+test('unconsumed subtree iterator owns no dependent signal or request', () => {
+  const client=createPublicClient({network,transport:http('https://synthetic.invalid',transportOptions),observation});
+  const controller=new AbortController();
+  const original=AbortSignal.any;let calls=0;
+  AbortSignal.any=function(...args){calls++;return Reflect.apply(original,this,args);};
+  try {
+    const iterator=client.getSubtreeRoots({pool:'sapling',startIndex:0n,limit:1,signal:controller.signal})[Symbol.asyncIterator]();
+    assert.equal(calls,0);void iterator.return();assert.equal(calls,0);
+  } finally {AbortSignal.any=original;}
+});

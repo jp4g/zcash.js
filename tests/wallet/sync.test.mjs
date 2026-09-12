@@ -87,7 +87,7 @@ test('sync lifecycle returns committed stopped progress and attaches failed stat
     async getTreeState({ height }) { return { point: { height, hash }, encoded: new Uint8Array() }; },
     async *streamCompactBlocks() { yield { point: target, encoded: new Uint8Array([1]) }; },
   };
-  const owner = new WalletSync(session, light);
+  const owner = new WalletSync(session, light, { pollIntervalMs: 10, maxBufferedUpdates: 8 });
   const stopped = await owner.sync({ target });
   assert.equal(stopped.activity, 'stopped'); assert.equal(stopped.scan.fullyScannedHeight, 1);
   assert.equal(stopped.targetReached, false);
@@ -98,4 +98,102 @@ test('sync lifecycle returns committed stopped progress and attaches failed stat
   assert.equal(status.lastError.code, 'TRANSPORT_ERROR');
   assert.throws(() => { status.lastError.message = 'mutated'; }, TypeError);
   assert.equal((await owner.getSyncStatus()).lastError.message, 'Source failed.');
+});
+
+function observing({ maxBufferedUpdates = 8, getTip } = {}) {
+  const point = { height: 1, hash: '03'.repeat(32) };
+  const scan = { revision: '0', fullyScannedHeight: 1, maxScannedHeight: 1, tipHeight: 1, scanComplete: true };
+  let calls = 0, aborted = 0;
+  const session = { scan: {
+    async state({ signal } = {}) { if (signal?.aborted) throw failure('ABORTED', 'sync', 'none', 'Stopped.'); return { ...scan }; },
+    async block() { return { revision: '0', point }; },
+    async plan() { return { revision: '0', ranges: [] }; },
+  }, enhancement: { async requests() { return { revision: '0', requests: [] }; } } };
+  const light = {
+    async getTip({ signal }) {
+      calls++;
+      if (getTip) return getTip(signal, point);
+      return new Promise((resolve, reject) => {
+        const fail = () => { aborted++; reject(failure('ABORTED', 'sync', 'none', 'Stopped.')); };
+        signal.addEventListener('abort', fail, { once: true });
+        if (signal.aborted) fail();
+      });
+    },
+    async getTreeState() { return { point }; },
+  };
+  return { owner: new WalletSync(session, light, { pollIntervalMs: 5, maxBufferedUpdates }),
+    calls: () => calls, aborted: () => aborted };
+}
+async function until(check) {
+  for (let i = 0; i < 100; i++) { if (check()) return; await new Promise(resolve => setTimeout(resolve, 2)); }
+  assert.fail('condition did not settle');
+}
+
+test('watch subscribers share one run; return and caller abort release only their subscription', async () => {
+  const f = observing(), controller = new AbortController();
+  // A suppressed caller event must still detach this subscription.
+  controller.signal.addEventListener('abort', event => event.stopImmediatePropagation());
+  const a = f.owner.watchSync({ signal: controller.signal }), b = f.owner.watchSync();
+  assert.equal((await a.next()).value.activity, 'idle');
+  await b.next(); await until(() => f.calls() === 1);
+  controller.signal.dispatchEvent(new Event('abort'));
+  assert.equal(f.aborted(), 0);
+  controller.abort();
+  await assert.rejects(a.next(), error => error.code === 'ABORTED');
+  assert.equal(f.aborted(), 0);
+  await b.return();
+  assert.equal(f.aborted(), 1);
+  assert.equal((await f.owner.getSyncStatus()).activity, 'stopped');
+  const c = f.owner.watchSync(); await c.next(); await until(() => f.calls() === 2);
+  await c.return(); assert.equal(f.aborted(), 2);
+});
+
+test('watch never cancels independently started finite sync and active watch retains busy admission', async () => {
+  const f = observing();
+  const finite = f.owner.sync(); await until(() => f.calls() === 1);
+  const iterator = f.owner.watchSync(); await iterator.next(); await iterator.return();
+  assert.equal(f.aborted(), 0);
+  await f.owner.stop(); assert.equal((await finite).activity, 'stopped');
+  const next = f.owner.watchSync(); await next.next(); await until(() => f.calls() === 2);
+  await assert.rejects(f.owner.sync(), error => error.code === 'STORAGE_BUSY');
+  await next.return();
+});
+
+test('slow subscriber overflow is explicit and releases the last watch', async () => {
+  const polling = observing({ maxBufferedUpdates: 1, getTip: async (_signal, point) => point });
+  const stalled = polling.owner.watchSync(); await stalled.next();
+  await until(() => polling.calls() >= 1);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await assert.rejects(stalled.next(), error => error.code === 'RESOURCE_LIMIT');
+  const calls = polling.calls(); await new Promise(resolve => setTimeout(resolve, 15));
+  assert.equal(polling.calls(), calls);
+  await polling.owner.stop();
+});
+
+test('watch retries only transient network failures and closes all subscribers on terminal error', async () => {
+  let attempts = 0;
+  const f = observing({ getTip: async (_signal, point) => {
+    attempts++;
+    if (attempts === 1) throw failure('TRANSPORT_ERROR', 'transport', 'configure', 'Unavailable.', true);
+    if (attempts === 2) return point;
+    throw failure('PROTOCOL_MISMATCH', 'query', 'configure', 'Bad source.');
+  } });
+  const iterator = f.owner.watchSync(), statuses = [];
+  await assert.rejects(async () => { for await (const status of iterator) statuses.push(status); }, error => error.code === 'PROTOCOL_MISMATCH');
+  assert(statuses.some(status => status.activity === 'failed' && status.lastError.code === 'TRANSPORT_ERROR'));
+  assert(statuses.some(status => status.targetReached));
+  assert.equal(attempts, 3);
+  await f.owner.stop();
+});
+
+test('overflow detaches only the slow subscriber', async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = observing({ maxBufferedUpdates: 1, getTip: async (_signal, point) => { await gate; return point; } });
+  const slow = f.owner.watchSync(), fast = f.owner.watchSync();
+  await slow.next(); await fast.next(); await until(() => f.calls() === 1);
+  const terminal = fast.next(); release();
+  assert.equal((await terminal).value.targetReached, true);
+  await assert.rejects(slow.next(), error => error.code === 'RESOURCE_LIMIT');
+  await fast.return();
 });

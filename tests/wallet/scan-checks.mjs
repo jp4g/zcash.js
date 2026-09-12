@@ -41,13 +41,20 @@ export async function scanChecks(session,fixture,definition) {
       }finally{closed++;}
     },
   }});
-  const account=await session.accounts.import(fixture.import),sync=new WalletSync(session,light);
+  const account=await session.accounts.import(fixture.import),sync=new WalletSync(session,light,{pollIntervalMs:1000,maxBufferedUpdates:16});
   const query={accountId:account.id,confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:true}};
   const before=await session.scan.state(),controller=new AbortController();controller.abort();
   check((await sync.sync({signal:controller.signal})).activity==='stopped','sync pre-abort status');
   check((await session.scan.state()).revision===before.revision,'cancelled sync retains revision');
-  const running=sync.sync();await paused;await sync.stop();
-  check((await running).activity==='stopped','active sync stops during a pending public stream');
+  const firstController=new AbortController();
+  const first=sync.watchSync({signal:firstController.signal}),second=sync.watchSync();
+  check(!(await first.next()).done&&!(await second.next()).done,'two watch subscribers receive initial state');
+  await paused;firstController.abort();
+  try{await first.next();throw Error('cancelled subscriber stayed active');}
+  catch(error){check(error.code==='ABORTED','one watch subscriber cancellation is local');}
+  check(closed===1&&streams===2&&!(await second.next()).done,'remaining subscriber retains the shared pending public stream');
+  await second.return();
+  check(closed===streams&&(await sync.getSyncStatus()).activity==='stopped','last subscriber return drains shared stream and native work');
   const stoppedState=await session.scan.state();
   const stoppedBlock=await session.scan.block({height:firstRange[1]});
   check(stoppedBlock.point?.hash===reverse(hashes.get(firstRange[1]))&&!stoppedState.scanComplete&&stoppedState.revision!==before.revision,'committed native-priority batch survives cancellation');
@@ -63,7 +70,7 @@ export async function scanChecks(session,fixture,definition) {
   await session.scan.ingest({revision:plan.revision,target,priorTreeState:trees.get(request('GetTreeState',{height:'99'})),blocks:[blocks.get(100)]});
   const balance=await session.getBalance(query);checkBalance(balance,fixture);
   await sync.stop();
-  return {account,balance,query,publicSync:true,enhancementPending:true,rewoundTo:99};
+  return {account,balance,query,publicSync:true,watchShared:true,enhancementPending:true,rewoundTo:99};
 }
 export async function enhancementChecks(session,fixture,reopened=false) {
   const pending=await session.enhancement.requests();

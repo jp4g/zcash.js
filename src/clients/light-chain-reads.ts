@@ -1,6 +1,7 @@
 import type { ChainTip, CompactBlock, HeightRange, CustomLightTransport, Op } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { blockHash } from '../primitives.js';
+import { ownBytes } from './owned-plumbing.js';
 
 // Structural view of the accepted initialized codec instance; no acquisition or initialization.
 interface Lightwire {
@@ -104,7 +105,7 @@ export async function getTip(codec: Lightwire, transport: CustomLightTransport, 
     const bytes = await pending.wait(Reflect.apply(unary, transport, [{ method: 'GetLatestBlock', request, signal: pending.signal }]));
     pending.check();
     let checked;
-    try { checked = point(codec.decodeResponse('GetLatestBlock', ownBytes(bytes))); }
+    try { checked = point(codec.decodeResponse('GetLatestBlock', ownBytes(bytes, protocol, resourceLimit))); }
     catch (error) { throw isZcashError(error) ? error : protocol(); }
     pending.check();
     return { ...checked, sourceId, observedAt: new Date().toISOString() };
@@ -114,23 +115,6 @@ export async function getTip(codec: Lightwire, transport: CustomLightTransport, 
   } finally { pending.close(); pending.check(); }
 }
 const resourceLimit = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Light-chain byte limit exceeded.');
-const typedArray = Object.getPrototypeOf(Uint8Array.prototype);
-const tag = Object.getOwnPropertyDescriptor(typedArray, Symbol.toStringTag)!.get!;
-const bufferOf = Object.getOwnPropertyDescriptor(typedArray, 'buffer')!.get!;
-const offsetOf = Object.getOwnPropertyDescriptor(typedArray, 'byteOffset')!.get!;
-const lengthOf = Object.getOwnPropertyDescriptor(typedArray, 'byteLength')!.get!;
-const bufferLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength')!.get!;
-function ownBytes(bytes: Uint8Array): Uint8Array {
-  try {
-    if (tag.call(bytes) !== 'Uint8Array') throw protocol();
-    const buffer = bufferOf.call(bytes);
-    bufferLength.call(buffer);
-    typedArray.values.call(bytes); // Reject detached/out-of-bounds original views.
-    const length = lengthOf.call(bytes);
-    if (length > 4 * 1024 * 1024) throw resourceLimit();
-    return new Uint8Array(new Uint8Array(buffer, offsetOf.call(bytes), length));
-  } catch (error) { throw isZcashError(error) ? error : protocol(); }
-}
 
 /** Internal finite range; successful exhaustion is required for complete coverage. */
 export function streamCompactBlocks(codec: Lightwire, transport: CustomLightTransport,
@@ -184,7 +168,7 @@ export function streamCompactBlocks(codec: Lightwire, transport: CustomLightTran
           return { done: true, value: undefined };
         }
         if (height > toHeight) throw protocol();
-        const encoded = ownBytes(item.value);
+        const encoded = ownBytes(item.value, protocol, resourceLimit);
         total += encoded.length;
         if (total > 64 * 1024 * 1024) throw resourceLimit();
         let checked, previousHash;

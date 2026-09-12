@@ -372,3 +372,38 @@ for (const site of ['unary', 'stream', 'asyncIterator', 'next']) {
     });
   }
 }
+
+for (const method of ['getTip', 'streamCompactBlocks']) {
+  test(method + ' byte admission preserves intrinsic rejection and exact errors', async () => {
+    const detached = new Uint8Array(8); structuredClone(detached.buffer, { transfer: [detached.buffer] });
+    const oversized = new Uint8Array(4194305);
+    for (const bytes of [detached, new Proxy(new Uint8Array(), {}), new Uint16Array(8),
+      new Uint8Array(new SharedArrayBuffer(8)), oversized]) {
+      const custom = { ...transport(), unary: () => bytes, stream: async function* () { yield bytes; } };
+      await assert.rejects(async () => method === 'getTip' ? internal.getTip(codec, custom)
+        : collect(internal.streamCompactBlocks(codec, custom, { fromHeight: 7, toHeight: 7 })), {
+        code: bytes === oversized ? 'RESOURCE_LIMIT' : 'PROTOCOL_MISMATCH',
+        message: bytes === oversized ? 'Light-chain byte limit exceeded.' : 'Invalid light-chain response or schema revision.',
+      });
+    }
+    const valid = method === 'getTip' ? tipBytes() : blockBytes();
+    const limit = new Uint8Array(4194304);
+    const boundaryCodec = { encodeRequest: (...args) => codec.encodeRequest(...args),
+      decodeResponse(name, bytes) { assert.equal(bytes.length, 4194304); assert.notEqual(bytes.buffer, limit.buffer); return codec.decodeResponse(name, valid); },
+      decodeItem(name, bytes) { assert.equal(bytes.length, 4194304); return codec.decodeItem(name, valid); } };
+    // Isolate client admission from the real codec's independent message limits.
+    const atLimit = { ...transport(), unary: () => limit, stream: async function* () { yield limit; } };
+    if (method === 'getTip') assert.equal((await internal.getTip(boundaryCodec, atLimit)).height, 7);
+    else assert.equal((await collect(internal.streamCompactBlocks(boundaryCodec, atLimit, { fromHeight: 7, toHeight: 7 })))[0].encoded.length, 4194304);
+    const backing = new Uint8Array(valid.length + 2); backing.set(valid, 1);
+    const bytes = backing.subarray(1, -1);
+    for (const key of ['buffer', 'byteOffset', 'byteLength', 'slice', Symbol.iterator])
+      Object.defineProperty(bytes, key, { get() { throw Error('private-secret'); } });
+    const custom = { ...transport(), unary: () => bytes, stream: async function* () { yield bytes; } };
+    if (method === 'getTip') assert.equal((await internal.getTip(codec, custom)).height, 7);
+    else {
+      const [result] = await collect(internal.streamCompactBlocks(codec, custom, { fromHeight: 7, toHeight: 7 }));
+      backing.fill(255); assert.deepEqual(result.encoded, valid);
+    }
+  });
+}

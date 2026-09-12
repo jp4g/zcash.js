@@ -1,5 +1,6 @@
 import type { CustomLightTransport, LightClient, Op, NonEmpty } from '../../docs/api/public-api.js';
 import { txId } from '../primitives.js';
+import { ownBytes } from './owned-plumbing.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 
 type Family = 'main' | 'test' | 'regtest';
@@ -16,22 +17,6 @@ const protocol = () => failure('PROTOCOL_MISMATCH', 'query', 'configure', 'Inval
 const aborted = () => failure('ABORTED', 'query', 'none', 'Light-transparent read aborted.');
 const resource = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Light-transparent response limit exceeded.');
 const nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
-const typed = Object.getPrototypeOf(Uint8Array.prototype);
-const tag = Object.getOwnPropertyDescriptor(typed, Symbol.toStringTag)!.get!;
-const buffer = Object.getOwnPropertyDescriptor(typed, 'buffer')!.get!;
-const length = Object.getOwnPropertyDescriptor(typed, 'byteLength')!.get!;
-const offset = Object.getOwnPropertyDescriptor(typed, 'byteOffset')!.get!;
-const bufferLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength')!.get!;
-function ownBytes(value: Uint8Array) {
-  try {
-    if (apply(tag, value, []) !== 'Uint8Array') throw protocol();
-    const backing = apply(buffer, value, []);
-    apply(bufferLength, backing, []); apply(typed.values, value, []);
-    const size = apply(length, value, []);
-    if (size > 4 * 1024 * 1024) throw resource();
-    return new Uint8Array(new Uint8Array(backing, apply(offset, value, []), size));
-  } catch (error) { throw isZcashError(error) ? error : protocol(); }
-}
 function amount(value: unknown): bigint {
   if (typeof value !== 'string' || !/^(0|[1-9][0-9]{0,18})$/.test(value)) throw protocol();
   const result = BigInt(value);
@@ -113,7 +98,7 @@ async function read<T>(addressCodec: AddressCodec, codec: Lightwire, transport: 
     let dto;
     try {
       const decode = get(() => codec.decodeResponse);
-      dto = get(() => apply(decode, codec, [method, ownBytes(bytes)]));
+      dto = get(() => apply(decode, codec, [method, ownBytes(bytes, protocol, resource)]));
       const value = adapt(dto, addresses, get);
       check();
       return { ...value, sourceId, observedAt: new Date().toISOString() };

@@ -201,8 +201,8 @@ export async function getTreeState(codec: Lightwire, transport: CustomLightTrans
   if (!['main', 'test', 'regtest'].includes(encoding) || (height === undefined) === (hash === undefined)) throw invalidArgument();
   if (height !== undefined && (!Number.isInteger(height) || height < 0 || height > 0xffff_ffff)) throw invalidArgument();
   const requestedHash = hash === undefined ? undefined : blockHash(hash);
-  const requestValue = height === undefined
-    ? { hash: requestedHash } : { height: String(height) };
+  const requestValue = height === undefined || height === 0
+    ? { hash: requestedHash ?? network.genesisHash } : { height: String(height) };
   const pending = operation(signal);
   try {
     pending.check();

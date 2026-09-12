@@ -62,7 +62,7 @@ export function createLightClient(args: { network: Network; transport: GrpcTrans
       if (info.chainName !== family || info.saplingActivationHeight !== definition.parameters.heights[1]
         || info.branchId !== branch.toString(16).padStart(8, '0'))
         throw failure('NETWORK_MISMATCH', 'query', 'configure', 'Light server network mismatch.');
-      await chain.getTreeState(value.wire, transport, network, family, { height: 0, signal });
+      await chain.getTreeState(value.wire, transport, network, family, { hash: network.genesisHash, signal });
       signal.throwIfAborted();
       verified = true;
     }

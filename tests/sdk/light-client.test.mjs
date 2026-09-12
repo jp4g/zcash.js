@@ -12,7 +12,7 @@ async function fixture(branch = 0x76b809bb) {
   const raw = Uint8Array.from(Buffer.from(vector.hex, 'hex'));
   const network = await defineNetwork({ identity: 'synthetic', genesisHash: '03'.repeat(32), parametersFormat: 'zcash-js-network/1',
     parameters: new TextEncoder().encode('{"encoding":"main","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}') });
-  const state = { calls: [], returns: 0, transactionHeight: 20, send: async () => new Uint8Array() };
+  const state = { calls: [], returns: 0, transactionHeight: 20, send: async () => text(2, JSON.stringify(vector.display)) };
   const transaction = height => concat(bytesField(1, raw), scalar(2, height));
   const transport = { kind: 'custom-lightwallet', sourceId: 'fixture', protocolRevision: revision,
     async unary(args) {

@@ -130,6 +130,7 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
       ['/grpc-web-fixtures.mjs', readFileSync(new URL('./grpc-web-fixtures.mjs', import.meta.url))],
       ['/src/clients/grpc-web.js', readFileSync(build + '/src/clients/grpc-web.js')],
       ['/src/clients/light-transparent-reads.js', readFileSync(build + '/src/clients/light-transparent-reads.js')],
+      ['/src/clients/owned-plumbing.js', readFileSync(build + '/src/clients/owned-plumbing.js')],
       ['/src/primitives.js', readFileSync(build + '/src/primitives.js')],
       ['/light-transparent-reads-fixtures.mjs', readFileSync(new URL('./light-transparent-reads-fixtures.mjs', import.meta.url))],
       ['/light-transparent-reads-checks.mjs', readFileSync(new URL('./light-transparent-reads-checks.mjs', import.meta.url))],
@@ -140,6 +141,7 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
     report.assets = Object.fromEntries([...assets].map(([path, bytes]) => [path, hash(bytes)]));
     report.sources = {};
     for (const path of ['src/clients/light-transparent-reads.ts', 'src/clients/grpc-web.ts', 'src/errors.ts', 'src/primitives.ts', 'tsconfig.json', 'package.json',
+      'src/clients/owned-plumbing.ts',
       'tests/clients/light-transparent-reads-browser.mjs', 'tests/clients/light-transparent-reads-checks.mjs', 'tests/clients/light-transparent-reads-fixtures.mjs',
       'qualification/browser-runtime/firefox-options.mjs']) {
       report.sources[path] = hash(readFileSync(new URL('../../' + path, import.meta.url)));

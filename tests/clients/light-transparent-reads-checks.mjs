@@ -9,6 +9,10 @@ export async function transparentChecks(address,wire,internal,createTransport,or
   if(method==='getAddressBalance')assert(result.value===9007199254740993n);
   else {assert(result.items[0].value===9007199254740993n);assert(result.items[0].script[0]===81);assert(result.tip===null);}
   const empty=await query('default');assert(method==='getAddressBalance'?empty.value===0n:empty.items.length===0);
+  if(method==='getAddressUtxos') {
+   const suppressed=await query('suppressed-utxo-error');
+   assert(suppressed.items.length===0);assert(suppressed.tip===null);
+  }
   await rejects(query('malformed'),'PROTOCOL_MISMATCH');
   await rejects(query('missing'),'PROTOCOL_MISMATCH');
   await rejects(query('error'),'TRANSPORT_ERROR');

@@ -127,13 +127,17 @@ async function read<T>(addressCodec: AddressCodec, codec: Lightwire, transport: 
     check();
   }
 }
-/** Internal composition, deliberately absent from package exports. Both codecs are already initialized. */
+/** Internal composition with initialized codecs; caller must independently establish source failure fidelity.
+ * Pinned lightwalletd 09593ed can erase backend errors and is not qualified (see planning doc).
+ */
 export function getAddressBalance(address: AddressCodec, wire: Lightwire, transport: CustomLightTransport,
   family: Family, args: Addresses): ReturnType<LightClient['getAddressBalance']> {
   return read(address, wire, transport, family, args, 'GetTaddressBalance', dto => ({ value: amount(dto.value_zat) }));
 }
 
-/** Finite complete result, or failure; hitting the extra-entry sentinel never returns partial success. */
+/** Bounded reply adaptation; completeness requires an independently failure-faithful source.
+ * Hitting the extra-entry sentinel never returns partial success. The pinned server is not qualified.
+ */
 export function getAddressUtxos(address: AddressCodec, wire: Lightwire, transport: CustomLightTransport,
   family: Family, args: Addresses): ReturnType<LightClient['getAddressUtxos']> {
   return read(address, wire, transport, family, args, 'GetAddressUtxos', (dto, addresses, get) => {

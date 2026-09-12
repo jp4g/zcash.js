@@ -44,7 +44,9 @@ export async function serveTransparentFixtures(assets = new Map(), { signal, onC
       res.writeHead(200, { 'content-type': media });
       const tip = url.pathname.endsWith('GetTaddressBalance');
       let items = [tip ? scalar(1,9007199254740993n) : utxoBytes()];
-      if (mode === 'default') items = [new Uint8Array()];
+      // Pinned service.go:929–939,984–996 erases unmatched backend errors into this UTXO success.
+      // Source-derived wire consequence only; no Go execution or balance marshaling claim.
+      if (mode === 'default' || (mode === 'suppressed-utxo-error' && !tip)) items = [new Uint8Array()];
       if (mode === 'malformed') items = [new Uint8Array([128])];
       if (mode === 'stall') { res.write(base64(frame(items[0]))); return; }
       const terminal = mode === 'missing' ? new Uint8Array() : mode === 'error'

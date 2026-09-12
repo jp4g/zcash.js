@@ -7,7 +7,8 @@ import { revision, scalar } from './light-chain-reads-fixtures.mjs';
 const root = '/home/jack/zcash-light-transparent-reads-scratch';
 const wire = createLightwire(readFileSync(root+'/codec/wasm/zakura_lightwire_bg.wasm'));
 const address = createTransparentAddressCodec(readFileSync(root+'/address/wasm/zakura_transparent_address_bg.wasm'));
-const path = root+'/build/src/clients/light-transparent-reads.js';
+const build = process.env.LIGHT_TRANSPARENT_BUILD ?? root+'/build';
+const path = build+'/src/clients/light-transparent-reads.js';
 const internal = existsSync(path) ? await import(path) : {};
 const token = 't1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs';
 const transport = bytes => ({kind:'custom-lightwallet',sourceId:'fixture',protocolRevision:revision, unary(){return bytes;}});
@@ -85,20 +86,58 @@ test('UTXO request has explicit positive sentinel limit and exact caller tokens'
 import { transparentChecks } from './light-transparent-reads-checks.mjs';
 import { utxoBytes } from './light-transparent-reads-fixtures.mjs';
 import { base64, frame, trailer, media } from './grpc-web-fixtures.mjs';
-const { createGrpcWebByteTransport } = await import(root+'/build/src/clients/grpc-web.js');
+const { createGrpcWebByteTransport } = await import(build+'/src/clients/grpc-web.js');
 test('shared browser checks execute actual codecs and gRPC-Web bytes on Node synthetic fetch',async t=>{
  t.mock.method(globalThis,'fetch',async url=>{
   const u=new URL(url);const mode=u.searchParams.get('case');
   let bytes=u.pathname.endsWith('GetTaddressBalance')?scalar(1,9007199254740993n):utxoBytes();
-  if(mode==='default')bytes=new Uint8Array();if(mode==='malformed')bytes=new Uint8Array([128]);
+  if(mode==='default'||(mode==='suppressed-utxo-error'&&u.pathname.endsWith('GetAddressUtxos')))bytes=new Uint8Array();if(mode==='malformed')bytes=new Uint8Array([128]);
   const end=mode==='missing'?new Uint8Array():mode==='error'?trailer('grpc-status: 13\r\ngrpc-message: private-secret\r\n'):trailer();
   return new Response(base64(concat(frame(bytes),end)),{headers:{'content-type':media}});
  });
  const result=await transparentChecks(address,wire,internal,createGrpcWebByteTransport,'http://fixture.invalid');
- assert.equal(result.ok,true);assert.equal(result.requests,10);
+ assert.equal(result.ok,true);assert.equal(result.requests,11);
 });
 test('abort inside unary consumes its rejected promise without unhandled rejection',async()=>{
  const c=new AbortController();
  await assert.rejects(internal.getAddressBalance(address,wire,{...transport(),unary(){c.abort();return Promise.reject(Error('private-secret'));}},'main',{addresses:[token],signal:c.signal}),code('ABORTED'));
  await new Promise(r=>setTimeout(r,10));
+});
+
+test('pinned source qualification documents the erased-error boundary',()=>{
+ const doc=readFileSync(new URL('../../docs/planning/light-transparent-reads.md',import.meta.url),'utf8');
+ assert.doesNotMatch(doc,/Operational errors remain errors/);
+ assert.match(doc,/not qualified/);
+ assert.match(doc,/independently established failure-faithful source/);
+});
+
+// Preserve the original source-derived false-empty witness; source parsing is test-only.
+test('pinned backend error branches erase unmatched errors before SDK adaptation',async()=>{
+ const {createHash}=await import('node:crypto');
+ const source=readFileSync('/home/jack/zcash-client-prerequisites-logs/lightwalletd-service.go','utf8');
+ assert.equal(createHash('sha256').update(source).digest('hex'),'61af8b2e81894b0abeaadd87490026715ca2958e3d5c7532e536a4169dde4062');
+ for(const rpc of ['getaddressutxos','getaddressbalance']) {
+  const start=source.indexOf('result, rpcErr := common.RawRequest(ctx, "'+rpc+'", params)');
+  assert.ok(start>=0);
+  const branch=source.slice(start,source.indexOf('\n\tvar ',start+1));
+  assert.match(branch,/var code codes.Code/);
+  assert.match(branch,/code = codes.InvalidArgument/);assert.match(branch,/code = codes.NotFound/);
+  assert.doesNotMatch(branch,/default:|code = codes.(Unknown|Internal|Unavailable)/);
+  assert.match(branch,/status.Errorf\(code,/);
+ }
+ const wrapper=source.slice(source.indexOf('func (s *lwdStreamer) GetAddressUtxos('),source.indexOf('func (s *lwdStreamer) GetSubtreeRoots('));
+ assert.match(wrapper,/addressUtxos := make/);assert.match(wrapper,/return r, nil/);
+});
+test('delivered backend failure statuses reject for both methods without retry',async t=>{
+ for(const status of [3,5,13]) {
+  let calls=0;
+  t.mock.method(globalThis,'fetch',async()=>{
+   calls++;
+   return new Response(base64(trailer('grpc-status: '+status+'\r\ngrpc-message: private-secret\r\n')),{headers:{'content-type':media}});
+  });
+  const custom={...createGrpcWebByteTransport('http://fixture.invalid/',{timeoutMs:1000}),kind:'custom-lightwallet',sourceId:'fixture',protocolRevision:revision};
+  for(const method of ['getAddressBalance','getAddressUtxos'])
+   await assert.rejects(internal[method](address,wire,custom,'main',{addresses:[token]}),code('TRANSPORT_ERROR'));
+  assert.equal(calls,2);t.mock.restoreAll();
+ }
 });

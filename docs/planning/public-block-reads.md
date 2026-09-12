@@ -1,8 +1,9 @@
 # Internal public block reads (#6)
 
 This slice adds only `src/clients/public-block-reads.ts#getBlock`. It starts from
-A `0902602ae38aff2dd825df94c6113d7f6737ce56`, which is **under review, not accepted**.
-Parent must integrate A review fixes before accepting this composition. Root
+A `0902602ae38aff2dd825df94c6113d7f6737ce56` historically; the current candidate
+incorporates accepted A cancellation correction `96311216b67b1c2caefc5d349df1530fb7b0c4fb`
+by exact cherry-pick. Historical review statuses below describe those earlier candidates. Root
 exports, public factories, network handshake, transport, dependencies and A files
 remain owned elsewhere. No complete `PublicClient` implementation is claimed.
 
@@ -179,3 +180,42 @@ change A/HTTP, or bypass that dependency gate. No whole PublicClient or #6
 acceptance follows. No third automatic block fixer will be launched.
 Fresh exact-commit ordinary Firefox and real SIGINT/SIGTERM coordinator commands,
 source hashes and outcomes are in `/home/jack/zcash-public-block-logs/fixes/r2/REPORT.md`.
+
+
+## Owner-approved R3-B1 correction
+
+The latest owner allowance explicitly authorizes this focused correction. Earlier
+exhausted-round and inherited-A holds above are historical, not the current
+allowance or A acceptance status. The four accepted A files are incorporated
+unchanged; A is not redesigned or rereviewed by this implementation assignment.
+
+B now uses the accepted A native-safe binding concept: Node's resistant
+`addAbortListener` receives a native forwarding view; browsers use native
+`AbortSignal.any` dependency propagation. Both observe genuine native state,
+ignore synthetic events, retain later cancellation, and detach on completion.
+The close guard prevents a queued callback from acting after teardown. Captured
+intrinsics are invoked with `Reflect.apply`, preserving receivers without
+caller-controlled method or `fn.call` lookups. This is not a hostile-global or
+arbitrary platform/proxy mutation guarantee. Admission and final native checks
+remain; native cancellation also takes precedence on downstream rejection.
+No request ordering, source/height/header/txid validation or ownership changes.
+
+Eleven new Node regressions cover all three credential callbacks, the first
+response boundary, both actual native digest completions/rejections and all
+three active RPC streams after a suppressed synthetic event. Old B plus accepted
+A reproduces ten failures; corrected B passes all eleven. Existing synthetic,
+descriptor, no-signal and delivered-cancellation controls remain intact.
+Ordinary-page Firefox exercises matching source-mapped cases using actual fetch,
+immutable header fixtures and native digests, with exact server request counts.
+
+Worker execution uses actual Node 26.8.1. Localhost `listen EPERM` prevents full
+HTTP/browser qualification here. The current report and fresh authenticated
+parent helper are under public-block `{logs,scratch}/fixes/authorized-r3`.
+The helper builds the final commit, verifies source/build hashes and runs A/B
+Node and real Firefox plus SIGINT/SIGTERM/error controls at a real acquired
+session boundary and ordinary-page active I/O. These controls are pending host
+execution, not passing receipts. Original logs and reports are retained.
+Parent performs fresh host qualification and independent HIGH review. Remaining
+substantive findings go to foreground for allowance disposition. No automatic
+extra correction, full PublicClient/network-handshake claim, push, merge or #6
+closure follows from this candidate.

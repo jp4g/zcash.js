@@ -7,8 +7,49 @@ import { getBlockHeader } from './public-chain-reads.js';
 
 // WebIDL rejects signal proxies; Node's JavaScript getter may accept them.
 const nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
+const apply = Reflect.apply;
+const NativeController = AbortController;
+const nativeSignal = Object.getOwnPropertyDescriptor(AbortController.prototype, 'signal')!.get!;
+const nativeAbort = AbortController.prototype.abort;
+const nativeAny = AbortSignal.any;
+const nativeAdd = EventTarget.prototype.addEventListener;
+const nativeRemove = EventTarget.prototype.removeEventListener;
+const nodeRuntime = typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string';
+
+// Same bounded native binding as accepted chain reads; no caller method lookup.
+async function bindSignal(original?: AbortSignal) {
+  if (original === undefined) return { signal: undefined, close() {} };
+  const controller = new NativeController();
+  const signal: AbortSignal = apply(nativeSignal, controller, []);
+  let closed = false;
+  const onAbort = () => {
+    if (!closed && apply(nativeAborted, original, [])) apply(nativeAbort, controller, []);
+  };
+  if (nodeRuntime) {
+    const builtin = 'node:events';
+    const { addAbortListener } = await import(builtin);
+    const view: AbortSignal = apply(nativeSignal, new NativeController(), []);
+    Object.defineProperties(view, {
+      aborted: { get: () => apply(nativeAborted, original, []) },
+      addEventListener: { value: (type: string, listener: EventListener, options: AddEventListenerOptions) =>
+        apply(nativeAdd, original, [type, listener, { ...options, once: false }]) },
+      removeEventListener: { value: (type: string, listener: EventListener) =>
+        apply(nativeRemove, original, [type, listener]) },
+    });
+    const subscription = addAbortListener(view, onAbort);
+    const dispose = subscription[(Symbol as SymbolConstructor & { readonly dispose: symbol }).dispose];
+    onAbort();
+    return { signal, close() { closed = true; apply(dispose, subscription, []); } };
+  }
+  // Browser dependency propagation is independent of caller event delivery.
+  const dependent = apply(nativeAny, AbortSignal, [[original]]);
+  apply(nativeAdd, dependent, ['abort', onAbort]);
+  onAbort();
+  return { signal, close() { closed = true; apply(nativeRemove, dependent, ['abort', onAbort]); } };
+}
+
 const unsupportedSignal = (() => {
-  try { nativeAborted.call(new Proxy(new AbortController().signal, {})); }
+  try { apply(nativeAborted, new Proxy(new AbortController().signal, {}), []); }
   catch { return (_value: unknown) => false; }
   const host = globalThis as typeof globalThis & { process?: {
     getBuiltinModule?: (name: string) => { types: { isProxy: (value: unknown) => boolean } };
@@ -36,7 +77,7 @@ function checkSignal(signal?: AbortSignal): void {
   let aborted: boolean;
   try {
     if (unsupportedSignal(signal)) throw invalidArgument();
-    aborted = nativeAborted.call(signal);
+    aborted = apply(nativeAborted, signal, []);
     if (typeof aborted !== 'boolean') throw invalidArgument();
   } catch { throw invalidArgument(); }
   // Actual cancellation wins even over a hostile public getter.
@@ -74,15 +115,10 @@ export async function getBlock(
   } else selector = blockHash(requestedHash!);
 
   checkSignal(caller);
-  // Downstream code receives only our signal, never mutable caller methods/getters.
-  const controller = caller === undefined ? undefined : new AbortController();
-  const signal = controller?.signal;
-  const onAbort = () => { if (nativeAborted.call(caller)) controller!.abort(); };
+  const binding = await bindSignal(caller);
+  const { signal } = binding;
   try {
-    // Synthetic events neither cancel the read nor consume genuine cancellation.
-    if (caller !== undefined) EventTarget.prototype.addEventListener.call(caller, 'abort', onAbort);
-  } catch { throw invalidArgument(); }
-  try {
+    checkSignal(caller);
     // readRpc owns the configured byte/deadline bounds and lossless JSON decoding.
     const value = await readRpc(transport, 'getblock', [selector, 1], signal);
     if (typeof value !== 'object' || value === null || Array.isArray(value) || value instanceof JsonNumber) throw protocolError();
@@ -108,8 +144,13 @@ export async function getBlock(
       || header.previousHash !== previousHash || header.time !== time) throw protocolError();
     return Object.freeze({ ...header, point: Object.freeze({ ...header.point }),
       raw: header.raw.slice(), txids: Object.freeze(txids) });
+  } catch (error) {
+    if (caller !== undefined && apply(nativeAborted, caller, [])) {
+      checkSignal(caller);
+    }
+    throw error;
   } finally {
-    try { if (caller !== undefined) EventTarget.prototype.removeEventListener.call(caller, 'abort', onAbort); }
+    try { binding.close(); }
     catch { /* Caller mutation must not replace the operation's result or error. */ }
   }
 }

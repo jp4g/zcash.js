@@ -119,6 +119,50 @@ export async function runBrowser() {
         check(digests === (realAbort ? (position.startsWith('callback') ? 0 : Number(position.at(-1))) : 2), `${mode}: native digests`);
       }
     }
+    // R3-B1 uses the same source-mapped three-RPC fixture and real fetch/digests.
+    for (const position of ['callback-0', 'callback-1', 'callback-2', 'response-0', 'digest-1', 'digest-2', 'reject-1', 'reject-2']) {
+      const mode = `suppressed-${position}`;
+      const controller = new AbortController();
+      controller.signal.addEventListener('abort', event => event.stopImmediatePropagation(), { once: true });
+      let callbacks = 0, digests = 0, responses = 0;
+      const digest = crypto.subtle.digest;
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = async function (...args) {
+        const response = await Reflect.apply(realFetch, this, args);
+        if (position === 'response-0' && ++responses === 1) controller.abort();
+        return response;
+      };
+      crypto.subtle.digest = async function (...args) {
+        const value = await Reflect.apply(digest, this, args);
+        digests++;
+        if (position === `digest-${digests}` || position === `reject-${digests}`) {
+          controller.abort();
+          if (position.startsWith('reject')) throw Error('private-fixture');
+        }
+        return value;
+      };
+      try {
+        await rejects(getBlock(context(mode, { headers() {
+          if (position === `callback-${callbacks++}`) controller.abort();
+          return {};
+        } }), { height: 1, signal: controller.signal }), 'ABORTED', mode);
+        check(digests === (/^(digest|reject)/.test(position) ? Number(position.at(-1)) : 0), `${mode}: digest boundary`);
+      } finally { crypto.subtle.digest = digest; globalThis.fetch = realFetch; }
+    }
+    for (const stage of [0, 1, 2]) {
+      const mode = `suppressed-stream-${stage}`;
+      const controller = new AbortController();
+      controller.signal.addEventListener('abort', event => event.stopImmediatePropagation());
+      const pending = rejects(getBlock(context(mode), { height: 1, signal: controller.signal }), 'ABORTED', mode);
+      const until = Date.now() + 3000;
+      while (!(await (await fetch('/state')).json())[mode]) {
+        if (Date.now() > until) throw Error('suppressed stream deadline');
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      controller.signal.dispatchEvent(new Event('abort'));
+      check(!nativeAborted.call(controller.signal), `${mode}: synthetic state`);
+      controller.abort(); await pending;
+    }
     check(eager.Worker === 0 && eager.WebAssembly === 0, 'no worker or WASM');
     check(typeof crypto.subtle.digest === 'function', 'native Web Crypto');
     return { checks, eager, userAgent: navigator.userAgent };
@@ -143,6 +187,17 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const onSignal = signal => { report.interruptedBy = signal; stop.abort(); };
   process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const probe = process.env.PUBLIC_BLOCK_INTERRUPT_PROBE;
+  const onProbe = message => {
+    if (message?.type === 'probe-error' && probe) stop.abort(Error('owned interruption probe error'));
+  };
+  process.on('message', onProbe);
+  async function checkpoint(stage, extra = {}) {
+    assert.equal(typeof process.send, 'function', 'interruption probe requires owning helper IPC');
+    process.send({ ready: true, stage, reportPath, origin: server.origin, endpoint,
+      processIdentities: report.processIdentities, ...extra });
+    while (!stop.signal.aborted) await pause(10);
+  }
   let server, driver, driverIdentity, browserIdentity, session, endpoint, driverError, text = '';
   async function identity(pid) {
     try { const stat = (await readFile(`/proc/${pid}/stat`, 'utf8')).split(') ').at(-1).split(' ');
@@ -154,7 +209,12 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       signal: cleanup ? AbortSignal.timeout(5000) : AbortSignal.any([stop.signal, AbortSignal.timeout(30000)]),
       body: body === undefined ? undefined : JSON.stringify(body) });
     const data = await response.json();
-    assert.ok(response.ok && !data.value?.error, JSON.stringify(data)); return data.value;
+    assert.ok(response.ok && !data.value?.error, JSON.stringify(data));
+    if (route === '/session' && probe === 'late-acquisition') {
+      await checkpoint('late-acquisition', { acquiredSession: data.value.sessionId,
+        acquiredBrowserPid: data.value.capabilities['moz:processID'] });
+    }
+    return data.value;
   }
   try {
     report.sourceCommit = process.env.PUBLIC_BLOCK_COMMIT ?? null;
@@ -196,9 +256,13 @@ if (typeof process !== 'undefined' && process.versions?.node) {
         return `"error":{"code":${mode.startsWith('unsupported') ? -32601 : -8},"message":"private-fixture","data":"private-fixture"}`;
       }
       if (mode === `oversize-${stage}`) return result('x'.repeat(17000));
-      if (mode === `timeout-${stage}` || mode === `abort-${stage}`) {
+      if (mode === `timeout-${stage}` || mode === `abort-${stage}` || mode === `suppressed-stream-${stage}`) {
         state[mode] = true; assets.set('/state', JSON.stringify(state));
-        res.writeHead(200, { 'content-type': 'application/json' }); res.write('{'); return;
+        res.writeHead(200, { 'content-type': 'application/json' }); res.write('{');
+        if (mode === 'timeout-0' && probe === 'active-io') {
+          void checkpoint('active-io', { request: call });
+        }
+        return;
       }
       if (stage === 2) return result(mode === 'bad-raw' ? '00' : blockOne.raw);
       const verbose = { ...(stage === 0 ? block : blockOne.verbose) };
@@ -240,6 +304,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     browserIdentity = await identity(value.capabilities['moz:processID']);
     assert.ok(session && driverIdentity && browserIdentity);
     report.processIdentities = { driver: driverIdentity, browser: browserIdentity };
+    report.endpoint = endpoint;
+    stop.signal.throwIfAborted();
     await request(`/session/${session}/timeouts`, 'POST', { script: 20000, pageLoad: 15000, implicit: 0 });
     await request(`/session/${session}/url`, 'POST', { url: server.origin });
     if (process.env.PUBLIC_BLOCK_INTERRUPT_PROBE === '1') {
@@ -283,6 +349,13 @@ if (typeof process !== 'undefined' && process.versions?.node) {
         assert.equal(server.calls.filter(c => c.path.endsWith(`/${mode}`)).length, count, mode);
       }
     }
+    for (const position of ['callback-0', 'callback-1', 'callback-2', 'response-0', 'digest-1', 'digest-2', 'reject-1', 'reject-2']) {
+      const count = position.startsWith('callback') ? Number(position.at(-1)) : position === 'response-0' ? 1 : 3;
+      assert.equal(server.calls.filter(c => c.path.endsWith(`/suppressed-${position}`)).length, count, position);
+    }
+    for (const stage of [0, 1, 2]) {
+      assert.equal(server.calls.filter(c => c.path.endsWith(`/suppressed-stream-${stage}`)).length, stage + 1);
+    }
     report.status = 'passed';
   } catch (error) { if (report.interruptedBy) report.status = 'interrupted'; report.error = { code: error.code, message: String(error), stack: error.stack }; }
   finally {
@@ -315,6 +388,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
     await writeFile(reportPath + '.driver.log', text);
     process.removeListener('SIGINT', onSignal); process.removeListener('SIGTERM', onSignal);
+    process.removeListener('message', onProbe);
     console.log(JSON.stringify({ status: report.status, reportPath, error: report.error }));
     process.exitCode = report.status === 'passed' ? 0 : 1;
   }

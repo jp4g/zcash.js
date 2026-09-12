@@ -378,3 +378,68 @@ for (const stage of [0, 1, 2]) test(`boundary: false event then native abort of 
   assert.equal(calls, stage + 1);
   assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
 });
+
+// R3-B1: native cancellation must survive an earlier listener suppressing delivery.
+for (const position of ['callback-0', 'callback-1', 'callback-2', 'response-0', 'digest-1', 'digest-2', 'reject-1', 'reject-2']) {
+  test(`suppressed native abort: ${position}`, async t => {
+    const { getEventListeners } = await import('node:events');
+    const controller = new AbortController();
+    controller.signal.addEventListener('abort', event => event.stopImmediatePropagation(), { once: true });
+    let callbacks = 0, digests = 0;
+    const responses = [], calls = [];
+    const f = boundary(t, { headers() {
+      if (position === `callback-${callbacks++}`) controller.abort();
+      return {};
+    } });
+    t.mock.method(globalThis, 'fetch', async (_url, request) => {
+      const call = JSON.parse(request.body); calls.push(call);
+      const response = new Response(`{"jsonrpc":"2.0","id":${JSON.stringify(call.id)},${reply(call)}}`);
+      responses.push(response);
+      if (position === 'response-0' && calls.length === 1) controller.abort();
+      return response;
+    });
+    const digest = crypto.subtle.digest;
+    t.mock.method(crypto.subtle, 'digest', async function (...args) {
+      const value = await Reflect.apply(digest, this, args);
+      digests++;
+      if (position === `digest-${digests}` || position === `reject-${digests}`) {
+        controller.abort();
+        if (position.startsWith('reject')) throw Error('private-fixture');
+      }
+      return value;
+    });
+    await assert.rejects(adapter.getBlock(f.source, { height: 1, signal: controller.signal }), sanitized('ABORTED'));
+    assert.equal(calls.length, position.startsWith('callback') ? Number(position.at(-1)) : position === 'response-0' ? 1 : 3);
+    assert.equal(digests, /^(digest|reject)/.test(position) ? Number(position.at(-1)) : 0);
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    assert.ok(responses.every(response => !response.body.locked));
+  });
+}
+for (const stage of [0, 1, 2]) test(`suppressed native abort: active RPC ${stage} after false event`, async t => {
+  const { getEventListeners } = await import('node:events');
+  const controller = new AbortController();
+  const suppress = event => event.stopImmediatePropagation();
+  controller.signal.addEventListener('abort', suppress);
+  let arrived, calls = 0, cancelled = 0;
+  const responses = [];
+  const ready = new Promise(resolve => { arrived = resolve; });
+  const f = boundary(t, { timeoutMs: 100 });
+  t.mock.method(globalThis, 'fetch', async (_url, request) => {
+    const call = JSON.parse(request.body);
+    const response = calls++ !== stage
+      ? new Response(`{"jsonrpc":"2.0","id":${JSON.stringify(call.id)},${reply(call)}}`)
+      : new Response(new ReadableStream({
+        start(stream) { stream.enqueue(new TextEncoder().encode('{')); arrived(); },
+        cancel() { cancelled++; },
+      }));
+    responses.push(response); return response;
+  });
+  const pending = assert.rejects(adapter.getBlock(f.source, { height: 1, signal: controller.signal }), sanitized('ABORTED'));
+  await ready;
+  controller.signal.dispatchEvent(new Event('abort'));
+  assert.equal(nativeAborted.call(controller.signal), false);
+  controller.abort(); await pending;
+  assert.equal(cancelled, 1); assert.equal(calls, stage + 1);
+  assert.ok(responses.every(response => !response.body.locked));
+  assert.deepEqual(getEventListeners(controller.signal, 'abort'), [suppress]);
+});

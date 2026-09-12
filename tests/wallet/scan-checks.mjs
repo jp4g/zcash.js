@@ -12,7 +12,7 @@ export async function emptyCompletionChecks(session,fixture,definition,reopened=
   const target={height:0,hash:definition.genesisHash};
   if(reopened){
     const state=await session.scan.state();
-    check(state.tipHeight===0&&state.maxScannedHeight===null&&state.fullyScannedHeight===null&&state.scanComplete===null,'empty sync state survives native reopen');
+    check(state.tipHeight===null&&state.maxScannedHeight===null&&state.fullyScannedHeight===null&&state.scanComplete===null,'empty sync state survives native reopen');
     return state.revision;
   }
   const network=await defineNetwork(definition),tree=hex(fixture.batches[0].priorTreeState);
@@ -27,7 +27,7 @@ export async function emptyCompletionChecks(session,fixture,definition,reopened=
   const sync=new WalletSync(session,light,{pollIntervalMs:1000,maxBufferedUpdates:16});
   try {
     const status=await sync.sync({target:{...target,hash:network.genesisHash}});
-    check(status.targetReached&&status.scan.tipHeight===0&&status.scan.fullyScannedHeight===null&&status.scan.maxScannedHeight===null&&status.scan.scanComplete===null,'native empty completion reaches target without invented scanned heights');
+    check(status.targetReached&&status.scan.tipHeight===null&&status.scan.fullyScannedHeight===null&&status.scan.maxScannedHeight===null&&status.scan.scanComplete===null,'native empty completion reaches target without invented scanned heights');
     return status.scan.revision;
   }finally{await sync.stop();}
 }

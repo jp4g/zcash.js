@@ -142,6 +142,8 @@ export async function syncWallet(session: Session, light: LightClient, target: C
     const request = pending.requests.find(value => !visited.has(JSON.stringify(value))
       && !(value.kind === 'address' && value.requestAt !== null && value.requestAt > Date.now()));
     if (!request) break;
+    if (visited.size >= 1024)
+      throw failure('RESOURCE_LIMIT', 'sync', 'sync', 'Sync enhancement pass exceeded its request limit.');
     visited.add(JSON.stringify(request));
     await applyEnhancement(session, light, pending.revision, request, signal);
   }

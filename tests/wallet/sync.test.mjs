@@ -3,6 +3,21 @@ import test from 'node:test';
 import { syncWallet, WalletSync } from '../../dist/src/wallet/sync.js';
 import { failure } from '../../dist/src/errors.js';
 
+test('newly discovered enhancement requests cannot grow a finite pass without bound', async () => {
+  const target = { height: 1, hash: '03'.repeat(32) };
+  let applied = 0;
+  const session = { scan: {
+    async state() { return { revision: String(applied), maxScannedHeight: null }; },
+    async plan() { return { ranges: [] }; },
+  }, enhancement: {
+    async requests() { return { revision: String(applied), requests: [{ kind: 'status', txid: applied.toString(16).padStart(64, '0') }] }; },
+    async apply() { applied++; return { revision: String(applied) }; },
+  } };
+  const light = { async getTreeState() { return { point: target }; }, async getTransaction() { return null; } };
+  await assert.rejects(syncWallet(session, light, target), error => error.code === 'RESOURCE_LIMIT');
+  assert.equal(applied, 1024);
+});
+
 test('reorg replay starts at the native actual checkpoint, not the requested ancestor', async () => {
   const oldHash = '01'.repeat(32), newHash = '02'.repeat(32);
   let scanned = 100, revision = 0;

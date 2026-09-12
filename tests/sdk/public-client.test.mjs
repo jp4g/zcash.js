@@ -52,7 +52,9 @@ test('complete internal PublicClient composes all eleven methods with native cod
     assert.equal((await client.broadcastTransaction({bytes:Uint8Array.from(Buffer.from(vector.hex,'hex'))})).outcome,'acknowledged');
     assert.equal((await client.waitForTransaction({txid:vector.display,timeoutMs:1000})).confirmations,1);
     const watch=client.watchTransaction({txid:vector.display})[Symbol.asyncIterator]();
-    assert.equal((await watch.next()).value.state,'mined');state='mempool';
+    const initial=(await watch.next()).value;assert.equal(initial.state,'mined');
+    initial.inclusion.blockHash='ab'.repeat(32);initial.inclusion.height=999;
+    state='mempool';
     const changed=(await watch.next()).value;
     assert.equal(changed.state,'mempool');assert.equal(changed.priorInclusion.blockHash,blockOne.verbose.hash);await watch.return();
     state='absent';assert.equal(await client.getTransaction({txid:vector.display}),null);

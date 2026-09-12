@@ -1,5 +1,6 @@
-import type { ChainPoint, ErrorInfo, LightClient, Op, SyncStatus } from '../../docs/api/public-api.js';
+import type { ChainPoint, ErrorInfo, LightClient, ObservationOptions, Op, SyncStatus } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
+import { operation } from '../clients/light-chain-reads.js';
 import { blockHash } from '../primitives.js';
 import type { attachWalletWorker } from './host.js';
 import { applyEnhancement } from './enhancement.js';
@@ -9,7 +10,9 @@ const reverse = (hash: string) => hash.match(/../g)!.reverse().join('');
 const mismatch = () => failure('PROTOCOL_MISMATCH', 'sync', 'sync', 'Sync source changed or returned inconsistent blocks.');
 const recovery = () => failure('RECOVERY_REQUIRED', 'sync', 'sync', 'No retained common checkpoint is available.');
 
-/** Wallet-owned finite sync lifecycle. The enclosing wallet owns and closes the worker. */
+type Subscriber = { push(status: SyncStatus): void; finish(error?: unknown): void };
+
+/** Wallet-owned finite and shared continuous sync lifecycle. The enclosing wallet owns and closes the worker. */
 export class WalletSync {
   private activity: SyncStatus['activity'] = 'idle';
   private target: ChainPoint | null = null;
@@ -17,7 +20,112 @@ export class WalletSync {
   private lastError: ErrorInfo | null = null;
   private controller: AbortController | undefined;
   private running: Promise<SyncStatus> | undefined;
-  constructor(private readonly session: Session, private readonly light: LightClient) {}
+  private readonly subscribers = new Set<Subscriber>();
+  private watching: Promise<void> | undefined;
+  private watchController: AbortController | undefined;
+  private readonly observation: ObservationOptions;
+  constructor(private readonly session: Session, private readonly light: LightClient, observation: ObservationOptions) {
+    if (!observation || typeof observation !== 'object') throw invalidArgument();
+    const poll = Object.getOwnPropertyDescriptor(observation, 'pollIntervalMs');
+    const buffer = Object.getOwnPropertyDescriptor(observation, 'maxBufferedUpdates');
+    if (!poll || !buffer || !Object.hasOwn(poll, 'value') || !Object.hasOwn(buffer, 'value')
+      || !Number.isSafeInteger(poll.value) || poll.value <= 0
+      || !Number.isSafeInteger(buffer.value) || buffer.value <= 0) throw invalidArgument();
+    this.observation = { pollIntervalMs: poll.value, maxBufferedUpdates: buffer.value };
+  }
+
+  watchSync(args: Op = {}): AsyncIterableIterator<SyncStatus> {
+    let owned: Op;
+    try {
+      if (!args || ![Object.prototype, null].includes(Object.getPrototypeOf(args))
+        || Reflect.ownKeys(args).some(key => key !== 'signal')) throw invalidArgument();
+      const field = Object.getOwnPropertyDescriptor(args, 'signal');
+      if (field && !Object.hasOwn(field, 'value')) throw invalidArgument();
+      owned = field ? { signal: field.value } : {};
+    } catch { throw invalidArgument(); }
+    const queue: SyncStatus[] = [];
+    let done = false, error: unknown, started = false, reading = false;
+    let wake: (() => void) | undefined;
+    let pending: ReturnType<typeof operation> | undefined;
+    const subscriber: Subscriber = {
+      push: status => {
+        if (done) return;
+        if (queue.length >= this.observation.maxBufferedUpdates) {
+          subscriber.finish(failure('RESOURCE_LIMIT', 'sync', 'configure', 'Sync observation buffer exceeded.'));
+        } else { queue.push(structuredClone(status)); wake?.(); }
+      },
+      finish: caught => {
+        if (done) return;
+        done = true; error = caught; queue.length = 0;
+        pending?.close(); this.subscribers.delete(subscriber);
+        if (!this.subscribers.size) this.watchController?.abort();
+        wake?.();
+      },
+    };
+    return {
+      [Symbol.asyncIterator]() { return this; },
+      next: async () => {
+        if (reading) throw failure('RESOURCE_LIMIT', 'sync', 'configure', 'Concurrent sync observation reads are unsupported.');
+        reading = true;
+        try {
+          if (!started && !done) {
+            started = true;
+            // Native host admission checks arguments and caller signal before subscription.
+            const initial = await this.getSyncStatus(owned);
+            if (!done) {
+              pending = operation(owned.signal, () => subscriber.finish(failure('ABORTED', 'sync', 'none', 'Sync observation aborted.')));
+              pending.check();
+              this.subscribers.add(subscriber); subscriber.push(initial); this.startWatching();
+            }
+          }
+          while (!done && !queue.length) await new Promise<void>(resolve => { wake = resolve; });
+          if (error) throw error;
+          return done ? { done: true, value: undefined } : { done: false, value: queue.shift()! };
+        } catch (caught) { subscriber.finish(caught); throw caught; }
+        finally { reading = false; wake = undefined; }
+      },
+      return: async () => { subscriber.finish(); if (!this.subscribers.size) await this.watching; return { done: true, value: undefined }; },
+    };
+  }
+
+  private publish(status: SyncStatus) { for (const subscriber of this.subscribers) subscriber.push(status); }
+
+  private startWatching() {
+    if (this.watching || !this.subscribers.size) return;
+    const controller = new AbortController(); this.watchController = controller;
+    this.watching = (async () => {
+      while (!controller.signal.aborted && this.subscribers.size) {
+        try {
+          // Waiting on an independently started finite run does not grant cancellation ownership.
+          if (this.running) {
+            const waiting = operation(controller.signal);
+            try { await waiting.wait(this.running); } finally { waiting.close(); }
+          }
+          else await this.sync({ signal: controller.signal });
+        } catch (error) {
+          if (controller.signal.aborted) break;
+          if (!isZcashError(error) || !error.retryable || !['TRANSPORT_ERROR', 'TIMEOUT'].includes(error.code)) {
+            for (const subscriber of this.subscribers) subscriber.finish(error);
+          }
+        }
+        if (controller.signal.aborted || !this.subscribers.size) break;
+        await new Promise<void>(resolve => {
+          const finish = () => { clearTimeout(timer); controller.signal.removeEventListener('abort', finish); resolve(); };
+          let remaining = this.observation.pollIntervalMs;
+          const tick = () => {
+            if (remaining <= 0) { finish(); return; }
+            const delay = Math.min(remaining, 2_147_483_647); remaining -= delay;
+            timer = setTimeout(tick, delay);
+          };
+          let timer: ReturnType<typeof setTimeout>; tick();
+          controller.signal.addEventListener('abort', finish, { once: true });
+        });
+      }
+    })().finally(() => {
+      this.watching = undefined; this.watchController = undefined;
+      this.startWatching();
+    });
+  }
 
   async getSyncStatus(args: Op = {}): Promise<SyncStatus> {
     // Both reads are local. Equal revisions bind their projections to one database state.
@@ -64,26 +172,30 @@ export class WalletSync {
       // Host admission validates the caller's native signal before composing dependencies.
       await this.session.scan.state(signal === undefined ? {} : { signal });
       const dependent = signal === undefined ? this.controller!.signal : AbortSignal.any([signal, this.controller!.signal]);
+      if (this.subscribers.size) this.publish(await this.getSyncStatus());
       const point = target ?? await this.light.getTip({ signal: dependent });
       this.target = Object.freeze({ height: point.height, hash: point.hash });
       const scan = await syncWallet(this.session, this.light, this.target, dependent);
       this.reached = scan.fullyScannedHeight !== null && scan.fullyScannedHeight >= this.target.height;
       this.activity = 'idle';
-      return await this.getSyncStatus();
+      const status = await this.getSyncStatus(); this.publish(status); return status;
     } catch (caught) {
       const error = isZcashError(caught) ? caught : failure('RUNTIME_UNAVAILABLE', 'sync', 'reopen', 'Wallet sync failed.');
       this.activity = error.code === 'ABORTED' ? 'stopped' : 'failed';
       if (error.code !== 'ABORTED') this.lastError = Object.freeze({ code: error.code, stage: error.stage, recovery: error.recovery, retryable: error.retryable, message: error.message });
       let status: SyncStatus;
       try { status = await this.getSyncStatus(); } catch { throw error; }
+      this.publish(status);
       if (error.code === 'ABORTED') return status;
       throw failure(error.code, error.stage, error.recovery, error.message, error.retryable, status);
     }
   }
 
   async stop(): Promise<void> {
-    this.controller?.abort();
+    for (const subscriber of this.subscribers) subscriber.finish();
+    this.watchController?.abort(); this.controller?.abort();
     await this.running?.catch(() => {});
+    await this.watching;
   }
 }
 

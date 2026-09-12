@@ -8,6 +8,29 @@ const hex=value=>Uint8Array.from(value.match(/../g)??[],byte=>parseInt(byte,16))
 const encoded=value=>Array.from(value,b=>b.toString(16).padStart(2,'0')).join('');
 const reverse=value=>value.match(/../g).reverse().join('');
 const check=(ok,label)=>{if(!ok)throw Error(label);};
+export async function emptyCompletionChecks(session,fixture,definition,reopened=false) {
+  const target={height:0,hash:definition.genesisHash};
+  if(reopened){
+    const state=await session.scan.state();
+    check(state.tipHeight===0&&state.maxScannedHeight===null&&state.fullyScannedHeight===null&&state.scanComplete===null,'empty sync state survives native reopen');
+    return state.revision;
+  }
+  const network=await defineNetwork(definition),tree=hex(fixture.batches[0].priorTreeState);
+  const text=(field,value)=>bytesField(field,new TextEncoder().encode(value));
+  initializePrimitive();
+  const light=createLightClient({network,transport:{kind:'custom-lightwallet',sourceId:'empty-native-fixture',protocolRevision:revision,
+    async unary({method}){
+      if(method==='GetLightdInfo')return concat(text(1,'fixture'),text(2,'synthetic'),text(4,'regtest'),scalar(5,20),text(6,consensusContext(definition.parametersFormat,definition.parameters,0).branchId.toString(16).padStart(8,'0')),scalar(7,0),text(18,'v0.5.0'));
+      check(method==='GetTreeState','empty wallet only fetches pinned tree state');return tree;
+    },async *stream(){throw Error('empty wallet must not scan blocks');},
+  }});
+  const sync=new WalletSync(session,light,{pollIntervalMs:1000,maxBufferedUpdates:16});
+  try {
+    const status=await sync.sync({target:{...target,hash:network.genesisHash}});
+    check(status.targetReached&&status.scan.tipHeight===0&&status.scan.fullyScannedHeight===null&&status.scan.maxScannedHeight===null&&status.scan.scanComplete===null,'native empty completion reaches target without invented scanned heights');
+    return status.scan.revision;
+  }finally{await sync.stop();}
+}
 export async function scanChecks(session,fixture,definition) {
   const codec=wireCodec();initializePrimitive();
   const network=await defineNetwork(definition),target=fixture.target;

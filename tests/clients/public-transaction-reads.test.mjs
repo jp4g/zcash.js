@@ -32,6 +32,66 @@ test('real accepted transactions retain exact bytes and mempool observation', as
   } finally { await server.close(); }
 });
 
+test('transaction observations retain uncertainty and reject DTO/decoder contradictions', async () => {
+  const v = vectors[0];
+  const { getTransaction } = await import(pathToFileURL(`${build}/src/clients/public-transaction-reads.js`));
+  const { http } = await import(pathToFileURL(`${build}/src/http.js`));
+  let dto = { txid: v.display, hex: v.hex, in_active_chain: false,
+    blockhash: blockOne.verbose.hash, height: -1, confirmations: 0 };
+  const server = await fixture(call => result(call.method === 'getrawtransaction' ? dto
+    : call.method === 'getblock' ? { ...blockOne.verbose, nTx: 1, tx: [v.display] }
+    : call.params[1] ? blockOne.verbose : blockOne.raw));
+  const source = { transport: http(`${server.origin}/rpc`, transportOptions), sourceId: 'fixture' };
+  const context = { txid: v.display, decodeTransaction: raw => decodeTransaction(raw, v.branch) };
+  try {
+    const off = await getTransaction(source, context, { txid: v.display });
+    assert.equal(off.observation.state, 'offMainChain');
+    assert.equal(off.observation.inclusion, null);
+    assert.equal(server.calls.length, 1);
+    dto = { ...dto, in_active_chain: true, height: 1, confirmations: 1, blockhash: 'ab'.repeat(32) };
+    const changed = await getTransaction(source, context, { txid: v.display });
+    assert.equal(changed.observation.state, 'unknown');
+    assert.equal(changed.observation.inclusion, null);
+    for (const bad of [{ ...dto, txid: 'ab'.repeat(32) }, { ...dto, in_active_chain: 'true' },
+      { ...dto, height: 1.5 }, { ...dto, hex: 'zz' }]) {
+      dto = bad;
+      await assert.rejects(getTransaction(source, context, { txid: v.display }), error => error.code === 'PROTOCOL_MISMATCH');
+    }
+    dto = { txid: v.display, hex: v.hex, in_active_chain: false };
+    for (const change of [{ display: 'ab'.repeat(32) }, { txid: new Uint8Array(32) }, { bytes: new Uint8Array([0]) }]) {
+      await assert.rejects(getTransaction(source, { ...context,
+        decodeTransaction: raw => ({ ...decodeTransaction(raw, v.branch), ...change }) },
+      { txid: v.display }), error => error.code === 'PROTOCOL_MISMATCH');
+    }
+    assert.deepEqual(server.unexpected, []);
+  } finally { await server.close(); }
+});
+
+test('native cancellation stops an in-flight transaction response after a synthetic event', async () => {
+  const v = vectors[0];
+  const { getTransaction } = await import(pathToFileURL(`${build}/src/clients/public-transaction-reads.js`));
+  const { http } = await import(pathToFileURL(`${build}/src/http.js`));
+  let started;
+  const seen = new Promise(resolve => { started = resolve; });
+  const server = await fixture((_call, _req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' }); res.write('{'); started();
+  });
+  try {
+    const controller = new AbortController();
+    controller.signal.addEventListener('abort', event => event.stopImmediatePropagation());
+    const pending = assert.rejects(getTransaction({ sourceId: 'fixture',
+      transport: http(`${server.origin}/rpc`, transportOptions) },
+    { txid: v.display, decodeTransaction: raw => decodeTransaction(raw, v.branch) },
+    { txid: v.display, signal: controller.signal }), error => error.code === 'ABORTED');
+    await seen;
+    controller.signal.dispatchEvent(new Event('abort'));
+    assert.equal(controller.signal.aborted, false);
+    controller.abort(); await pending;
+    assert.equal(server.calls.length, 1);
+    assert.deepEqual(server.unexpected, []);
+  } finally { await server.close(); }
+});
+
 test('mined transaction composes block reads with a signal and preserves cancellation', async () => {
   const v = vectors[0];
   const { getTransaction } = await import(pathToFileURL(`${build}/src/clients/public-transaction-reads.js`));

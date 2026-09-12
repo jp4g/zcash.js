@@ -190,3 +190,27 @@ test('completed tree snapshots own bytes and retain committed cancellation recei
   await assert.rejects(pending,error=>error.code==='ABORTED'&&host.completion(error).completion==='committed'
     &&host.completion(error).value.revision==='completed');
 });
+
+test('wallet queries preserve native nulls and bytes, and stale cursors remain recoverable read failures', async t => {
+  const bytes = new Uint8Array([1, 2, 3]);
+  const { host } = local(t, (_g, _i, command, args) => {
+    if (command === 'wallet_history') {
+      assert.equal(args.accountId, 'account');
+      if (args.cursor) throw Object.assign(Error('CURSOR_STALE'), { commit: 'none' });
+      return { items: [{ balanceDelta: -9n, fee: null }], nextCursor: 'page', historyComplete: 'unknown' };
+    }
+    assert.equal(command, 'wallet_transaction');
+    return args.txid === 'absent' ? null : { raw: args.txid === 'pending' ? null : bytes, outputs: [] };
+  });
+  const args = { accountId: 'account', limit: 1 };
+  const pending = host.getHistory(args); args.accountId = 'mutated';
+  assert.equal((await pending).items[0].balanceDelta, -9n);
+  await assert.rejects(host.getHistory({ accountId: 'account', cursor: 'stale' }), error =>
+    error.code === 'CURSOR_STALE' && error.stage === 'query' && host.completion(error).completion === 'none');
+  assert.equal(await host.getTransaction({ txid: 'absent' }), null);
+  assert.equal((await host.getTransaction({ txid: 'pending' })).raw, null);
+  const transaction = await host.getTransaction({ txid: 'enhanced' });
+  assert.deepEqual(transaction.raw, bytes);
+  transaction.raw.fill(0);
+  assert.deepEqual([...bytes], [1, 2, 3]);
+});

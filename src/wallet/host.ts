@@ -1,4 +1,5 @@
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance, ZcashError } from '../../docs/api/public-api.js';
+import type { HistoryPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { ownBytes } from '../clients/owned-plumbing.js';
 import type { ScanTarget, ScanPlan, ScanBatch, ScanReceipt, ScanBlock, ScanRewind, ScanCompletion, Completion } from './session.js';
@@ -188,6 +189,8 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       at: (args: Parameters<WalletAddressesApi['at']>[0]) => call<Awaited<ReturnType<WalletAddressesApi['at']>>>('address_at', args),
     },
     getBalance: (args: { accountId: string; confirmations: ConfirmationsPolicy } & Op) => call<WalletBalance>('account_balance', args),
+    getHistory: (args: Parameters<WalletClient['getHistory']>[0]) => call<HistoryPage>('wallet_history', args),
+    getTransaction: (args: Parameters<WalletClient['getTransaction']>[0]) => call<WalletTransaction | null>('wallet_transaction', args),
     scan: {
       state: (args?: Op) => call<ScanState>('scan_state', args),
       block: (args: { height: number } & Op) => call<ScanBlock>('scan_block_hash', args),

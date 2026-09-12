@@ -69,7 +69,7 @@ export function createLightClient(args: { network: Network; transport: GrpcTrans
     return value;
   }
   type Native = Awaited<ReturnType<typeof ready>>;
-  function source(value: Native, signal: AbortSignal): transactions.LightTransactionSource {
+  function source(value: Native): transactions.LightTransactionSource {
     return { wire: value.wire, transport,
       validateAddress(address) {
         try { return value.address.decode(address, family).canonical; }
@@ -105,7 +105,7 @@ export function createLightClient(args: { network: Network; transport: GrpcTrans
     const owned = snapshot(args, [...keys, 'signal']);
     chain.admit(transport, owned, [...keys, 'signal']);
     let iterator: AsyncIterator<T> | undefined, finished = false, busy = false;
-    const pending = chain.operation(owned.signal, () => { void iterator?.return?.().catch(() => {}); });
+    let pending: ReturnType<typeof chain.operation> | undefined;
     return {
       [Symbol.asyncIterator]() { return this; },
       async next() {
@@ -113,6 +113,7 @@ export function createLightClient(args: { network: Network; transport: GrpcTrans
         if (busy) throw invalidArgument();
         busy = true;
         try {
+          pending ??= chain.operation(owned.signal, () => { void iterator?.return?.().catch(() => {}); });
           pending.check();
           if (!iterator) {
             const value = await pending.wait(ready(pending.signal)); pending.check();
@@ -121,10 +122,10 @@ export function createLightClient(args: { network: Network; transport: GrpcTrans
           const result = await pending.wait(iterator.next()); pending.check();
           if (result.done) { finished = true; pending.close(); }
           return result;
-        } catch (error) { finished = true; pending.close(); throw error; }
+        } catch (error) { finished = true; pending?.close(); throw error; }
         finally { busy = false; }
       },
-      async return() { finished = true; pending.cancel(); return { done: true, value: undefined }; },
+      async return() { finished = true; pending?.cancel(); return { done: true, value: undefined }; },
     };
   }
   return Object.freeze({
@@ -139,10 +140,10 @@ export function createLightClient(args: { network: Network; transport: GrpcTrans
     getAddressUtxos: args => unary(args, ['addresses'], (v, a) => transparent.getAddressUtxos(v.address, v.wire, transport, family, a)),
     getAddressBalance: args => unary(args, ['addresses'], (v, a) => transparent.getAddressBalance(v.address, v.wire, transport, family, a)),
     streamCompactBlocks: args => stream(args, ['fromHeight', 'toHeight'], (v, a) => chain.streamCompactBlocks(v.wire, transport, a)),
-    getTransaction: args => unary(args, ['txid'], (v, a) => transactions.getTransaction(source(v, a.signal!), a)),
-    getSubtreeRoots: args => stream(args, ['pool', 'startIndex', 'limit'], (v, a) => transactions.getSubtreeRoots(source(v, a.signal!), a)),
-    streamAddressTransactions: args => stream(args, ['address', 'fromHeight', 'toHeight'], (v, a) => transactions.streamAddressTransactions(source(v, a.signal!), a)),
-    streamMempool: (args = {}) => stream(args, [], (v, a) => transactions.streamMempool(source(v, a.signal!), a)),
-    broadcastTransaction: args => unary(args, ['bytes'], (v, a) => transactions.broadcastTransaction(source(v, a.signal!), a), true),
+    getTransaction: args => unary(args, ['txid'], (v, a) => transactions.getTransaction(source(v), a)),
+    getSubtreeRoots: args => stream(args, ['pool', 'startIndex', 'limit'], (v, a) => transactions.getSubtreeRoots(source(v), a)),
+    streamAddressTransactions: args => stream(args, ['address', 'fromHeight', 'toHeight'], (v, a) => transactions.streamAddressTransactions(source(v), a)),
+    streamMempool: (args = {}) => stream(args, [], (v, a) => transactions.streamMempool(source(v), a)),
+    broadcastTransaction: args => unary(args, ['bytes'], (v, a) => transactions.broadcastTransaction(source(v), a), true),
   } satisfies LightClient);
 }

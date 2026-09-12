@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { defineNetwork } from '../../dist/src/network.js';
-import { createLightClient } from '../../dist/src/light.js';
+import { defineNetwork, createLightClient } from '../../dist/src/index.js';
 import { revision, scalar, bytesField, concat, tipBytes, blockBytes } from '../clients/light-chain-reads-fixtures.mjs';
 import { token } from '../clients/light-transparent-reads-fixtures.mjs';
 import { verifiedPacket } from '../clients/public-transaction-reads-packet.mjs';

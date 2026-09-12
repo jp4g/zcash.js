@@ -3,6 +3,37 @@ import test from 'node:test';
 import { syncWallet, WalletSync } from '../../dist/src/wallet/sync.js';
 import { failure } from '../../dist/src/errors.js';
 
+test('reorg replay starts at the native actual checkpoint, not the requested ancestor', async () => {
+  const oldHash = '01'.repeat(32), newHash = '02'.repeat(32);
+  let scanned = 100, revision = 0;
+  const requested = [], replayed = [];
+  const session = { scan: {
+    async state() { return { revision: String(revision), maxScannedHeight: scanned, fullyScannedHeight: scanned }; },
+    async block({ height }) { return { revision: String(revision), point: { height, hash: oldHash } }; },
+    async rewind({ requestedPoint }) {
+      requested.push(requestedPoint.height); scanned = 96; revision++;
+      return { revision: String(revision), point: { height: 96, hash: oldHash } };
+    },
+    async plan() {
+      return { revision: String(revision), ranges: scanned === 100 ? []
+        : [{ start: scanned + 1, endExclusive: 101, priorState: { height: scanned, hash: oldHash } }] };
+    },
+    async ingest({ blocks }) { scanned += blocks.length; revision++; },
+  }, enhancement: { async requests() { return { revision: String(revision), requests: [] }; } } };
+  const light = {
+    async getTreeState({ height }) { return { point: { height, hash: height === 100 ? newHash : oldHash }, encoded: new Uint8Array() }; },
+    async *streamCompactBlocks({ fromHeight, toHeight }) {
+      for (let height = fromHeight; height <= toHeight; height++) {
+        replayed.push(height);
+        yield { point: { height, hash: height === 100 ? newHash : oldHash }, encoded: new Uint8Array([height]) };
+      }
+    },
+  };
+  assert.equal((await syncWallet(session, light, { height: 100, hash: newHash })).fullyScannedHeight, 100);
+  assert.deepEqual(requested, [99]);
+  assert.deepEqual(replayed, [97, 98, 99, 100]);
+});
+
 test('finite sync follows native ranges in bounded batches and visits persistent status requests once', async () => {
   const hash = '03'.repeat(32), target = { height: 20, hash };
   let scanned = 0, revision = 0, applications = 0, pins = 0;

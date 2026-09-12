@@ -4,18 +4,19 @@ import { WalletSession } from './session.js';
 import type { Completion, InitializedViews } from './session.js';
 
 export type WalletCommand = 'account_import' | 'account_list' | 'account_get' | 'account_balance'
+  | 'wallet_history' | 'wallet_transaction'
   | 'enhancement_requests' | 'enhancement_apply'
-  | 'scan_state' | 'scan_block_hash' | 'scan_rewind' | 'scan_plan' | 'scan_ingest_batch' | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
+  | 'scan_state' | 'scan_block_hash' | 'scan_rewind' | 'scan_complete' | 'scan_plan' | 'scan_ingest_batch' | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
 export interface WalletReply {
   readonly id: number;
   readonly completion: Completion;
   readonly invalid: boolean;
   readonly outcome: { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: ErrorInfo };
 }
-export const walletWrites = new Set<WalletCommand>(['account_import', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'enhancement_apply']);
+export const walletWrites = new Set<WalletCommand>(['account_import', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
 
 const nativeCodes: Record<string, ErrorCode> = {
-  RESOURCE_LIMIT: 'RESOURCE_LIMIT', STALE_REVISION: 'CURSOR_STALE',
+  RESOURCE_LIMIT: 'RESOURCE_LIMIT', STALE_REVISION: 'CURSOR_STALE', CURSOR_STALE: 'CURSOR_STALE',
   RECOVERY_REQUIRED: 'RECOVERY_REQUIRED',
   METHOD_NOT_SUPPORTED: 'METHOD_NOT_SUPPORTED',
   CHAIN_MISMATCH: 'PROTOCOL_MISMATCH', SCAN_FAILED: 'PROTOCOL_MISMATCH',
@@ -48,7 +49,7 @@ function errorInfo(error: unknown, command: WalletCommand): { error: ErrorInfo; 
   const storage = ['STORAGE_ERROR', 'STORAGE_BUSY', 'MIGRATION_REQUIRED'].includes(code);
   const sync = command.startsWith('scan_') || command.startsWith('enhancement_');
   const stage: ErrorInfo['stage'] = invalid ? 'runtime' : storage ? 'storage' : code === 'INVALID_ARGUMENT' ? 'validation'
-    : sync ? 'sync' : command === 'account_balance' ? 'query' : command.startsWith('address_') ? 'address' : command === 'close' ? 'runtime' : 'account';
+    : sync ? 'sync' : command === 'account_balance' || command.startsWith('wallet_') ? 'query' : command.startsWith('address_') ? 'address' : command === 'close' ? 'runtime' : 'account';
   const recovery: ErrorInfo['recovery'] = code === 'RESOURCE_LIMIT' ? 'configure' : invalid || storage ? 'reopen' : code === 'SYNC_REQUIRED' || sync && ['CURSOR_STALE', 'PROTOCOL_MISMATCH'].includes(code) ? 'sync'
     : code === 'ABORTED' || code === 'CLOSED' ? 'none' : 'correct-input';
   return { error: { code, stage, recovery, retryable: false, message: 'Wallet operation failed.' }, invalid };
@@ -63,8 +64,10 @@ export function installWalletWorker(owner: InitializedViews, port: MessagePort):
     address_list: session.addresses.list, address_at: session.addresses.at,
     scan_plan: session.scan.plan, scan_ingest_batch: session.scan.ingest,
     scan_state: session.scan.state, scan_block_hash: session.scan.block, scan_rewind: session.scan.rewind,
+    scan_complete: session.scan.complete,
     enhancement_requests: session.enhancement.requests, enhancement_apply: session.enhancement.apply,
     account_balance: session.getBalance.bind(session), close: () => session.close(),
+    wallet_history: session.getHistory.bind(session), wallet_transaction: session.getTransaction.bind(session),
   };
   let lastId = 0, closed = false;
   port.onmessage = async ({ data }) => {

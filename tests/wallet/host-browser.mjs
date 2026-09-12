@@ -137,7 +137,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       await modules(`${build}/src`,'/dist/src');
       assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
     }
-    assets.set('/fixture.json', JSON.stringify({ import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement }));
+    assets.set('/fixture.json', JSON.stringify({ import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
@@ -183,8 +183,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     assert.ok(!answer.error, JSON.stringify(answer));
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
-    if(process.env.WALLET_LOADER){assert.equal(answer.value.publicSync,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 6 : 2);
+    if(process.env.WALLET_LOADER){assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 10 : 2);
     report.status = 'passed';
   } catch (error) { if (report.interruptedBy) report.status = 'interrupted'; report.error = { code: error.code, message: String(error), stack: error.stack }; }
   finally {

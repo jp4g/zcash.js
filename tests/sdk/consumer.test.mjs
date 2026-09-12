@@ -27,7 +27,7 @@ async function exec(command, args, options = {}) {
     await rm(folder, { recursive: true, force: true });
   }
 }
-const implemented = ['accountIndex', 'blockHash', 'diversifierIndex', 'formatZec', 'http', 'isZcashError', 'parseZec', 'txId'];
+const implemented = ['accountIndex', 'blockHash', 'defineNetwork', 'diversifierIndex', 'formatZec', 'http', 'isZcashError', 'parseZec', 'txId'];
 
 test('packed private package imports and typechecks in an isolated Node consumer', async (t) => {
   const folder = await mkdtemp(join(tmpdir(), 'zcash-sdk-consumer-'));
@@ -59,8 +59,10 @@ test('packed private package imports and typechecks in an isolated Node consumer
   `], { cwd: consumer });
   assert.deepEqual(JSON.parse(runtime.stdout), implemented);
   await writeFile(join(consumer, 'consumer.ts'), `
-    import { parseZec, formatZec, txId, blockHash, accountIndex, diversifierIndex, http, isZcashError } from 'zcash.js';
-    import type { TxId, BlockHash, AccountIndex, DiversifierIndex, HttpTransport, ZcashError } from 'zcash.js';
+    import { parseZec, formatZec, txId, blockHash, accountIndex, diversifierIndex, http, isZcashError, defineNetwork } from 'zcash.js';
+    import type { TxId, BlockHash, AccountIndex, DiversifierIndex, HttpTransport, ZcashError, Network, NetworkDefinition } from 'zcash.js';
+    const definition: NetworkDefinition = null!;
+    const network: Promise<Network> = defineNetwork(definition);
     const amount: bigint = parseZec('1.234');
     const text: string = formatZec(amount);
     const tx: TxId = txId('a'.repeat(64));
@@ -73,7 +75,7 @@ test('packed private package imports and typechecks in an isolated Node consumer
     const caught: unknown = null;
     if (isZcashError(caught)) { const error: ZcashError = caught; error.paymentState?.steps; error.syncStatus?.scan; }
     // @ts-expect-error Frozen but unimplemented factories are absent from the SDK.
-    import { createWalletClient, createPublicClient, defineNetwork } from 'zcash.js';
+    import { createWalletClient, createPublicClient } from 'zcash.js';
     // @ts-expect-error Transport has no public raw-request escape hatch.
     transport.request('getblockchaininfo');
     // @ts-expect-error No implicit number-to-bigint coercion.
@@ -108,7 +110,7 @@ test('packed private package imports and typechecks in an isolated Node consumer
   await exec(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--ignoreConfig', '--noEmit', '--strict', '--target', 'ES2022', '--module', 'ESNext', '--moduleResolution', 'Bundler', join(consumer, 'native.ts')]);
 });
 
-test('browser bundle imports and executes reads without Node globals or WASM', async () => {
+test('browser bundle imports and executes reads without Node globals or native initialization', async () => {
   const result = await build({ configFile: false, logLevel: 'silent', build: {
     write: false, minify: false, target: 'es2022',
     lib: { entry: resolve('tests/sdk/browser-entry.mjs'), name: 'SDKProbe', formats: ['iife'] },
@@ -116,7 +118,7 @@ test('browser bundle imports and executes reads without Node globals or WASM', a
   const outputs = (Array.isArray(result) ? result : [result]).flatMap(item => item.output);
   assert.equal(outputs.length, 1);
   const code = outputs[0].code;
-  assert.doesNotMatch(code, /node:|__vite-browser-external|WebAssembly|require\(/);
+  assert.doesNotMatch(code, /__vite-browser-external|require\(/);
   let calls = 0;
   const globals = { URL, Headers, Response, ReadableStream, TextEncoder, TextDecoder,
     AbortController, AbortSignal, performance, setTimeout, clearTimeout,

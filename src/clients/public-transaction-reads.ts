@@ -1,5 +1,6 @@
+import { nodeEvents, nodeIsProxy } from './owned-plumbing.js';
 import type { HttpTransport, Op, PublicTransaction, TxId, Inclusion, TransactionObservation } from '../../docs/api/public-api.js';
-import { readRpc } from '../http.js';
+import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
 import { JsonNumber, protocolError } from '../json.js';
 import { txId, blockHash } from '../primitives.js';
@@ -15,25 +16,19 @@ const nativeAdd = EventTarget.prototype.addEventListener;
 const nativeRemove = EventTarget.prototype.removeEventListener;
 const nodeRuntime = typeof globalThis === 'object'
   && typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string';
-let proxyCheck: Promise<(value: unknown) => boolean> | undefined;
 
 async function bridge(original?: AbortSignal) {
   if (original === undefined) return { signal: undefined, close() {} };
   try {
     if (nodeRuntime) {
-      // Dynamic and Node-only: works across the public Node engine range, including
-      // versions predating process.getBuiltinModule; browsers never resolve this URL.
-      const builtin = 'node:util';
-      proxyCheck ??= import(builtin).then(module => module.types.isProxy);
-      if ((await proxyCheck)(original)) throw invalidArgument();
+      if (nodeIsProxy(original)) throw invalidArgument();
     }
     // Browser Web IDL branding rejects proxies; Node additionally needs isProxy.
     nativeAborted.call(original);
     const controller = new NativeController();
     const signal: AbortSignal = nativeSignal.call(controller);
     if (nodeRuntime) {
-      const builtin = 'node:events';
-      const { addAbortListener } = await import(builtin);
+      const { addAbortListener } = nodeEvents();
       // Node's helper reads public properties. Give it a native signal with
       // trusted forwarding operations, never the caller's overrides.
       const view: AbortSignal = nativeSignal.call(new NativeController());
@@ -88,16 +83,16 @@ function integer(value: unknown, minimum: number, maximum: number): number {
   return number;
 }
 
-/** Positive internal prerequisite only. Owner establishes source/network and historical
- * context independently; this module neither discovers context nor maps absence.
+/** Internal transaction read. Owner establishes source/network and historical context.
+ * Only a qualified initial transaction lookup can return absence.
  */
 export async function getTransaction(
   source: { readonly transport: HttpTransport; readonly sourceId: string },
-  context: { readonly txid: TxId; readonly decodeTransaction: (raw: Uint8Array) => {
+  context: { readonly txid: TxId; readonly decodeTransaction: (raw: Uint8Array, height: number | null) => {
     readonly bytes: Uint8Array; readonly txid: Uint8Array; readonly display: string;
   } },
   args: { readonly txid: TxId } & Op,
-): Promise<PublicTransaction> {
+): Promise<PublicTransaction | null> {
   source = input(source, ['transport', 'sourceId']);
   context = input(context, ['txid', 'decodeTransaction']);
   args = input(args, ['txid', 'signal']);
@@ -110,7 +105,9 @@ export async function getTransaction(
   const { signal } = owned;
   try {
     checkAbort(signal);
-    const value = await readRpc(transport, 'getrawtransaction', [requested, 1], signal);
+    let value;
+    try { value = await readRpc(transport, 'getrawtransaction', [requested, 1], signal); }
+    catch (error) { if (rpcErrorCode(error) === -5) return null; throw error; }
     checkAbort(signal);
     if (typeof value !== 'object' || value === null || Array.isArray(value) || value instanceof JsonNumber) throw protocolError();
     let dtoId, hash;
@@ -126,7 +123,7 @@ export async function getTransaction(
     const raw = Uint8Array.from(value.hex.match(/../g)!, byte => parseInt(byte, 16));
     try {
       checkAbort(signal);
-      const decoded = decodeTransaction(raw.slice());
+      const decoded = decodeTransaction(raw.slice(), value.in_active_chain && height !== undefined && height >= 0 ? height : null);
       checkAbort(signal);
       if (!(decoded.bytes instanceof Uint8Array) || !(decoded.txid instanceof Uint8Array)
         || decoded.bytes.length !== raw.length || decoded.bytes.some((byte, i) => byte !== raw[i])
@@ -142,6 +139,7 @@ export async function getTransaction(
       if (hash !== undefined) {
         const block = await getBlock({ transport, sourceId }, { height, ...(signal === undefined ? {} : { signal }) });
         checkAbort(signal);
+        if (block === null) throw protocolError();
         if (block.point.hash === hash) {
           if (block.point.height !== height || !block.txids.includes(requested)) throw protocolError();
           state = 'mined'; inclusion = Object.freeze({ height, blockHash: hash, confirmations: null });

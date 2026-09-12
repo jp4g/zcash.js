@@ -1,7 +1,8 @@
+import {publicClientChecks} from './public-client-fixture.mjs';
 import {lightClientChecks} from './light-client-fixture.mjs';
 // Browser-only probe. The internal read hook is test access, never a public SDK export.
 const claims = ['packed-esm', 'packed-bundle', 'amounts-ids', 'no-eager', 'negative-eager',
-  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry', 'public-network','public-light'];
+  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry', 'public-network','public-light','public-client'];
 const check = (condition, label) => { if (!condition) throw Error(label); };
 const keys = ['Worker', 'SharedWorker', 'WebAssembly', 'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource'];
 export async function guarded(load) {
@@ -34,7 +35,7 @@ export async function run() {
     sdk = await import('/package/dist/src/index.js');
     bundled = await import('/bundle.mjs');
     for (const api of [sdk, bundled.sdk]) {
-      check(Object.keys(api).sort().join(',') === 'accountIndex,blockHash,createLightClient,defineNetwork,diversifierIndex,formatZec,grpc,http,isZcashError,parseZec,txId', 'root exports');
+      check(Object.keys(api).sort().join(',') === 'accountIndex,blockHash,createLightClient,createPublicClient,defineNetwork,diversifierIndex,formatZec,grpc,http,isZcashError,parseZec,txId', 'root exports');
       check(api.parseZec('9007199254740993.00000001') === 900719925474099300000001n, 'amount parse');
       check(api.formatZec(900719925474099300000001n) === '9007199254740993.00000001', 'amount format');
       check(api.txId('a'.repeat(64)) === 'a'.repeat(64) && api.blockHash('b'.repeat(64)) === 'b'.repeat(64), 'hash IDs');
@@ -103,7 +104,16 @@ export async function run() {
       throw Error('light dispatch timeout');
     }));
   }
-  return { ok: true, claims, network, light, eager, importResources, negativeEager, precision: good.value.text, utf8: good.text, errors,
+  const publicClients=[];
+  for(const api of [sdk,bundled.sdk]) {
+    const previous=(await(await fetch('/fixture-state')).json()).publicRequests.length;
+    publicClients.push(await publicClientChecks(api,(mode='good')=>api.http(location.origin+'/public-rpc',{...policy,maxResponseBytes:4*1024*1024,headers:()=>({'x-fixture-mode':mode})}),vector,async(method,mode)=>{
+      const deadline=performance.now()+3000;
+      while(performance.now()<deadline){const state=await(await fetch('/fixture-state')).json();if(state.publicRequests.slice(previous).some(r=>r.method===method&&r.mode===mode))return;await new Promise(resolve=>setTimeout(resolve,10));}
+      throw Error('public dispatch timeout');
+    }));
+  }
+  return { ok: true, claims, network, light, publicClients, eager, importResources, negativeEager, precision: good.value.text, utf8: good.text, errors,
     userAgent: navigator.userAgent, secureContext: isSecureContext, crossOriginIsolated };
 }
 

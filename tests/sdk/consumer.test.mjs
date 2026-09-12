@@ -27,7 +27,7 @@ async function exec(command, args, options = {}) {
     await rm(folder, { recursive: true, force: true });
   }
 }
-const implemented = ['accountIndex', 'blockHash', 'createLightClient', 'defineNetwork', 'diversifierIndex', 'formatZec', 'grpc', 'http', 'isZcashError', 'parseZec', 'txId'];
+const implemented = ['accountIndex', 'blockHash', 'createLightClient', 'createPublicClient', 'defineNetwork', 'diversifierIndex', 'formatZec', 'grpc', 'http', 'isZcashError', 'parseZec', 'txId'];
 
 test('packed private package imports and typechecks in an isolated Node consumer', async (t) => {
   const folder = await mkdtemp(join(tmpdir(), 'zcash-sdk-consumer-'));
@@ -59,7 +59,7 @@ test('packed private package imports and typechecks in an isolated Node consumer
   `], { cwd: consumer });
   assert.deepEqual(JSON.parse(runtime.stdout), implemented);
   await writeFile(join(consumer, 'consumer.ts'), `
-    import { parseZec, formatZec, txId, blockHash, accountIndex, diversifierIndex, http, grpc, createLightClient, isZcashError, defineNetwork } from 'zcash.js';
+    import { parseZec, formatZec, txId, blockHash, accountIndex, diversifierIndex, http, grpc, createLightClient, createPublicClient, isZcashError, defineNetwork } from 'zcash.js';
     import type { TxId, BlockHash, AccountIndex, DiversifierIndex, HttpTransport, LightClient, ZcashError, Network, NetworkDefinition } from 'zcash.js';
     const definition: NetworkDefinition = null!;
     const network: Promise<Network> = defineNetwork(definition);
@@ -70,6 +70,7 @@ test('packed private package imports and typechecks in an isolated Node consumer
     const text: string = formatZec(amount);
     const tx: TxId = txId('a'.repeat(64));
     const hash: BlockHash = blockHash('b'.repeat(64));
+    const publicClient: import('zcash.js').PublicClient = createPublicClient({ network: null! as Network, transport: http('https://synthetic.invalid', { sourceId: 'public', timeoutMs: 1000, readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4096 }), observation: { pollIntervalMs: 1000, maxBufferedUpdates: 4 } });
     const account: AccountIndex = accountIndex(0);
     const index: DiversifierIndex = diversifierIndex(0n);
     const transport: HttpTransport = http('https://synthetic.invalid', {
@@ -78,7 +79,7 @@ test('packed private package imports and typechecks in an isolated Node consumer
     const caught: unknown = null;
     if (isZcashError(caught)) { const error: ZcashError = caught; error.paymentState?.steps; error.syncStatus?.scan; }
     // @ts-expect-error Frozen but unimplemented factories are absent from the SDK.
-    import { createWalletClient, createPublicClient } from 'zcash.js';
+    import { createWalletClient } from 'zcash.js';
     // @ts-expect-error Transport has no public raw-request escape hatch.
     transport.request('getblockchaininfo');
     // @ts-expect-error No implicit number-to-bigint coercion.

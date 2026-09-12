@@ -74,5 +74,36 @@ export async function chainChecks(codec, internal, createGrpcWebByteTransport, o
   }, async return() { released++; return { done: true }; } }; } };
   await rejects(() => internal.streamCompactBlocks(codec, customStream, { ...range, signal: last.signal }).next(), 'ABORTED');
   equal(released, 1);
+  for (const site of ['unary', 'stream', 'asyncIterator', 'next']) {
+    for (const actualAbort of [false, true]) {
+        const controller = new AbortController();
+        let reads = 0, calls = 0, pulls = 0, releases = 0;
+        const iterator = { [Symbol.asyncIterator]() { return this; },
+          next() { pulls++; return { done: false, value: blockBytes() }; },
+          return() { equal(this === iterator, true); releases++; return { done: true }; } };
+        const custom = { ...transport(), unary() { return tipBytes(); }, stream() { return iterator; } };
+        const receiver = site === 'unary' || site === 'stream' ? custom : iterator;
+        const key = site === 'asyncIterator' ? Symbol.asyncIterator : site;
+        const original = receiver[key];
+        function method(...args) { equal(this === receiver, true); calls++; return Reflect.apply(original, this, args); }
+        Object.defineProperty(method, 'call', { get() { reads++; controller.abort(); return Function.prototype.call; } });
+        Object.defineProperty(receiver, key, { get() { if (actualAbort) controller.abort(); return method; } });
+        const stream = site === 'unary' ? undefined : internal.streamCompactBlocks(codec, custom,
+          { fromHeight: 7, toHeight: 7, signal: controller.signal });
+        const result = site === 'unary' ? internal.getTip(codec, custom, { signal: controller.signal }) : stream.next();
+        try {
+          if (actualAbort) await rejects(() => result, 'ABORTED');
+          else {
+            const value = await result;
+            equal(site === 'unary' ? value.height : value.value.point.height, 7);
+            if (stream) equal(value.done, false);
+            equal(controller.signal.aborted, false);
+          }
+        } finally { await stream?.return(); }
+        equal(reads, 0); equal(calls, actualAbort ? 0 : 1);
+        equal(pulls, site === 'unary' || actualAbort ? 0 : 1);
+        equal(releases, site === 'unary' || (site === 'stream' && actualAbort) ? 0 : 1);
+    }
+  }
   return { ok: true, assertions, requests };
 }

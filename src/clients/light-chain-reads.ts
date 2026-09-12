@@ -101,7 +101,7 @@ export async function getTip(codec: Lightwire, transport: CustomLightTransport, 
     pending.check();
     const unary = transport.unary;
     pending.check();
-    const bytes = await pending.wait(unary.call(transport, { method: 'GetLatestBlock', request, signal: pending.signal }));
+    const bytes = await pending.wait(Reflect.apply(unary, transport, [{ method: 'GetLatestBlock', request, signal: pending.signal }]));
     pending.check();
     let checked;
     try { checked = point(codec.decodeResponse('GetLatestBlock', ownBytes(bytes))); }
@@ -167,16 +167,16 @@ export function streamCompactBlocks(codec: Lightwire, transport: CustomLightTran
           pending.check();
           const stream = transport.stream;
           pending.check();
-          iterable = stream.call(transport, { method: 'GetBlockRange', request, signal: pending.signal });
+          iterable = Reflect.apply(stream, transport, [{ method: 'GetBlockRange', request, signal: pending.signal }]);
           pending.check();
           const acquire = iterable[Symbol.asyncIterator];
           pending.check();
-          iterator = acquire.call(iterable);
+          iterator = Reflect.apply(acquire, iterable, []);
         }
         pending.check();
         const next = iterator!.next;
         pending.check();
-        const item = await pending.wait(next.call(iterator));
+        const item = await pending.wait(Reflect.apply(next, iterator, []));
         pending.check();
         if (item.done) {
           if (height !== toHeight + 1) throw protocol();

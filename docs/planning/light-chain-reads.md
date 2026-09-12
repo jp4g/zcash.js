@@ -147,13 +147,13 @@ Regression tests were added before production edits: the original source passed
 cancellation sites. The copied independent required-contract diagnostic failed
 0/2, then passed 2/2. Corrected source passes 37/37 authentic-codec unit tests,
 including all original 22 and a distinct-iterator acquisition cleanup control.
-Local compiler/tests used installed Node 26.8.1; corrected-head Node 22 and ordinary
-Node HTTP/Firefox host qualification remain coordinator gates. Logs and retained
+Local compiler/tests used installed Node 26.8.1; fresh corrected-head ordinary
+Node HTTP/Firefox host qualification remained coordinator gates. Logs and retained
 RED output are under `/home/jack/zcash-light-chain-logs/fixes/r1` and external
 builds/helper under `/home/jack/zcash-light-chain-scratch/fixes/r1`.
 
 The earlier pending-parent statement above records the original worker handoff.
-Subsequent parent-01 exact-original-source Node 22 unit and ordinary Node/Firefox
+Subsequent parent-01 exact-original-source Node 26.8.1 unit and ordinary Node/Firefox
 runs passed (each network matrix: 109 assertions/28 requests), source-bound by
 HIGH R1. Coordinator also executed the original helper SHA256
 `a11054862123353d172a9bac4c8264b0457f0ccf84416dee059e69cadaae2898` with exit 0;
@@ -167,3 +167,28 @@ mutation after admission. This correction makes no broad prototype/global
 immunity promise and does not reopen that nonblocking observation, codec,
 loader/profile, native gRPC, public factories, or unrelated implementation lanes.
 Independent HIGH R2 acceptance belongs to the coordinator.
+
+
+## Second and last automatic correction (R2-CALL)
+
+The four captured caller-owned functions now use `Reflect.apply` with their
+original receivers, avoiding their overridable own `call` properties. Existing
+native cancellation checks and cleanup are unchanged. Eight appended Node tests
+and the same controls in the ordinary-page shared matrix cover all four sites:
+unread auxiliary getters allow normal results; independently aborting method
+getters prevent dispatch/pulls. No prototype/global/signal descriptor is mutated
+by these new controls. The prior 37 tests and 109 matrix assertions are retained.
+
+The HIGH R2 diagnostic is preserved unchanged externally. Its four CALL-PROPERTY
+cases demand ABORTED from an abort whose only source is the now-unread getter;
+that expectation is no longer applicable. The new tests require success, zero
+auxiliary reads, correct receiver/body/result, and independent real-abort controls.
+The remaining original adverse assertions are preserved and rerun.
+
+Both initial and first corrected parent executions actually used Node 26.8.1;
+22 was the original unit-test count. There is no Node 20/22 qualification or
+installation requirement. HIGH R2 verified fixes/r1/parent-I2hepJ and all eight
+controls in fixes/r1/parent-interruptions-nvVpRF; these remain historical for this
+new head. Fresh exact-head parent execution and then HIGH R3 remain required.
+New reports/commands are in fixes/r2 log roots and pinned parent helpers in
+fixes/r2 scratch roots. N1 stays excluded and nonblocking; no new platform promise.

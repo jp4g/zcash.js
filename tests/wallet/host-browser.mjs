@@ -88,7 +88,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'), packetBuild.artifacts['tests/views-fixture.json']);
     const nativeFixture = JSON.parse(fixtureBytes);
     const runtimePacket = process.env.WALLET_RUNTIME_PACKAGE;
-    const browserTest = runtimePacket ? 'runtime-browser' : 'host-browser';
+    const browserTest = process.env.WALLET_LOADER ? 'loader-browser' : runtimePacket ? 'runtime-browser' : 'host-browser';
     const assets = new Map([
       ['/', '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Wallet bridge fixture</title><script type="module" src="/entry.mjs"></script>'],
       ['/entry.mjs', `import { runBrowser } from '/tests/wallet/${browserTest}.mjs'; runBrowser().then(value => { window.walletResult = { value }; }, error => { window.walletResult = { error: String(error), stack: error.stack }; });`],
@@ -118,13 +118,21 @@ if (typeof process !== 'undefined' && process.versions?.node) {
         assets.set(`/runtime/${file.url}`, bytes);
       }
     }
+    if (process.env.WALLET_LOADER) {
+      assets.set('/tests/wallet/loader-browser.mjs', await readFile(new URL('./loader-browser.mjs', import.meta.url)));
+      for (const name of ['runtime/wallet', 'runtime/artifacts', 'runtime/wallet-profile', 'network-parameters', 'primitives']) {
+        assets.set(`/dist/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
+      }
+      assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
+    }
     assets.set('/fixture.json', JSON.stringify({ import: nativeFixture.import }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
       await mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true }); await writeFile(path, bytes);
     }
-    server = await fixture(() => { throw Error('No RPC in local wallet test'); }, assets);
+    const tls = process.env.WALLET_TLS_CERT ? { cert: await readFile(process.env.WALLET_TLS_CERT), key: await readFile(process.env.WALLET_TLS_KEY) } : undefined;
+    server = await fixture(() => { throw Error('No RPC in local wallet test'); }, assets, tls);
     report.origin = server.origin;
     const args = ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', runRoot];
     driver = spawn('/snap/bin/geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -139,8 +147,10 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       if (match) endpoint = `http://127.0.0.1:${match[1]}`;
       else { assert.ok(Date.now() < until, 'driver startup deadline'); await pause(30); }
     }
+    const options = firefoxOptions();
+    if (process.env.WALLET_FIREFOX_PROFILE) options.args.push('-profile', process.env.WALLET_FIREFOX_PROFILE);
     const value = await request('/session', 'POST', { capabilities: { alwaysMatch: {
-      browserName: 'firefox', acceptInsecureCerts: false, 'moz:firefoxOptions': firefoxOptions() } } });
+      browserName: 'firefox', acceptInsecureCerts: false, 'moz:firefoxOptions': options } } });
     session = value.sessionId; report.capabilities = value.capabilities;
     assert.equal(value.capabilities.browserName, 'firefox');
     assert.equal(value.capabilities.acceptInsecureCerts, false);

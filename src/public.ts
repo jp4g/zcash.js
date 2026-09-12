@@ -56,8 +56,9 @@ export function createPublicClient(args: { network: Network; transport: HttpTran
       verified = true;
     }
   }
-  function decode(raw: Uint8Array) {
-    const branches = new Set([0, ...definition.parameters.heights.filter(h => h !== null)]
+  function decode(raw: Uint8Array, minedHeight: number | null = null) {
+    const heights = minedHeight === null ? [0, ...definition.parameters.heights.filter(h => h !== null)] : [minedHeight];
+    const branches = new Set(heights
       .map(height => codec.consensusContext(definition.parametersFormat, definition.parameters.bytes, height).branchId));
     for (const branch of branches) { try { return codec.decodeTransaction(raw, branch); } catch { /* Registered native contexts only. */ } }
     throw invalidArgument();

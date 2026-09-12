@@ -88,7 +88,7 @@ function integer(value: unknown, minimum: number, maximum: number): number {
  */
 export async function getTransaction(
   source: { readonly transport: HttpTransport; readonly sourceId: string },
-  context: { readonly txid: TxId; readonly decodeTransaction: (raw: Uint8Array) => {
+  context: { readonly txid: TxId; readonly decodeTransaction: (raw: Uint8Array, height: number | null) => {
     readonly bytes: Uint8Array; readonly txid: Uint8Array; readonly display: string;
   } },
   args: { readonly txid: TxId } & Op,
@@ -123,7 +123,7 @@ export async function getTransaction(
     const raw = Uint8Array.from(value.hex.match(/../g)!, byte => parseInt(byte, 16));
     try {
       checkAbort(signal);
-      const decoded = decodeTransaction(raw.slice());
+      const decoded = decodeTransaction(raw.slice(), value.in_active_chain && height !== undefined && height >= 0 ? height : null);
       checkAbort(signal);
       if (!(decoded.bytes instanceof Uint8Array) || !(decoded.txid instanceof Uint8Array)
         || decoded.bytes.length !== raw.length || decoded.bytes.some((byte, i) => byte !== raw[i])

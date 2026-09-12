@@ -1,6 +1,10 @@
 import {scalar,bytesField,concat} from '../clients/light-chain-reads-fixtures.mjs';
 import { genesis, blockOne } from '../clients/public-chain-reads-fixtures.mjs';
 import { address, networkDefinition } from './light-client-fixture.mjs';
+export function publicNetworkDefinition() {
+  const value=networkDefinition();
+  return {...value,genesisHash:genesis.verbose.hash,parameters:new TextEncoder().encode(JSON.stringify({...JSON.parse(new TextDecoder().decode(value.parameters)),Overwinter:0,Sapling:1}))};
+}
 export function publicResponse(call, vector, mode='good') {
   if(call.method==='getblockheader') {const block=call.params[0]==='0'||call.params[0]===genesis.verbose.hash?genesis:blockOne;return {result:call.params[1]?block.verbose:block.raw};}
   if(call.method==='getblockchaininfo')return {result:{blocks:1,bestblockhash:blockOne.verbose.hash}};
@@ -14,7 +18,7 @@ export function publicResponse(call, vector, mode='good') {
 }
 export async function publicClientChecks(api, makeTransport, vector, waitForDispatch) {
   const check=(value,label)=>{if(!value)throw Error(label);};
-  const network=await api.defineNetwork({...networkDefinition(),genesisHash:genesis.verbose.hash});
+  const network=await api.defineNetwork(publicNetworkDefinition());
   const make=(mode='good')=>api.createPublicClient({network,transport:makeTransport(mode),observation:{pollIntervalMs:10,maxBufferedUpdates:4}});
   const client=make();
   check((await client.getTip()).height===1,'tip');

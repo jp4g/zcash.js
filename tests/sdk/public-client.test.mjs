@@ -7,10 +7,11 @@ import { initialize as wire } from '../../dist/src/runtime/lightwire-capsule.mjs
 import { initialize as addressCodec } from '../../dist/src/runtime/transparent-address-capsule.mjs';
 import { fixture, result, genesis, blockOne, transportOptions } from '../clients/public-chain-reads-fixtures.mjs';
 import { verifiedPacket } from '../clients/public-transaction-reads-packet.mjs';
-import { networkDefinition, address } from './light-client-fixture.mjs';
+import { publicNetworkDefinition } from './public-client-fixture.mjs';
+import { address } from './light-client-fixture.mjs';
 const { vectors } = await verifiedPacket();
 const vector = vectors.filter(v=>v.branch===0x76b809bb).sort((a,b)=>a.hex.length-b.hex.length)[0];
-const network = await defineNetwork({...networkDefinition(),genesisHash:genesis.verbose.hash});
+const network = await defineNetwork(publicNetworkDefinition());
 const observation = {pollIntervalMs:10,maxBufferedUpdates:4};
 const rpcError = code => `"error":{"code":${code},"message":"SECRET"}`;
 
@@ -117,4 +118,15 @@ test('unconsumed subtree iterator owns no dependent signal or request', () => {
     const iterator=client.getSubtreeRoots({pool:'sapling',startIndex:0n,limit:1,signal:controller.signal})[Symbol.asyncIterator]();
     assert.equal(calls,0);void iterator.return();assert.equal(calls,0);
   } finally {AbortSignal.any=original;}
+});
+
+test('mined transaction decoding uses its registered historical branch', async () => {
+  const future=vectors.find(v=>v.hex.startsWith('05000080'));
+  assert.ok(future);
+  const server=await fixture(call=>call.method==='getblockheader'?result(call.params[1]?genesis.verbose:genesis.raw):result({txid:future.display,hex:future.hex,in_active_chain:true,height:1,blockhash:blockOne.verbose.hash,confirmations:1}));
+  try {
+    const client=createPublicClient({network,transport:http(server.origin+'/rpc',transportOptions),observation});
+    await assert.rejects(client.getTransaction({txid:future.display}),{code:'PROTOCOL_MISMATCH'});
+    assert.equal(server.calls.filter(call=>call.method==='getblock').length,0);
+  }finally{await server.close();}
 });

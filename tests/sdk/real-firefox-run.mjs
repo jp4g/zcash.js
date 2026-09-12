@@ -25,7 +25,7 @@ await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true }
 const runRoot = await mkdtemp(join(scratch, 'real-firefox-'));
 const resultPath = join(logs, `${runRoot.split('/').at(-1)}.json`);
 const report = { started: new Date().toISOString(), argv, node: process.version, runRoot,
-  status: 'failed', claims: [], limits: 'Accepted partial SDK only. Internal readRpc is test access. No public client, CORS, provider, wallet, WASM, #6 or #8 completion.' };
+  status: 'failed', claims: [], limits: 'Accepted partial SDK only. Internal readRpc is test access. Public defineNetwork only; no public client, CORS, provider, wallet, H1, #6 or #8 completion.' };
 const stop = new AbortController();
 const deadline = setTimeout(() => stop.abort(Error('suite deadline 120s')), 120000);
 const onSignal = () => stop.abort(Error('interrupted'));
@@ -65,10 +65,10 @@ async function request(route, method = 'GET', body, cleanup = false) {
 }
 try {
   const sourceCommit = command('git', ['rev-parse', 'HEAD']);
-  const acceptedCommit = command('git', ['rev-parse', 'f604b60^{commit}']);
+  const acceptedCommit = command('git', ['rev-parse', '1f8d885^{commit}']);
   command('git', ['diff', '--exit-code', acceptedCommit, '--', 'src', 'tsconfig.json', 'package-lock.json']);
   command('git', ['merge-base', '--is-ancestor', acceptedCommit, sourceCommit]);
-  command(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.json']);
+  command('npm', ['run', 'build']);
   const [pack] = JSON.parse(command('npm', ['pack', '--offline', '--cache', join(runRoot, 'npm-cache'), '--ignore-scripts', '--json', '--pack-destination', runRoot]));
   assert.ok(pack.files.every(file => !file.path.startsWith('qualification/') && !file.path.startsWith('tests/')));
   const consumer = join(runRoot, 'consumer');
@@ -77,9 +77,9 @@ try {
   command('tar', ['-xzf', join(runRoot, pack.filename), '--strip-components=1', '-C', join(consumer, 'node_modules/zcash.js')]);
   const packageRoot = join(consumer, 'node_modules/zcash.js');
   const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json')));
-  assert.deepEqual(Object.keys(manifest.exports), ['.']);
+  assert.deepEqual(Object.keys(manifest.exports), ['.', './grpc-node']);
   assert.equal(manifest.exports['.'].import, './dist/src/index.js');
-  assert.equal(manifest.dependencies, undefined);
+  assert.deepEqual(manifest.dependencies, { '@grpc/grpc-js': '1.14.4' });
   const entry = join(consumer, 'entry.mjs');
   await writeFile(entry, "import * as sdk from 'zcash.js';\nimport { readRpc } from './node_modules/zcash.js/dist/src/http.js';\nexport { sdk, readRpc };\n");
   const code = await bundle(consumer, stop.signal);
@@ -93,7 +93,7 @@ try {
   async function collect(folder, prefix) {
     for (const item of await readdir(folder, { withFileTypes: true })) {
       if (item.isDirectory()) await collect(join(folder, item.name), `${prefix}/${item.name}`);
-      else if (item.name.endsWith('.js')) assets.set(`${prefix}/${item.name}`, await readFile(join(folder, item.name)));
+      else if (/\.m?js$/.test(item.name)) assets.set(`${prefix}/${item.name}`, await readFile(join(folder, item.name)));
     }
   }
   await collect(join(packageRoot, 'dist'), '/package/dist');
@@ -140,7 +140,7 @@ try {
         if (!bytes) { unexpected.push({ method: req.method, url: req.url }); res.writeHead(404).end(); return; }
         res.writeHead(200, { 'Content-Type': req.url === '/' ? 'text/html' : 'text/javascript',
           'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
-          'Content-Security-Policy': "default-src 'none'; script-src 'self'; connect-src 'self'; worker-src 'none'; img-src data:; frame-src 'none'; object-src 'none'" });
+          'Content-Security-Policy': "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; worker-src 'none'; img-src data:; frame-src 'none'; object-src 'none'" });
         res.end(bytes);
       } catch (error) { unexpected.push({ error: String(error) }); res.destroy(); }
     });

@@ -11,7 +11,7 @@
     "docs:preview": "vite preview --outDir docs/.vitepress/dist --host 127.0.0.1 --port 4173 --strictPort --base /",
     "docs:typecheck": "tsc -p docs/api/examples/tsconfig.json",
     "docs:check-recovery": "node docs/api/check-recovery-spec.mjs",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/primitive-capsule.mjs",
     "test:sdk": "npm run build && node --test tests/sdk/*.test.mjs",
     "test": "npm run test:sdk",
     "test:sdk:real-firefox": "node tests/sdk/real-firefox-run.mjs"

@@ -19,9 +19,9 @@ const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wa
 // Reviewed private producer + actual SDK bootstrap, not arbitrary same-profile JavaScript.
 // Updating this immutable executable closure requires reviewing the corresponding package.
 const reviewedAssets: Record<keyof typeof layout, string> = {
-  'wallet.mjs': 'd45f14a74aa752ac9bea1b39b1b71a56c0265daa76c1581a0489fc4f6fa05d07',
-  'worker.mjs': 'f40818c6a4cf3ae2a097572fd6ae628bf50e1509e9adebf57d885ddff9b67d4c',
-  'bindings_bg.wasm': '1b6b060dc6cb3f4ea5c43531e0f0d00aad9956f2962a607bd96dab1a8281f4e9',
+  'wallet.mjs': 'c3dc6ef0efd28f4b2fa02f18bae448f41500027db4e50edc0e9548093db5ee19',
+  'worker.mjs': '7b53ed5c00c683a6053d55c2562d56c1e1f2a0e1e09863d76d20fa965fff4aab',
+  'bindings_bg.wasm': '63f66ee5960a44f2cc54b8a2e8384740d43127415ba3d30753c7eb4411e57e13',
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
 };

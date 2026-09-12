@@ -4,7 +4,7 @@ import { WalletSession } from './session.js';
 import type { Completion, InitializedViews } from './session.js';
 
 export type WalletCommand = 'account_import' | 'account_list' | 'account_get' | 'account_balance'
-  | 'wallet_history' | 'wallet_transaction'
+  | 'wallet_history' | 'wallet_transaction' | 'wallet_notes' | 'wallet_utxos'
   | 'enhancement_requests' | 'enhancement_apply'
   | 'scan_state' | 'scan_block_hash' | 'scan_rewind' | 'scan_complete' | 'scan_plan' | 'scan_ingest_batch' | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
 export interface WalletReply {
@@ -67,6 +67,7 @@ export function installWalletWorker(owner: InitializedViews, port: MessagePort):
     scan_complete: session.scan.complete,
     enhancement_requests: session.enhancement.requests, enhancement_apply: session.enhancement.apply,
     account_balance: session.getBalance.bind(session), close: () => session.close(),
+    wallet_notes: session.listNotes.bind(session), wallet_utxos: session.listUtxos.bind(session),
     wallet_history: session.getHistory.bind(session), wallet_transaction: session.getTransaction.bind(session),
   };
   let lastId = 0, closed = false;

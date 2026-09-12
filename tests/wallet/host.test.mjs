@@ -214,3 +214,26 @@ test('wallet queries preserve native nulls and bytes, and stale cursors remain r
   transaction.raw.fill(0);
   assert.deepEqual([...bytes], [1, 2, 3]);
 });
+
+test('inventory queries own filters and preserve unknown fields and read cancellation', async t => {
+  const controller = new AbortController();
+  let cancel = false;
+  const { host } = local(t, (_g, _i, command, args) => {
+    assert.ok(command === 'wallet_notes' || command === 'wallet_utxos');
+    if (args.cursor) throw Object.assign(Error('CURSOR_STALE'), { commit: 'none' });
+    if (command === 'wallet_notes') assert.equal(args.locked, false);
+    if (cancel) { cancel = false; controller.abort(); }
+    return { items: [{ value: 9n, coinbase: null, lock: null, lockKnown: false,
+      spendState: 'unknown', spendingTxid: null, uneconomic: null, eligibility: 'unknown' }], nextCursor: null };
+  });
+  const args = { accountId: 'account', locked: false };
+  const pending = host.listNotes(args); args.locked = true;
+  const note = (await pending).items[0];
+  assert.equal(note.value, 9n); assert.equal(note.coinbase, null); assert.equal(note.lockKnown, false);
+  await assert.rejects(host.listUtxos({ accountId: 'account', cursor: 'stale' }), error =>
+    error.code === 'CURSOR_STALE' && error.stage === 'query' && host.completion(error).completion === 'none');
+  cancel = true;
+  await assert.rejects(host.listUtxos({ accountId: 'account', signal: controller.signal }), error =>
+    error.code === 'ABORTED' && host.completion(error).completion === 'none');
+  assert.equal((await host.listUtxos({ accountId: 'account' })).items[0].eligibility, 'unknown');
+});

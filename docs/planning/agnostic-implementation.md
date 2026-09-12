@@ -18,7 +18,22 @@ The root also exports `GrpcTransport`, `CustomLightTransport`, `LightClient`,
 `LightUnaryMethod` and `LightStreamMethod` types. `tests/sdk/light-client-node.test.mjs`
 exercises the packed public API over actual local native gRPC, including all eleven
 methods and three cancelled-call cleanups. These synthetic fixtures do not qualify
-any live provider. Public wallet and full-node factories remain unfinished.
+any live provider. The public wallet factory remains unfinished.
+
+## Current public JSON-RPC client
+
+`createPublicClient` now composes all eleven frozen methods over the pinned Zakura
+RPC profile. It validates the configured genesis on first use, uses native transaction
+and address codecs, and encodes scan TreeState protobufs through Rust, including Orchard.
+Only qualified initial lookup errors become absence; nested inconsistencies remain errors.
+Confirmations and subtree completion require coherent block/tip observations.
+
+Broadcast submits exact bytes once. A matching returned txid acknowledges submission;
+qualified rejection codes remain sanitized, and interrupted or ambiguous dispatch is
+unknown. Watchers have bounded queues, owned prior inclusion, and cancellation cleanup.
+Packed Node and Firefox ESM/bundled fixtures exercise all eleven methods, actual HTTP
+cancellation, and submission counts. These checks qualify synthetic endpoint behavior,
+not live-provider availability, wallet completion, or full consensus validation.
 
 The sections below retain the earlier implementation history; their original
 sequencing and export lists describe those earlier slices.

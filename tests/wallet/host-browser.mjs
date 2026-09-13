@@ -98,6 +98,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       signerFixture=JSON.parse(signerBytes);
     }
     const runtimePacket = process.env.WALLET_RUNTIME_PACKAGE;
+    const threadedPacket=process.env.WALLET_THREADED_PACKAGE;if(threadedPacket){assert.ok(process.env.WALLET_LOADER);assert.equal(provingAssets.size,0,'threaded lane has no proving workload');}
     const crash=process.env.WALLET_CRASH_DATABASE?{name:`sdk-crash-${runRoot.split('/').at(-1)}`}:undefined;
     if(crash){assert.ok(process.env.WALLET_LOADER);assert.ok(!provingAssets.size&&!process.env.WALLET_WEBPACK_OUTPUT,'crash mode has no proving or Webpack workload');}
     const browserTest = process.env.WALLET_LOADER ? 'loader-browser' : runtimePacket ? 'runtime-browser' : 'host-browser';
@@ -133,7 +134,12 @@ if (typeof process !== 'undefined' && process.versions?.node) {
         assets.set(`/runtime/${file.url}`, bytes);
       }
     }
+    if(threadedPacket){
+      const bytes=await readFile(threadedPacket+'/manifest.json'),manifest=JSON.parse(bytes);assert.equal(manifest.mode,'threaded');report.threadedManifestSha256=createHash('sha256').update(bytes).digest('hex');assert.equal(createHash('sha256').update(await readFile(threadedPacket+'/build.json')).digest('hex'),manifest.buildSha256);assets.set('/threaded/manifest.json',bytes);
+      for(const file of manifest.files){const bytes=await readFile(threadedPacket+'/'+file.url);assert.equal(bytes.length,file.byteLength);assert.equal(createHash('sha256').update(bytes).digest('hex'),file.sha256);assets.set('/threaded/'+file.url,bytes);}
+    }
     if (process.env.WALLET_LOADER) {
+      assets.set('/tests/wallet/threaded-checks.mjs',await readFile(new URL('./threaded-checks.mjs',import.meta.url)));
       assets.set('/tests/wallet/public-wallet-checks.mjs', await readFile(new URL('./public-wallet-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/accounts-checks.mjs', await readFile(new URL('./accounts-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/pczt-build-checks.mjs', await readFile(new URL('./pczt-build-checks.mjs', import.meta.url)));
@@ -151,7 +157,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
         }
       }
       await modules(`${build}/src`,'/dist/src');
-      assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
+      assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256,threadedManifestSha256:report.threadedManifestSha256 }));
     }
     if(process.env.WALLET_WEBPACK_OUTPUT){
       assert.ok(process.env.WALLET_LOADER,'Webpack wallet entry uses the existing loader harness');
@@ -172,7 +178,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       await mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true }); await writeFile(path, bytes);
     }
     const tls = process.env.WALLET_TLS_CERT ? { cert: await readFile(process.env.WALLET_TLS_CERT), key: await readFile(process.env.WALLET_TLS_KEY) } : undefined;
-    if(process.env.WALLET_LOADER&&(provingAssets.size||crash)){
+    if(process.env.WALLET_LOADER&&(provingAssets.size||crash||threadedPacket)){
       assert.ok(nativeFixture.pczt.publicWallet,'native public wallet fixture');
       const {publicWalletResponses}=await import('./public-wallet-checks.mjs');
       const {frame,concat,trailer,base64,media,service}=await import('../clients/grpc-web-fixtures.mjs');
@@ -182,6 +188,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       report.crash=crash?{before:null,terminated:false}:undefined;
       const {createServer}=await import(tls?'node:https':'node:http');
       const transport=createServer(tls??{},async(req,res)=>{try{
+        if(threadedPacket){res.setHeader('Cross-Origin-Opener-Policy','same-origin');res.setHeader('Cross-Origin-Embedder-Policy','require-corp');}
         if(crash&&req.method==='GET'&&req.url==='/crash-evidence'){res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(report.crash));return;}
         if(req.method==='GET'&&req.url==='/public-wallet-submitted'){
           res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(responses.submitted()));return;
@@ -258,8 +265,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     if(process.env.WALLET_WEBPACK_OUTPUT)assert.equal(answer.value.webpackWallet,true);
     if(process.env.WALLET_LOADER&&provingAssets.size){for(const key of ['publicWallet','localTransfer','localShield','localTex','startupRecovery','allOperationsRecovery','twoFinalizedRecovery','publicForkReplay','retryBudget',...(report.supplementalFixture?['localIronwood']:[])])assert.equal(answer.value[key],true);assert.ok(server.calls.length>0&&server.calls.every(call=>call.closed),'all native gRPC-Web responses closed');}
     if(crash){assert.equal(createHash('sha256').update(await readFile(process.env.WALLET_CRASH_DATABASE)).digest('hex'),report.crashDatabaseSha256,'source database snapshot unchanged');for(const flag of ['browserDispatchCrash','unknownAttempt','exactRetry','draftUntouched'])assert.equal(answer.value[flag],true);assert.ok(server.calls.every(call=>call.closed));}
-    if(process.env.WALLET_LOADER&&!crash){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, crash?1:process.env.WALLET_LOADER ? (provingAssets.size?40+Number(Boolean(report.supplementalFixture))*5:24)+Number(Boolean(process.env.WALLET_WEBPACK_OUTPUT)) : 2);
+    if(process.env.WALLET_LOADER&&!crash&&!threadedPacket){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
+    if(threadedPacket){for(const key of ['threadedWallet','threadedScanParity','threadedSignerLifetime','threadedBootstrapCleanup'])assert.equal(answer.value[key],true);assert.ok(answer.value.workerDestructions>answer.value.computeWorkers&&answer.value.computeWorkers>=4);}else assert.equal(answer.value.workerDestructions, crash?1:process.env.WALLET_LOADER ? (provingAssets.size?40+Number(Boolean(report.supplementalFixture))*5:24)+Number(Boolean(process.env.WALLET_WEBPACK_OUTPUT)) : 2);
     report.status = 'passed';
   } catch (error) {
     if (report.interruptedBy) report.status = 'interrupted';

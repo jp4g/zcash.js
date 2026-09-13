@@ -124,3 +124,9 @@ test('first observation retains owned source prior inclusion without old confirm
   assert.deepEqual(state.steps[0].observation.priorInclusion,{height:18,blockHash:hash,confirmations:null});
   await events.return();
 });
+
+test('malformed provider prior hash is a protocol error',async t=>{
+  const {payments,control}=setup(t);await payments.recover();control.prior={height:18,blockHash:'bad',confirmations:null};
+  const handle=await payments.operations.resume({operationId:operationId(1)}),events=handle.events();
+  await assert.rejects(events.next(),{code:'PROTOCOL_MISMATCH'});await events.return();
+});

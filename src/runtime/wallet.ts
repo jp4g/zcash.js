@@ -265,7 +265,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
       if (ready?.type !== 'ready' || !identity || !sameRecord(expected, {
         contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
-      }) || !sameRecord(identity.memory, { initialPages: 307, maximumPages: 4096, shared: false })) throw mismatch();
+      }) || !sameRecord(identity.memory, { initialPages: 308, maximumPages: 4096, shared: false })) throw mismatch();
       const authorityChannel = channels();
       let authority: ReturnType<typeof attachWalletWorker>;
       try {

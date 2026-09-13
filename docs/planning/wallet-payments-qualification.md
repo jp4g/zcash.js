@@ -1,5 +1,21 @@
 # Public wallet payment qualification
 
+## Current fingerprint, Ironwood and recovery followthrough
+
+SDK/harness `29aee5560f17c9c36ab3957d5519cb294fc47223` passed the existing Node filesystem and Firefox OPFS matrix. Real native UFVK reimport with no account index exercises fingerprint-based external attachment and signing through the wallet components. The public factory workflow additionally spends native-generated Ironwood funds, replays a same-height empty-block fork, and discovers two finalized operations in one database. Prior separately qualified draft/recovery evidence remains retained. Funding remains a synthetic native fixture; this is not live-chain qualification.
+
+The fork exposed an owned-binding bug: completion required a checkpoint at an empty tip even though upstream need not create one. Native `bb74dace75d6f1ca3c43108cf46390db9469b5e4` verifies each tree root at the target block's recorded tree size using the existing upstream root API. Block identity and coverage guards remain enforced. The named native regression and a copied retained-database check passed, including rejection of incorrect frontiers/hashes.
+
+The unchanged producer completed with receipt `635f8a8163fbd94c4c7ff0a2d6a47b5b3971b070b18475f7bfbe7f4428e4cdb7`. Package `package-signer-fingerprint-02` has manifest `8388ccc38b861ef5da60eaa7ced46809afaea826dd8821769a117bc780a7f677`; its source/artifact closure passed independent review.
+
+- Node original process `95998` exited zero: 288 runtime asset requests, ten proving-parameter requests, and worker-dispatch crash recovery. Log `/tmp/final-wallet-gaps-node-05.log`, SHA-256 `731d191116fa8eff4e3d01090c2f019497655aa201b7d67c28b9d2100a7ad61a`.
+- Firefox original process `5957` exited zero: 45 workers destroyed, all workflow flags true, no unexpected requests, and complete cleanup. Receipt `/home/jack/zcash-final-wallet-gaps-firefox-05-logs/firefox-3EjUSL.json`, SHA-256 `1539a37abc3c6bc70f864780d2d433782ac2b75059765ca96adb9421fc1a6295`.
+- The existing native Firefox runner separately exited zero (`72814`), including OPFS commit-sync rollback. Receipt `/home/jack/zakura-account-compose-logs/fixes/r1/firefox-result-1789337027693.json`, SHA-256 `6186c270acbaa3d47d1ebd8385723811982770a6cba552edc3b56f083c4c6831`.
+
+Earlier failed runs remain preserved: obsolete fingerprint/count assertions, missing bounded fixture history, and the empty-tip defect were corrected before the final pass. This does not close threaded support (#107), deferred finalized-transparent PCZT support (#102), or the remaining qualification work tracked in #115/#116.
+
+## Historical initial payment qualification
+
 The synthetic baseline wallet workflow passed on Node filesystem storage and Firefox OPFS on 2026-09-13. This qualifies the payment integration described below; it does not complete the frozen SDK scope.
 
 Both hosts exercised the public wallet factory, mnemonic account and signer attachment, sync, balance and history, transfer, shielding, and the native two-step TEX route. Assertions cover committed cancellation without dispatch, ordered submission, exact-byte retries after signer disposal, operation discovery after reopen without application-saved IDs, reopening without proving parameters, pre-dispatch cancellation, and cleanup. PCZT checks separately exercise native proving and finalization with Sapling and Ironwood outputs.

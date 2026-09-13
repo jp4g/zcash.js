@@ -1,3 +1,4 @@
+import {signerSelector} from './signer-selector.js';
 import type { AccountsApi, AccountRecord, CreatedAccount, MnemonicImport, Network, Op, Signer, SignerBinding, ViewingImport } from '../../docs/api/public-api.js';
 import type { openWalletRuntime } from '../runtime/wallet.js';
 import { snapshot } from '../clients/owned-plumbing.js';
@@ -72,10 +73,8 @@ export function walletAccounts(wallet: Wallet, network: Network) {
         } else {
           const account=await wallet.session.accounts.get({accountId:input.accountId,signal:pending.signal});
           if(!account)throw failure('ACCOUNT_NOT_FOUND','account','correct-input','Account does not exist.');
-          // #97: an imported arbitrary keyId cannot be inferred from a wallet account ID.
-          if(account.accountIndex===null)throw failure('SIGNER_CAPABILITY_MISMATCH','account','reattach-signer','Signer selector is unavailable for this imported account.');
           const signer=createCustomSigner(input.signer);
-          const descriptor=await signer.getAccount({network,selector:{kind:'derived',accountIndex:account.accountIndex},signal:pending.signal});
+          const descriptor=await signer.getAccount({network,selector:await signerSelector(wallet.session,account,pending.signal),signal:pending.signal});
           try {
             const key=await viewing.export({account:descriptor,format:'ufvk',acknowledge:'discloses-viewing-authority',signal:pending.signal});
             state=await wallet.session.accounts.checkKey({accountId:id,viewingKey:key,signal:pending.signal});

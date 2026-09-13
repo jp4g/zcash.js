@@ -529,7 +529,8 @@ export interface SignerCapabilities {
   readonly maxPcztBytes: number;
 }
 export type SignerSelector = { readonly kind: 'derived'; readonly accountIndex: AccountIndex }
-  | { readonly kind: 'imported'; readonly keyId: string };
+  | { readonly kind: 'imported'; readonly keyId: string }
+  | { readonly kind: 'fingerprint'; readonly fingerprint: string };
 export interface Signer {
   getCapabilities(args?: Op): Promise<SignerCapabilities>;
   getAccount(args: { network: Network; selector: SignerSelector } & Op): Promise<AccountDescriptor>;

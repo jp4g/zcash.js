@@ -98,7 +98,7 @@ export function boundedSigner(adapter: Signer, maximum: number): Signer {
     async getAccount(args) {
       const input = snapshot(args, ['network','selector','signal']);
       const bound = networkBinding(input.network);
-      const selector = snapshot(input.selector, ['kind','accountIndex','keyId']);
+      const selector = snapshot(input.selector, ['kind','accountIndex','keyId','fingerprint']);
       let selected;
       if (selector.kind === 'derived') {
         if (Object.keys(selector).length !== 2) throw invalidArgument();
@@ -106,6 +106,9 @@ export function boundedSigner(adapter: Signer, maximum: number): Signer {
       } else if (selector.kind === 'imported') {
         if (Object.keys(selector).length !== 2) throw invalidArgument();
         selected = {kind:'imported',keyId:text(selector.keyId)};
+      } else if (selector.kind === 'fingerprint') {
+        if (Object.keys(selector).length !== 2 || typeof selector.fingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(selector.fingerprint)) throw invalidArgument();
+        selected = {kind:'fingerprint',fingerprint:selector.fingerprint};
       } else throw invalidArgument();
       return invoke(methods.getAccount, {network:input.network,selector:selected}, input.signal, (value:AccountDescriptor) => {
         const account = checkedAccountDescriptor(value);

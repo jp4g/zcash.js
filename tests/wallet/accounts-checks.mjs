@@ -31,7 +31,11 @@ export async function accountsChecks(open,fixture,definition) {
     const external=await first.api.attachSigner({accountId:created.account.id,signer:generic});
     check(external.state==='ready'&&(await first.api.list()).find(row=>row.id===created.account.id).signerAttached,'generic descriptor checked by native UFVK comparison');
     await external.dispose();
-    await reject(second.api.attachSigner({accountId:watched.id,signer:generic}),'SIGNER_CAPABILITY_MISMATCH'); // #97, no guessed imported selector.
+    const fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(viewingKey))),byte=>byte.toString(16).padStart(2,'0')).join('');
+    const lookup={getCapabilities:args=>created.signer.getCapabilities(args),authorize:args=>created.signer.authorize(args),
+      getAccount({network:requested,selector,signal}){check(requested===network&&selector.kind==='fingerprint'&&selector.fingerprint===fingerprint,'canonical imported-account fingerprint lookup');return created.signer.getAccount({network:requested,selector:{kind:'derived',accountIndex:created.account.accountIndex},signal});}};
+    const matched=await second.api.attachSigner({accountId:watched.id,signer:lookup});
+    check(matched.state==='ready'&&(await second.api.get({accountId:watched.id})).signerAttached,'fingerprint adapter retains native correspondence');await matched.dispose();
     await reject(first.api.remove({accountId:created.account.id,acknowledge:'wrong'}),'INVALID_ARGUMENT');
     await first.api.remove({accountId:created.account.id,acknowledge:'deletes-local-history'});
     await first.api.remove({accountId:imported.account.id,acknowledge:'deletes-local-history'});

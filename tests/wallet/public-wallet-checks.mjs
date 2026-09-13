@@ -46,9 +46,10 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       const original=(await submitted()).slice(before);
       check(original.length===expected&&original.every((row,index)=>row.txid===first.steps[index].txid),'native transaction bytes dispatched in parent order');
       await signer.dispose();signer=undefined;
+      const beforeRetry=(await submitted()).length;
       const retry=await (mode==='shield'?wallet.shield(intent):wallet.send(intent));
       check(retry.operationId===pending.operationId,'idempotent send needs no disposed signer or rebuilt transaction');
-      check((await submitted()).slice(before).every(row=>original.some(saved=>saved.txid===row.txid&&saved.hex===row.hex)),'retries preserve exact native bytes');
+      const repeated=(await submitted()).slice(beforeRetry);check(repeated.length===expected&&repeated.every((row,index)=>row.txid===original[index].txid&&row.hex===original[index].hex),'retries dispatch every exact native transaction');
       await wallet.close();wallet=undefined;
       // Discover from the authoritative database, without an application-saved ID.
       const sentBeforeOpen=(await submitted()).length;
@@ -63,7 +64,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       try {await restored.broadcast({signal:controller.signal});throw Error('missing public broadcast cancellation');}catch(error){check(error.code==='ABORTED','public cancellation preserves typed identity');}
       check((await submitted()).length===sentBeforeOpen,'canceled broadcast never dispatches');
       await restored.broadcast();
-      check((await submitted()).slice(before).every(row=>original.some(saved=>saved.txid===row.txid&&saved.hex===row.hex)),'resumed dispatch uses original bytes without authority or proving');
+      const resumed=(await submitted()).slice(sentBeforeOpen);check(resumed.length===expected&&resumed.every((row,index)=>row.txid===original[index].txid&&row.hex===original[index].hex),'resumed dispatch sends every original transaction without authority or proving');
     }finally{await wallet?.close();await authorityWallet?.close();await signer?.dispose();}
   }
   return {publicWallet:true,localTransfer:true,localShield:true,localTex:true};

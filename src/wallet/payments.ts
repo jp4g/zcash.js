@@ -108,7 +108,7 @@ export class WalletPayments {
       if(cursor&&cursor.revision!==page.revision)throw failure('CURSOR_STALE','observation','correct-input','Payment cursor is stale.');
       const items:PaymentState[]=[],releases:(()=>void)[]=[];
       try{for(const row of page.items){const value=await this.requirePayment(row.operationId,signal);if(value.state.revision!==page.revision)throw failure('CURSOR_STALE','observation','correct-input','Payment cursor is stale.');releases.push(this.wallet.session.reserveWorking(8*JSON.stringify(value.state).length,async()=>{}));items.push(this.project(value));}
-        const last=page.items.at(-1);return {items,revision:page.revision,nextCursor:last&&page.items.length===limit?JSON.stringify({revision:page.revision,afterSequence:last.sequence,highWater:page.highWater,accountId:input.accountId??null}):null};
+        const last=page.items.at(-1);return {items,revision:page.revision,nextCursor:last&&page.items.length===limit&&last.sequence!==page.highWater?JSON.stringify({revision:page.revision,afterSequence:last.sequence,highWater:page.highWater,accountId:input.accountId??null}):null};
       }finally{for(const release of releases)release();}
     });
   }

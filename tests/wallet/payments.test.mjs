@@ -77,6 +77,13 @@ test('multi-step dispatch observes parent after acknowledgment and uses each ste
   assert.equal(state.steps[0].observation.state,'mempool');
 });
 
+test('inventory stops at its captured final sequence even when the page is full',async t=>{
+  const {payments}=setup(t,{count:2});await payments.recover();
+  const first=await payments.operations.list({limit:1});assert.ok(first.nextCursor);
+  const last=await payments.operations.list({limit:1,cursor:first.nextCursor});
+  assert.equal(last.items.length,1);assert.equal(last.nextCursor,null);
+});
+
 test('startup adopts retry limits locally before a timed-out network pass',async t=>{
   const {payments,control}=setup(t,{steps:2,online:true,retry:{mode:'previously-dispatched',maxAttempts:2,minIntervalMs:100}});
   control.stalled=true;

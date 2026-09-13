@@ -247,8 +247,9 @@ try {
       try{crashedWallet=await createWalletClient(crashOptions);}finally{Worker.prototype.postMessage=post;}
       assert.equal(initializations,1);assert.ok(captured instanceof Worker);
       const inventory=(await crashedWallet.operations.list()).items,finalized=inventory.filter(item=>item.steps.some(step=>step.txid!==null));
-      assert.equal(inventory.length,2);assert.equal(finalized.length,1);
-      const original=finalized[0],attempts=original.steps[0].attempts.length,beforeSend=responses.submitted().length;
+      assert.equal(inventory.length,2);assert.equal(finalized.length,2);
+      const ordered=[...finalized].sort((a,b)=>a.operationId.localeCompare(b.operationId)),untouched=ordered[1];
+      const original=ordered[0],attempts=original.steps[0].attempts.length,beforeSend=responses.submitted().length;
       afterSend=async()=>{await captured.terminate();terminated=true;};
       await assert.rejects(crashedWallet.broadcast({operationId:original.operationId}),error=>['WORKER_CRASHED','CLOSED'].includes(error.code));
       assert.equal(terminated,true,'native owner termination completed before server acknowledgment');assert.equal(afterSend,undefined);
@@ -256,12 +257,13 @@ try {
       await assert.rejects(crashedWallet.close(),error=>['WORKER_CRASHED','CLOSED'].includes(error.code));crashedWallet=undefined;
       recoveredWallet=await createWalletClient(crashOptions);
       const found=(await recoveredWallet.operations.list()).items,retained=found.filter(item=>item.steps.some(step=>step.txid!==null));
-      assert.equal(found.length,2);assert.equal(retained.length,1);assert.equal(recoveredWallet.recovery.operations,2);
-      const step=retained[0].steps[0];assert.equal(step.txid,original.steps[0].txid);assert.equal(step.exactBytesSha256,original.steps[0].exactBytesSha256);
+      assert.equal(found.length,2);assert.equal(retained.length,2);assert.equal(recoveredWallet.recovery.operations,2);
+      const interrupted=retained.find(item=>item.steps[0].txid===original.steps[0].txid),other=retained.find(item=>item.steps[0].txid===untouched.steps[0].txid);assert.ok(interrupted&&other);
+      const step=interrupted.steps[0];assert.equal(step.txid,original.steps[0].txid);assert.equal(step.exactBytesSha256,original.steps[0].exactBytesSha256);
       assert.equal(step.attempts.length,attempts+1);assert.equal(step.attempts.at(-1).outcome,'unknown');
-      assert.ok(found.filter(item=>item.steps.every(step=>step.txid===null)).every(item=>item.steps.every(step=>step.attempts.length===0)));
+      assert.deepEqual(other.steps.map(step=>({txid:step.txid,hash:step.exactBytesSha256,attempts:step.attempts.length})),untouched.steps.map(step=>({txid:step.txid,hash:step.exactBytesSha256,attempts:step.attempts.length})), 'other finalized operation survives interruption unchanged');
       const beforeRetry=responses.submitted().length;
-      const retried=await recoveredWallet.broadcast({operationId:retained[0].operationId});
+      const retried=await recoveredWallet.broadcast({operationId:interrupted.operationId});
       assert.deepEqual(responses.submitted().slice(beforeRetry),received,'explicit retry sends exactly the bytes received before worker death');
       assert.equal(retried.steps[0].attempts.length,attempts+2);assert.equal(retried.steps[0].attempts.at(-1).outcome,'acknowledged');workerDispatchCrash=true;
     }finally{

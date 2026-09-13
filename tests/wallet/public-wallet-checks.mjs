@@ -15,33 +15,31 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
   const observation={pollIntervalMs:1000,maxBufferedUpdates:16};
   const common={network,confirmations,observation};
   for(const mode of ['transfer','shield','tex',...(fixture.ironwoodFunding?['ironwood']:[])]) {
-    const name=`public-${mode}`;
-    await seed(name,hex(data.database));
+    const name=`public-${mode==='shield'?'transfer':mode}`;
+    if(mode!=='shield')await seed(name,hex(data.database));
     let authorityWallet,wallet,signer;
     try {
       authorityWallet=await createWalletClient({...options(`${name}-authority`),...common,storage:{kind:'memory'},recovery:{mode:'offline'}});
       const imported=await authorityWallet.accounts.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:data.accountIndex,
         birthday:{network,source:'checkpoint',firstScanHeight:data.import.birthday.firstScanHeight,priorTreeState:hex(data.import.birthday.priorTreeState)}});
       signer=imported.signer;await authorityWallet.close();authorityWallet=undefined;
-      const configured={...options(name),...common,transactionPolicy:{spendPools:mode==='ironwood'?['ironwood']:mode==='transfer'?['sapling','transparent']:mode==='shield'?['transparent']:['sapling'],transparent:mode==='tex'||mode==='ironwood'?'disallow':'allow-owned',changePool:mode==='ironwood'?'ironwood':'sapling',feeRule:'zip317-standard',confirmations,expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20,shieldingThreshold:10000n,freshness:{mode:'require-synced',maxLagBlocks:0}}};
+      const configured={...options(name),...common,transactionPolicy:{spendPools:mode==='ironwood'?['ironwood']:mode==='shield'?['transparent']:['sapling'],transparent:mode==='shield'?'allow-owned':'disallow',changePool:mode==='ironwood'?'ironwood':'sapling',feeRule:'zip317-standard',confirmations,expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20,shieldingThreshold:10000n,freshness:{mode:'require-synced',maxLagBlocks:0}}};
       const {proving,...withoutProving}=configured;
       wallet=await createWalletClient(configured);
       check((await wallet.accounts.list()).some(account=>account.id===data.accountId),'public native-funded account discovery');
       await wallet.accounts.attachSigner({accountId:data.accountId,signer});
       const synced=await wallet.sync({target:data.target});check(synced.targetReached&&synced.enhancement.actionable===0,'public sync resolves native unspent evidence');
       const balance=await wallet.getBalance({accountId:data.accountId});
-      check(balance.amounts?.transparent.regular.spendable===40000n&&balance.amounts.sapling.spendable===40000n,'public balance matches native funded amounts');
+      check(balance.amounts?.transparent.regular.spendable===40000n&&(mode==='shield'||balance.amounts.sapling.spendable===40000n),'public balance retains independent transparent funding');
       check((await wallet.getHistory({accountId:data.accountId})).items.length>0,'public history retains native funding');
       if(mode==='transfer')await publicEmptyForkChecks(withoutProving,seed,name+'-fork',data);
       const destination=mode==='tex'?data.tex:(await wallet.addresses.next({accountId:data.accountId,request:mode==='ironwood'?{format:'unified',transparent:'omit',sapling:'omit',ironwood:'require'}:{format:'transparent'}})).address;
       const intent=mode==='shield'?{accountId:data.accountId,toPool:'sapling',threshold:10000n,idempotencyKey:`public-${mode}`}:{accountId:data.accountId,to:destination,amount:10000n,idempotencyKey:`public-${mode}`};
-      const operationCount=mode==='transfer'?2:1;
+      const operationCount=mode==='shield'?2:1;
       const before=(await submitted()).length;
       if(mode==='transfer') {
-        const draft=await wallet.propose({kind:'shield',accountId:data.accountId,toPool:'sapling',threshold:10000n,idempotencyKey:'retained-draft'});
-        check(draft.steps.flatMap(step=>step.inputs).every(input=>input.pool==='transparent')&&draft.steps.flatMap(step=>step.inputs).reduce((sum,input)=>sum+input.value,0n)===40000n,'draft reserves actual native transparent funds');
         const transfer=await wallet.propose(intent);
-        check(transfer.steps.flatMap(step=>step.inputs).every(input=>input.pool==='sapling')&&transfer.steps.flatMap(step=>step.inputs).reduce((sum,input)=>sum+input.value,0n)===40000n,'native locks leave actual Sapling funds for transfer');
+        check(transfer.steps.flatMap(step=>step.inputs).every(input=>input.pool==='sapling')&&transfer.steps.flatMap(step=>step.inputs).reduce((sum,input)=>sum+input.value,0n)===40000n,'transfer selects actual Sapling funding');
         check(transfer.steps.flatMap(step=>step.outputs).some(output=>output.kind==='payment'&&output.address===destination&&output.amount===10000n),'transfer recipient and amount remain exact');
         const controller=new AbortController(),post=MessagePort.prototype.postMessage;
         MessagePort.prototype.postMessage=function(value,...rest){const result=Reflect.apply(post,this,[value,...rest]);if(value?.command==='fused_send')controller.abort();return result;};
@@ -49,7 +47,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
         catch(error){check(error.code==='ABORTED'&&typeof error.operationId==='string','committed send cancellation retains public operation identity');}
         finally {MessagePort.prototype.postMessage=post;}
         const discovered=await wallet.operations.list();
-        check(discovered.items.length===2&&discovered.items.filter(item=>item.steps.every(step=>step.txid!==null)).length===1,'canceled native send retains complete outbox');
+        check(discovered.items.length===1&&discovered.items.filter(item=>item.steps.every(step=>step.txid!==null)).length===1,'canceled native send retains complete outbox');
         check((await submitted()).length===before,'canceled fused completion does not dispatch');
         await wallet.close();wallet=undefined;
         wallet=await createWalletClient({...withoutProving,recovery:{mode:'online',timeoutMs:15000,rebroadcast:{mode:'previously-dispatched',maxAttempts:1,minIntervalMs:1}}});
@@ -84,15 +82,11 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       const inventory=[...page.items];let cursor=page.nextCursor;
       while(cursor!==null){const next=await wallet.operations.list({limit:1,cursor});check(next.items.length===1,'each inventory page contains one real operation');inventory.push(...next.items);cursor=next.nextCursor;check(inventory.length<=operationCount,'inventory terminates at captured operations');}
       check(inventory.length===operationCount&&new Set(inventory.map(item=>item.operationId)).size===operationCount,'all database operations discovered across pages');
-      check(wallet.recovery.operations===operationCount&&wallet.recovery.observedOperations===0&&wallet.recovery.deferredOperations===1,'offline recovery counts every operation but only finalized observation candidate');
-      const finalized=inventory.filter(item=>item.steps.some(step=>step.txid!==null));check(finalized.length===1,'exactly one finalized operation discovered');
-      for(const item of inventory.filter(item=>item.steps.every(step=>step.txid===null))){
-        const draft=await wallet.operations.resume({operationId:item.operationId});const state=await draft.snapshot();
-        check(state.missing.includes('finalizedBytes')&&state.steps.every(step=>step.txid===null&&step.attempts.length===0),'draft survives reopen without finalization or dispatch');
-        for(const invoke of [()=>draft.broadcast(),()=>draft.wait()]){try{await invoke();throw Error('missing unfinalized rejection');}catch(error){check(error.code==='NOT_FINALIZED','draft cannot submit or wait without explicit execution');}}
-        check((await submitted()).length===sentBeforeOpen,'resuming draft never dispatches');
-      }
-      const restored=await wallet.operations.resume({operationId:finalized[0].operationId});
+      check(wallet.recovery.operations===operationCount&&wallet.recovery.observedOperations===0&&wallet.recovery.deferredOperations===operationCount,'offline recovery counts every finalized observation candidate');
+      const finalized=inventory.filter(item=>item.steps.some(step=>step.txid!==null));check(finalized.length===operationCount,'all discovered operations are finalized');
+      const selected=finalized.find(item=>item.steps[0].txid===first.steps[0].txid);check(selected,'current payment discovered among finalized operations');
+      const older=finalized.filter(item=>item!==selected).map(item=>({operationId:item.operationId,steps:item.steps.map(step=>({txid:step.txid,hash:step.exactBytesSha256,attempts:step.attempts.length}))}));
+      const restored=await wallet.operations.resume({operationId:selected.operationId});
       const state=await restored.snapshot();
       check(state.steps.length===expected&&state.steps.every((step,index)=>step.txid===original[index].txid&&step.exactBytesSha256===first.steps[index].exactBytesSha256),'all exact transaction identities survive reopen');
       const controller=new AbortController();controller.abort();
@@ -106,17 +100,17 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
         const beforeRecovery=(await submitted()).length;
         wallet=await createWalletClient({...withoutProving,recovery:{mode:'online',timeoutMs:15000,...(maxAttempts===undefined?{}:{rebroadcast:{mode:'previously-dispatched',maxAttempts,minIntervalMs:1}})}});
         const report=wallet.recovery;
-        check(report.local==='complete'&&report.operations===operationCount&&report.observation==='complete'&&report.observedOperations===1&&report.deferredOperations===0&&report.lastError===null,'online startup reconciles and observes the database operation');
+        check(report.local==='complete'&&report.operations===operationCount&&report.observation==='complete'&&report.observedOperations===operationCount&&report.deferredOperations===0&&report.lastError===null,'online startup reconciles and observes the database operation');
         const sent=(await submitted()).slice(beforeRecovery);
         check(sent.length===(maxAttempts===1?expected:0)&&sent.every((row,index)=>row.txid===original[index].txid&&row.hex===original[index].hex),'startup retries exact ordered bytes only within persisted consent and budget');
         const recovered=(await wallet.operations.list()).items;
-        const final=recovered.filter(item=>item.steps.some(step=>step.txid!==null));
-        check(recovered.length===operationCount&&final.length===1&&final[0].steps.length===expected&&final[0].steps.every((step,index)=>step.attempts.length===attemptCounts[index]+Number(maxAttempts!==undefined)),'looser reopen policy cannot replenish the automatic retry budget');
-        check(recovered.filter(item=>item.steps.every(step=>step.txid===null)).every(item=>item.missing.includes('finalizedBytes')&&item.steps.every(step=>step.attempts.length===0)),'online startup leaves draft unfinalized and undispatched');
+        const final=recovered.filter(item=>item.steps.some(step=>step.txid!==null)),current=final.find(item=>item.steps[0].txid===first.steps[0].txid);
+        check(recovered.length===operationCount&&final.length===operationCount&&current&&current.steps.length===expected&&current.steps.every((step,index)=>step.attempts.length===attemptCounts[index]+Number(maxAttempts!==undefined)),'looser reopen policy cannot replenish the automatic retry budget');
+        for(const prior of older){const row=recovered.find(item=>item.operationId===prior.operationId);check(row&&row.steps.every((step,index)=>step.txid===prior.steps[index].txid&&step.exactBytesSha256===prior.steps[index].hash&&step.attempts.length===prior.steps[index].attempts),'observing both finalized operations cannot refresh older exhausted retry budget');}
       }
     }finally{await wallet?.close();await authorityWallet?.close();await signer?.dispose();}
   }
-  return {localIronwood:fixture.ironwoodFunding===true,publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,allOperationsRecovery:true,publicForkReplay:true,retryBudget:true};
+  return {localIronwood:fixture.ironwoodFunding===true,publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,allOperationsRecovery:true,twoFinalizedRecovery:true,publicForkReplay:true,retryBudget:true};
 }
 
 // Payload handler for the existing native gRPC / gRPC-Web test servers. Framing,

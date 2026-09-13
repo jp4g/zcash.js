@@ -18,7 +18,8 @@
   },
   "devDependencies": {
     "typescript": "6.0.3",
-    "vitepress": "2.0.0-alpha.20"
+    "vitepress": "2.0.0-alpha.20",
+    "webpack": "5.110.3"
   },
   "version": "0.0.0",
   "type": "module",

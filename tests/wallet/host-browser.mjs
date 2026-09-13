@@ -149,8 +149,18 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       await modules(`${build}/src`,'/dist/src');
       assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
     }
+    if(process.env.WALLET_WEBPACK_OUTPUT){
+      assert.ok(process.env.WALLET_LOADER,'Webpack wallet entry uses the existing loader harness');
+      const folder=process.env.WALLET_WEBPACK_OUTPUT,receipt=JSON.parse(await readFile(`${folder}/receipt.json`));
+      const digest=bytes=>createHash('sha256').update(bytes).digest('hex'),bundle=await readFile(`${folder}/wallet.mjs`);
+      assert.equal(receipt.webpack,'5.110.3');assert.equal(digest(bundle),receipt.bundleSha256);
+      assert.equal(digest(await readFile(`${folder}/package.tgz`)),receipt.tarballSha256);
+      assert.equal(digest(await readFile(new URL('../sdk/consumer.test.mjs',import.meta.url))),receipt.consumerSha256);
+      assert.equal(digest(await readFile(new URL('../../package-lock.json',import.meta.url))),receipt.lockSha256);
+      report.webpack=receipt;assets.set('/webpack-wallet.mjs',bundle);
+    }
     for(const [name,bytes] of provingAssets)assets.set(name,bytes);
-    assets.set('/fixture.json', JSON.stringify({ proving:provingAssets.size>0, shielding:nativeFixture.shielding, pczt:nativeFixture.pczt, signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
+    assets.set('/fixture.json', JSON.stringify({ webpack:Boolean(process.env.WALLET_WEBPACK_OUTPUT),proving:provingAssets.size>0, shielding:nativeFixture.shielding, pczt:nativeFixture.pczt, signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
@@ -226,9 +236,10 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     assert.ok(!answer.error, JSON.stringify(answer));
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
+    if(process.env.WALLET_WEBPACK_OUTPUT)assert.equal(answer.value.webpackWallet,true);
     if(process.env.WALLET_LOADER&&provingAssets.size){for(const key of ['publicWallet','localTransfer','localShield','localTex','startupRecovery','allOperationsRecovery','retryBudget'])assert.equal(answer.value[key],true);assert.ok(server.calls.length>0&&server.calls.every(call=>call.closed),'all native gRPC-Web responses closed');}
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? provingAssets.size?40:24 : 2);
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? (provingAssets.size?40:24)+Number(Boolean(process.env.WALLET_WEBPACK_OUTPUT)) : 2);
     report.status = 'passed';
   } catch (error) {
     if (report.interruptedBy) report.status = 'interrupted';

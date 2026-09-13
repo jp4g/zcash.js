@@ -12,7 +12,11 @@ npm pack --ignore-scripts --pack-destination /absolute/local/output
 npm install /absolute/local/output/zcash.js-0.0.0.tgz
 ```
 
-Use named ESM imports from `zcash.js`. Node native gRPC is available through the explicit `zcash.js/grpc-node` entry. Current package exports do not provide a CommonJS `require` entry. No CJS or Webpack compatibility claim follows from the existing Node ESM/Vite checks.
+Use named ESM imports from `zcash.js`. Node native gRPC is available through the explicit `zcash.js/grpc-node` entry. Current package exports do not provide a CommonJS `require` entry. No CommonJS compatibility is claimed. The installed-tarball consumer check also uses pinned Webpack 5.110.3 through its Node API (no loaders or plugins), targeting web/ES2022. It executes the emitted full-export and public-query-only bundles without Node globals, network requests or WASM initialization, and checks that query-only imports remove wallet/storage/proving code. This VM check alone does not qualify browser worker execution or external runtime asset loading. An optional entry in the existing Firefox wallet harness tests those paths using the same external verified runtime assets.
+
+Webpack emits four known dynamic-import warnings for guarded Node-only imports in `grpc.js`, `runtime/wallet.js` and `wallet/host.js` when bundling all exports. The consumer test checks this exact warning set; public-query-only imports have no warnings. These Node paths are not exercised by a browser target. Bundle size advisories are outside this compatibility check; no performance claim is made.
+
+To prepare that optional browser entry, set `WALLET_WEBPACK_OUTPUT` to an owned scratch directory when running `node --test tests/sdk/consumer.test.mjs`. The test preserves the installed tarball, its Webpack ESM bundle and a hash receipt. Pass the same directory to the existing Firefox wallet harness alongside its normal `WALLET_LOADER`, runtime/native fixture and trusted TLS settings. The harness verifies the receipt, opens one additional empty OPFS wallet using only bundled public exports, reads local state, closes it and checks worker/storage cleanup. It does not add a proving workload. A passing bundle build is not a substitute for that actual Firefox result.
 
 ## Supply the verified wallet runtime
 
@@ -89,3 +93,9 @@ No namespace object is required. Types use type-only named imports; factories an
 The embedded specification examples remain compile-only. Supply real application configuration before execution and do not cast application data into opaque brands. Declared application inputs and callbacks represent code the consumer supplies; they are not SDK exports. The walkthrough keeps its explicit, typed application configuration outside the displayed setup region; the complete source includes those values. `parseZec` and `formatZec` are implemented root utilities for exact decimal ZEC input and display, with bigint zatoshis between them.
 
 The example tsconfig uses strict checking and `noEmit`. Its exact `zcash.js` path alias resolves to `../public-api.ts` solely for declaration checking; it does not provide runtime module resolution or generate JavaScript. The public API is available from the root entry; native Node gRPC also has the explicit `zcash.js/grpc-node` entry. Specification typechecking alone does not qualify runtime behavior.
+
+## Retained Webpack browser result
+
+Webpack 5.110.3's installed-package bundle was exercised by the existing Firefox wallet harness with accepted runtime package 03. The non-proving run passed public OPFS open/read/close through the bundled entry (`webpackWallet: true`), alongside the existing baseline workflows: 25 workers destroyed, 82,379 ms, and complete browser/driver/server cleanup. Receipt: `/home/jack/zcash-webpack-consumer-firefox-01-logs/firefox-GKpMPc.json`, SHA-256 `5f611b75666c2f1b382dc99dfb6209c74a60c95201b5b866742dc6d9c463b625`. The tested bundle-02 SHA-256 is `1665d7e443af7c512c6bada546b17c307e99799900e4b780a30d30cbaed994bc`.
+
+This qualifies the tested browser bundle and unchanged external runtime asset path. It does not establish Webpack Node/CJS output, threaded execution, a proving workload through the Webpack bundle, or complete v1 acceptance.

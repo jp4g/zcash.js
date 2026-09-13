@@ -7,6 +7,7 @@ import { failure, invalidArgument } from '../errors.js';
 import { ownBytes, snapshot } from '../clients/owned-plumbing.js';
 import { pczt } from '../pczt.js';
 import type {NativeFinalized} from './payments.js';
+import type {memorySignerAuthority} from './memory-signer.js';
 
 export type NativeProposalIntent = {
   readonly accountId: AccountId; readonly idempotencyKey?: string;
@@ -88,6 +89,17 @@ export class WalletProposals {
     if(!this.reserved){this.session.pczt.reserveProving(this.proving.cacheReservation,()=>this.proving!.close());this.reserved=true;}
     const release=this.session.pczt.reserveProving(this.proving.workingReservation,()=>this.proving!.close());
     try{return {assets:await this.proving.sapling(signal),release};}catch(error){release();throw error;}
+  }
+  async execute(wallet:Awaited<ReturnType<typeof openWalletRuntime>>,authority:NonNullable<ReturnType<typeof memorySignerAuthority>>,args:{proposal:Proposal}&Op){
+    const input=snapshot(args,['proposal','signal']),binding=proposalBinding(input.proposal,this.session),pending=operation(input.signal);
+    let release:(()=>void)|undefined,working:(()=>void)|undefined;
+    try{
+      pending.check();if(wallet.session!==this.session)throw failure('WRONG_INSTANCE','authorization','correct-input','Proposal belongs to another wallet.');
+      authority.checkWallet(wallet);
+      release=this.session.pczt.startProof();
+      const prepared=await this.sapling(pending.signal);working=prepared.release;
+      pending.check();return await authority.execute(wallet,{...binding,...prepared.assets,signal:pending.signal});
+    }finally{working?.();release?.();pending.close();}
   }
   async finalize(args:{pczt:PcztArtifact}&Op):Promise<NativeFinalized>{
     const input=snapshot(args,['pczt','signal']),binding=pcztArtifactBinding(input.pczt,this.session),pending=operation(input.signal);

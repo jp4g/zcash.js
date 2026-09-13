@@ -62,7 +62,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
   const report = { status: 'failed', runRoot, build, sandbox: 'unchanged', started: new Date().toISOString() };
   const stop = new AbortController();
-  const deadline = setTimeout(() => stop.abort(), process.env.WALLET_PROVING_PARAMETERS ? 330000 : process.env.WALLET_LOADER ? 150000 : 90000);
+  const deadline = setTimeout(() => stop.abort(), process.env.WALLET_PROVING_PARAMETERS ? 450000 : process.env.WALLET_LOADER ? 150000 : 90000);
   const onSignal = signal => { report.interruptedBy = signal; stop.abort(); };
   process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -217,7 +217,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     let answer;
     // Account, PCZT and shielding workflows add seven owners to the original suite.
     // Allow their actual native work, leaving 30s for startup and cleanup.
-    const resultDeadline = Date.now() + (process.env.WALLET_PROVING_PARAMETERS ? 300000 : process.env.WALLET_LOADER ? 120000 : 45000);
+    const resultDeadline = Date.now() + (process.env.WALLET_PROVING_PARAMETERS ? 420000 : process.env.WALLET_LOADER ? 120000 : 45000);
     while (!answer) {
       stop.signal.throwIfAborted(); assert.ok(Date.now() < resultDeadline, 'page result deadline');
       answer = await request(`/session/${session}/execute/sync`, 'POST', { script: 'return window.walletResult || null;', args: [] });
@@ -226,7 +226,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     assert.ok(!answer.error, JSON.stringify(answer));
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
-    if(process.env.WALLET_LOADER&&provingAssets.size){for(const key of ['publicWallet','localTransfer','localShield','localTex','startupRecovery','retryBudget'])assert.equal(answer.value[key],true);assert.ok(server.calls.length>0&&server.calls.every(call=>call.closed),'all native gRPC-Web responses closed');}
+    if(process.env.WALLET_LOADER&&provingAssets.size){for(const key of ['publicWallet','localTransfer','localShield','localTex','startupRecovery','allOperationsRecovery','retryBudget'])assert.equal(answer.value[key],true);assert.ok(server.calls.length>0&&server.calls.every(call=>call.closed),'all native gRPC-Web responses closed');}
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
     assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? provingAssets.size?40:24 : 2);
     report.status = 'passed';

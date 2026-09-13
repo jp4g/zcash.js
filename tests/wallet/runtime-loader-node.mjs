@@ -1,5 +1,5 @@
 import {publicWalletChecks,publicWalletResponses} from './public-wallet-checks.mjs';
-import {createLightClient,defineNetwork,grpc} from '../../dist/src/index.js';
+import {createWalletClient,createLightClient,defineNetwork,grpc} from '../../dist/src/index.js';
 import {saplingAssets} from '../../dist/src/wallet/proving-assets.js';
 import {Server,ServerCredentials} from '@grpc/grpc-js';
 import {shieldingChecks} from './shielding-checks.mjs';
@@ -12,6 +12,7 @@ import { readFile, mkdtemp, readdir, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:https';
 import { once } from 'node:events';
+import { Worker } from 'node:worker_threads';
 import { createHash } from 'node:crypto';
 import { memorySignerChecks, mnemonicWalletChecks, sharedWalletChecks, memoryWalletChecks, offlineSyncChecks, scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
 import { openWalletRuntime, browserThreadingPrerequisites } from '../../dist/src/runtime/wallet.js';
@@ -44,7 +45,7 @@ const altered = structuredClone(manifest), workerFile = altered.files.find(file 
 workerFile.sha256 = sha(alteredWorker); workerFile.byteLength = alteredWorker.length;
 const alteredManifest = Buffer.from(canonical(altered));
 const requests = [], unexpected = [];
-let rpcServer,publicWalletResult={publicWallet:false};
+let rpcServer,publicWalletResult={publicWallet:false},workerDispatchCrash=false;
 let stalled;
 const stalledRequest = new Promise(resolve => { stalled = resolve; });
 const certificate = '/home/jack/zcash-runtime-artifacts-scratch';
@@ -217,12 +218,12 @@ try {
   }
   if(provingAssets.size){
     assert.ok(fixture.pczt.publicWallet,'native public wallet database fixture');
-    const responses=await publicWalletResponses(fixture.pczt,network),service={},handlers={};
+    const responses=await publicWalletResponses(fixture.pczt,network),service={},handlers={};let afterSend;
     rpcServer=new Server({'grpc.max_receive_message_length':2*1024*1024+1024});
     for(const method of ['GetLightdInfo','GetLatestBlock','GetTreeState','GetTransaction','GetAddressUtxos','SendTransaction']){
       service[method]={path:'/cash.z.wallet.sdk.rpc.CompactTxStreamer/'+method,requestStream:false,responseStream:false,
         requestSerialize:Buffer.from,requestDeserialize:Buffer.from,responseSerialize:Buffer.from,responseDeserialize:Buffer.from};
-      handlers[method]=(call,callback)=>{try{const response=responses.response(method,call.request);callback(response.status?{code:response.status,details:'fixture not found'}:null,response.payload??Buffer.alloc(0));}
+      handlers[method]=async(call,callback)=>{try{const response=responses.response(method,call.request);if(method==='SendTransaction'&&afterSend){const hook=afterSend;afterSend=undefined;await hook();}callback(response.status?{code:response.status,details:'fixture not found'}:null,response.payload??Buffer.alloc(0));}
         catch(error){unexpected.push(String(error));callback({code:13,details:'fixture failed'});}};
     }
     rpcServer.addService(service,handlers);
@@ -234,11 +235,42 @@ try {
     console.error(JSON.stringify({phase:'public-wallet'}));
     publicWalletResult=await publicWalletChecks(name=>{const input=options(name);return {...input,runtime:{...input.runtime,maxMemoryBytes:1024**3,maxQueuedBytes:104*1024*1024,maxPcztBytes:4*1024*1024},proving,light,broadcaster:light};},
       async(name,bytes)=>{const path=options(name).storage.path;await mkdir(path,{mode:0o700});await writeFile(path+'/wallet.db',bytes,{mode:0o600,flag:'wx'});},fixture.pczt,network,responses.submitted);
+    // Node-only actual worker death after receipt, before acknowledgment/attempt finish.
+    const crashOptions={...options('public-transfer'),network:await defineNetwork(network),light,broadcaster:light,
+      confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},observation:{pollIntervalMs:1000,maxBufferedUpdates:16},recovery:{mode:'offline'}};
+    let crashedWallet,recoveredWallet,captured,initializations=0,terminated=false;
+    const post=Worker.prototype.postMessage;
+    try{
+      Worker.prototype.postMessage=function(message,...rest){if(message?.type==='initialize'){initializations++;captured=this;}return Reflect.apply(post,this,[message,...rest]);};
+      try{crashedWallet=await createWalletClient(crashOptions);}finally{Worker.prototype.postMessage=post;}
+      assert.equal(initializations,1);assert.ok(captured instanceof Worker);
+      const inventory=(await crashedWallet.operations.list()).items,finalized=inventory.filter(item=>item.steps.some(step=>step.txid!==null));
+      assert.equal(inventory.length,2);assert.equal(finalized.length,1);
+      const original=finalized[0],attempts=original.steps[0].attempts.length,beforeSend=responses.submitted().length;
+      afterSend=async()=>{await captured.terminate();terminated=true;};
+      await assert.rejects(crashedWallet.broadcast({operationId:original.operationId}),error=>['WORKER_CRASHED','CLOSED'].includes(error.code));
+      assert.equal(terminated,true,'native owner termination completed before server acknowledgment');assert.equal(afterSend,undefined);
+      const received=responses.submitted().slice(beforeSend);assert.equal(received.length,1);assert.equal(received[0].txid,original.steps[0].txid);
+      await assert.rejects(crashedWallet.close(),error=>['WORKER_CRASHED','CLOSED'].includes(error.code));crashedWallet=undefined;
+      recoveredWallet=await createWalletClient(crashOptions);
+      const found=(await recoveredWallet.operations.list()).items,retained=found.filter(item=>item.steps.some(step=>step.txid!==null));
+      assert.equal(found.length,2);assert.equal(retained.length,1);assert.equal(recoveredWallet.recovery.operations,2);
+      const step=retained[0].steps[0];assert.equal(step.txid,original.steps[0].txid);assert.equal(step.exactBytesSha256,original.steps[0].exactBytesSha256);
+      assert.equal(step.attempts.length,attempts+1);assert.equal(step.attempts.at(-1).outcome,'unknown');
+      assert.ok(found.filter(item=>item.steps.every(step=>step.txid===null)).every(item=>item.steps.every(step=>step.attempts.length===0)));
+      const beforeRetry=responses.submitted().length;
+      const retried=await recoveredWallet.broadcast({operationId:retained[0].operationId});
+      assert.deepEqual(responses.submitted().slice(beforeRetry),received,'explicit retry sends exactly the bytes received before worker death');
+      assert.equal(retried.steps[0].attempts.length,attempts+2);assert.equal(retried.steps[0].attempts.at(-1).outcome,'acknowledged');workerDispatchCrash=true;
+    }finally{
+      Worker.prototype.postMessage=post;afterSend=undefined;
+      await recoveredWallet?.close();await crashedWallet?.close().catch(error=>{if(!['WORKER_CRASHED','CLOSED'].includes(error.code))throw error;});
+    }
     await new Promise(resolve=>rpcServer.tryShutdown(resolve));rpcServer=undefined;
   }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, provingAssets.size?246:150, 'six pinned assets per owner, including startup recovery reopens; no execution refetch');
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, provingAssets.size?258:150, 'six pinned assets per owner, including startup recovery reopens; no execution refetch');
   if(provingAssets.size)assert.equal(requests.filter(path=>path.startsWith('/proving/')).length,8,'public memory caches and persistent parameter cache suppresses repeated callback loads');
-  console.log(JSON.stringify({ pass: true,...publicWalletResult, proving:provingAssets.size>0, shielding:true, idempotency:true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  console.log(JSON.stringify({ pass: true,...publicWalletResult,workerDispatchCrash, proving:provingAssets.size>0, shielding:true, idempotency:true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { rpcServer?.forceShutdown();server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

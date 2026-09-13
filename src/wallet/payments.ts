@@ -31,7 +31,7 @@ const missing=()=>failure('OPERATION_NOT_FOUND','observation','correct-input','P
 const resource=()=>failure('RESOURCE_LIMIT','observation','configure','Payment observation exceeds the configured budget.');
 const frozen=<T>(value:T):T=>{if(value&&typeof value==='object'){for(const item of Object.values(value))frozen(item);Object.freeze(value);}return value;};
 const partial=(code:ErrorInfo['code'],state:PaymentState)=>failure(code,'observation',code==='TIMEOUT'||code==='ABORTED'?'none':'resume-operation','Payment observation did not complete.',false,undefined,state);
-function timeout(callback:()=>void,ms:number){const start=performance.now();let timer:ReturnType<typeof setTimeout>;const arm=()=>{const left=ms-(performance.now()-start);if(left<=0)callback();else timer=setTimeout(arm,Math.min(left,2147483647));};arm();return()=>clearTimeout(timer);}
+function timeout(callback:()=>void,ms:number){const start=performance.now();let timer:ReturnType<typeof setTimeout>;const arm=()=>{const left=ms-(performance.now()-start);if(left<=0)callback();else timer=setTimeout(arm,Math.min(left,2147483647));};timer=setTimeout(arm,Math.min(ms,2147483647));return()=>clearTimeout(timer);}
 function pause(ms:number,signal:AbortSignal){return new Promise<void>((resolve,reject)=>{const stop=timeout(()=>{signal.removeEventListener('abort',abort);resolve();},ms),abort=()=>{stop();reject(failure('ABORTED','observation','none','Payment observation aborted.'));};signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();});}
 
 /** Single-step payment lifecycle on the existing native journal and caller-owned clients. */

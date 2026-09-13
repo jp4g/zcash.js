@@ -22,7 +22,18 @@ export async function runBrowser() {
     try { await openWalletRuntime({ ...options, signal: abort.signal }); throw Error('missing startup abort'); }
     catch (error) { check(error.code === 'ABORTED', 'startup cancellation'); }
     for (const reopened of [false, true]) {
-      const runtime = await openWalletRuntime(options);
+      check(!crossOriginIsolated, 'fixture lacks threaded prerequisite');
+      const diagnostics = [], start = performance.getEntriesByType('resource').length;
+      const runtime = await openWalletRuntime({ ...options, runtime: { ...options.runtime,
+        threading: reopened ? { mode: 'prefer-threaded', artifact: { manifestUrl: new URL('/threaded-must-not-fetch.json', location.href).href,
+          manifestSha256: '00'.repeat(32) }, workers: 2, startupTimeoutMs: 1000 } : { mode: 'baseline' },
+        onDiagnostic(event) { diagnostics.push(event); throw Error('ignored diagnostic failure'); } } });
+      check(same(diagnostics, [reopened ? { code: 'THREADED_FALLBACK', reason: 'prerequisiteMissing' }
+        : { code: 'BASELINE_SELECTED', reason: 'requested' }]), 'sanitized runtime selection diagnostic');
+      check(Object.isFrozen(diagnostics[0]), 'immutable diagnostic');
+      const fetched = performance.getEntriesByType('resource').slice(start).map(entry => new URL(entry.name).pathname);
+      check(fetched.includes('/runtime/manifest.json'), 'fresh verified baseline acquisition');
+      check(!fetched.includes('/threaded-must-not-fetch.json'), 'no threaded acquisition');
       try {
         check(runtime.identity.mode === 'baseline', 'baseline identity');
         if (!reopened) {
@@ -83,7 +94,7 @@ export async function runBrowser() {
       try {cursor=await historyPageChecks(opened.session,fixture.history,reopen?cursor:undefined);}
       finally {await opened.close();}
     }
-    return { emptyCompleted:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    return { prerequisiteFallback:true, emptyCompleted:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
     for (const entry of [name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {

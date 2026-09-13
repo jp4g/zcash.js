@@ -1,8 +1,8 @@
-import type { NetworkDefinition, Op, RuntimeOptions, WalletStorage, ZcashError } from '../../docs/api/public-api.js';
+import type { NetworkDefinition, Op, RuntimeOptions, WalletStorage, WasmArtifact, ZcashError } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { bindNetworkDefinition } from '../network-parameters.js';
 import { attachWalletWorker } from '../wallet/host.js';
-import { acquireArtifacts } from './artifacts.js';
+import { acquireArtifacts, artifactEndpoint } from './artifacts.js';
 import { sameRecord, walletProfile } from './wallet-profile.js';
 import type { WalletRuntimeIdentity } from './wallet-profile.js';
 
@@ -49,8 +49,18 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
   const baseline = record(runtime.baseline, ['manifestUrl', 'manifestSha256']);
   const threading = record(runtime.threading, ['mode', 'artifact', 'workers', 'startupTimeoutMs']);
   if (!['baseline', 'prefer-threaded'].includes(threading.mode)) throw invalidArgument();
-  if (threading.mode !== 'baseline') throw unavailable();
-  if (Object.keys(threading).length !== 1) throw invalidArgument();
+  if (threading.mode === 'baseline') {
+    if (Object.keys(threading).length !== 1) throw invalidArgument();
+  } else {
+    if (Object.keys(threading).length !== 4) throw invalidArgument();
+    artifactEndpoint(record(threading.artifact, ['manifestUrl', 'manifestSha256']) as unknown as WasmArtifact);
+    for (const key of ['workers', 'startupTimeoutMs']) {
+      if (!Number.isSafeInteger(threading[key]) || threading[key] <= 0) throw invalidArgument();
+    }
+  }
+  const fallback = threading.mode === 'prefer-threaded' && !node
+    && (globalThis.isSecureContext !== true || globalThis.crossOriginIsolated !== true
+      || typeof SharedArrayBuffer !== 'function' || typeof Worker !== 'function');
   for (const key of ['maxMemoryBytes', 'maxQueuedBytes', 'maxQueuedJobs', 'scanBatchSize', 'maxPcztBytes']) {
     if (!Number.isSafeInteger(runtime[key]) || runtime[key] <= 0) throw invalidArgument();
   }
@@ -83,6 +93,9 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
       dependent = any([signal]);
     } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
   }
+  // This qualified profile has no shared-memory executable. Only missing browser
+  // prerequisites select baseline; a capable host must not silently downgrade.
+  if (threading.mode === 'prefer-threaded' && !fallback) throw unavailable();
   let worker: { postMessage(value: unknown, transfer: any[]): void; terminate(): unknown } | undefined;
   let session: ReturnType<typeof attachWalletWorker> | undefined;
   let port: MessagePort | undefined, peer: MessagePort | undefined;
@@ -168,7 +181,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
         contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
       }) || !sameRecord(identity.memory, { initialPages: 307, maximumPages: 4096, shared: false })) throw mismatch();
-      try { runtime.onDiagnostic?.(Object.freeze({ code: 'BASELINE_SELECTED', reason: 'requested' })); } catch { /* Diagnostics do not own startup. */ }
+      try { runtime.onDiagnostic?.(Object.freeze(fallback ? { code: 'THREADED_FALLBACK', reason: 'prerequisiteMissing' } : { code: 'BASELINE_SELECTED', reason: 'requested' })); } catch { /* Diagnostics do not own startup. */ }
       check();
       const opened = await request({ type: 'open', storage, hostUrl: urls[node ? 'node-fs.mjs' : 'opfs.mjs'],
         parametersFormat: network.parametersFormat, parameters, genesis, port: channels.port2 }, [channels.port2]);

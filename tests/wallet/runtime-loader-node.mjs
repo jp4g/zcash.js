@@ -50,6 +50,17 @@ const options = (name, mode = 'good') => ({ network, storage: { kind: 'node-file
   maxQueuedJobs: 8, scanBatchSize: 10, maxPcztBytes: 1048576,
 } });
 try {
+  const threaded = { mode: 'prefer-threaded', artifact: { manifestUrl: `${origin}/threaded/manifest.json`, manifestSha256: sha(manifestBytes) }, workers: 2, startupTimeoutMs: 1000 };
+  for (const [index, value] of [threaded, { ...threaded, workers: 0 }, { ...threaded, startupTimeoutMs: Infinity },
+    { ...threaded, artifact: { ...threaded.artifact, manifestUrl: 'http://localhost/manifest.json' } },
+    { ...threaded, artifact: { ...threaded.artifact, manifestSha256: 'bad' } },
+    { ...threaded, extra: true }, { mode: 'baseline', workers: 2 }].entries()) {
+    const input = options(`threaded-${index}`), count = requests.length;
+    input.runtime.threading = value;
+    await assert.rejects(openWalletRuntime(input), { code: index === 0 ? 'RUNTIME_UNAVAILABLE' : 'INVALID_ARGUMENT' });
+    assert.equal(requests.length, count, 'threaded admission performs no fetch');
+    assert.equal(existsSync(input.storage.path), false);
+  }
   for (const [name, limits] of [['native-only-memory', { maxMemoryBytes: 256 * 1024 * 1024 }],
     ['scan-scratch-memory', { maxMemoryBytes: 384 * 1024 * 1024 }],
     ['query-scratch-memory', { maxMemoryBytes: 416 * 1024 * 1024 }],
@@ -84,7 +95,11 @@ try {
   const fixture = JSON.parse(fixtureBytes);
   let account, addresses, previousScan;
   for (const reopen of [false, true]) {
-    const opened = await openWalletRuntime(options('wallet'));
+    const input = options('wallet'), diagnostics = [];
+    input.runtime.onDiagnostic = event => { diagnostics.push(event); throw Error('ignored diagnostic failure'); };
+    const opened = await openWalletRuntime(input);
+    assert.deepEqual(diagnostics, [{ code: 'BASELINE_SELECTED', reason: 'requested' }]);
+    assert.equal(Object.isFrozen(diagnostics[0]), true);
     try {
       assert.equal(opened.identity.buildSha256, manifest.buildSha256);
       if (!reopen) {

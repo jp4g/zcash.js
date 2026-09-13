@@ -18,11 +18,15 @@ let api: {
     open(backend: unknown, format: string, parameters: Uint8Array, genesis: Uint8Array): unknown;
     openMemory(format: string, parameters: Uint8Array, genesis: Uint8Array): unknown;
   };
+  prepareThreaded(wasm: Uint8Array, count: number): { module: WebAssembly.Module; memory: WebAssembly.Memory };
+  enterThreaded(module: WebAssembly.Module, memory: WebAssembly.Memory, index: number, loaded: () => void): never;
+  finishThreaded(): ReturnType<typeof api.initializeWalletRuntime>;
   viewsForStorage(storage: unknown): InitializedViews;
   consensusContext(format: string, parameters: Uint8Array, height: number): unknown;
 }
 let runtime: ReturnType<typeof api.initializeWalletRuntime>;
 let signerPort = false;
+let initializationId: number | undefined;
 
 function executableUrl(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith(node ? 'file:' : 'blob:');
@@ -38,6 +42,23 @@ async function handle(data: any) {
   let nativeOpening = false;
   let failure = 'RUNTIME_UNAVAILABLE';
   try {
+    if (phase === 'new' && data?.type === 'compute-initialize') {
+      phase = 'starting';
+      if (!executableUrl(data.moduleUrl) || !(data.module instanceof WebAssembly.Module)
+        || !(data.memory instanceof WebAssembly.Memory) || !(data.memory.buffer instanceof SharedArrayBuffer)
+        || !Number.isSafeInteger(data.index) || data.index < 0 || data.index >= 8) failed('PROTOCOL_MISMATCH');
+      api = await import(data.moduleUrl);
+      // The generated initializer establishes the child's TLS/stack before its
+      // blocking native entry. The host may release the owner build meanwhile.
+      api.enterThreaded(data.module, data.memory, data.index, () => control.postMessage({type:'compute-loaded', index:data.index}));
+      failed('RUNTIME_UNAVAILABLE');
+    }
+    if (phase === 'starting' && data?.type === 'pool-build' && initializationId !== undefined) {
+      runtime = api.finishThreaded();
+      phase = 'ready';
+      control.postMessage({type:'ready', identity:api.runtimeIdentity, id:initializationId});
+      return;
+    }
     if (phase === 'new' && data?.type === 'initialize') {
       phase = 'starting';
       if (!executableUrl(data.moduleUrl) || !(data.wasm instanceof Uint8Array)) failed('INVALID_ARGUMENT');
@@ -49,10 +70,18 @@ async function handle(data: any) {
       }) || !sameRecord(data.expected, {
         contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
-      }) || identity.mode !== 'baseline' || identity.memory?.shared !== false
+      }) || !['baseline','threaded'].includes(identity.mode) || identity.memory?.shared !== (identity.mode === 'threaded')
         || identity.memory.maximumPages !== 4096 || !Number.isSafeInteger(identity.memory.initialPages)
         || identity.memory.initialPages < 1 || identity.memory.initialPages > identity.memory.maximumPages) failed('PROTOCOL_MISMATCH');
       if (!Number.isSafeInteger(data.maxMemoryBytes) || data.maxMemoryBytes < identity.memory.maximumPages * 65536) failed('RESOURCE_LIMIT');
+      if (identity.mode === 'threaded') {
+        if (!Number.isSafeInteger(data.workers) || data.workers < 1 || data.workers > 8) failed('RESOURCE_LIMIT');
+        initializationId = data.id;
+        const pool = api.prepareThreaded(data.wasm, data.workers);
+        data.wasm.fill(0);
+        control.postMessage({type:'pool', id:data.id, module:pool.module, memory:pool.memory});
+        return;
+      }
       runtime = api.initializeWalletRuntime(data.wasm);
       data.wasm.fill(0);
       phase = 'ready';

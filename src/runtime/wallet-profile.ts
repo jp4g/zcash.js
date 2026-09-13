@@ -11,7 +11,7 @@ export const walletProfile = {
 } as const;
 export interface WalletRuntimeIdentity extends Pick<ArtifactManifest,
   'contractRevision' | 'abiVersion' | 'schemas' | 'buildSha256' | 'dependencyGraphSha256' | 'mode'> {
-  readonly memory: { readonly initialPages: number; readonly maximumPages: number; readonly shared: false };
+  readonly memory: { readonly initialPages: number; readonly maximumPages: number; readonly shared: boolean };
 }
 
 // These records contain only version strings/maps; compare independent key ordering.

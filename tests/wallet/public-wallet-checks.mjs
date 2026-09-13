@@ -156,11 +156,11 @@ export async function publicWalletResponses(fixture,definition) {
 // Empty competing suffixes preserve the native funding commitments and full-tx evidence.
 // This checks public sync rewind/replay, not removal or re-mining of a funded note.
 async function publicEmptyForkChecks(options,seed,name,data){
-  const codec=wireCodec(),base=options.light,height=data.target.height;
+  const codec=wireCodec(),base=options.light,height=data.target.height,fundingRaw=hex(data.raw);
   const nativeTree=codec.decodeResponse('GetTreeState',hex(data.treeState));
   const metadata=codec.decodeItem('GetBlockRange',hex(data.block)).chain_metadata;
   const treeSizes=bytesField(8,concat(scalar(1,metadata.sapling_commitment_tree_size),scalar(2,metadata.orchard_commitment_tree_size),scalar(3,metadata.ironwood_commitment_tree_size)));
-  let branch=0,active=false,sourceId;const reads=[],delivered=[];
+  let branch=0,active=false,sourceId,fundingAddress;const reads=[],delivered=[];
   const hash=(h)=>h===height?data.target.hash:(branch===0?'31':'42').repeat(31)+(h-height).toString(16).padStart(2,'0');
   const source={...base,
     async getTip(args){if(!active)return base.getTip(args);const tip=await base.getTip(args);return {...tip,height:height+2,hash:hash(height+2)};},
@@ -169,6 +169,19 @@ async function publicEmptyForkChecks(options,seed,name,data){
       check(args.height<=height+2,'bounded empty fork tree request');reads.push(args.height);
       const original=await base.getTreeState({height,...(args.signal?{signal:args.signal}:{})});sourceId=original.sourceId;
       return {...original,point:{height:args.height,hash:hash(args.height)},encoded:codec.encodeTreeState(JSON.stringify({...nativeTree,height:String(args.height),hash:hash(args.height)}))};
+    },
+    async *streamAddressTransactions(args){
+      if(!active){yield*base.streamAddressTransactions(args);return;}
+      check(args.address===fundingAddress||data.unspentAddresses.includes(args.address),'known native fork address');
+      // This fixture account has no history before its one native funding transaction.
+      // LightClient ranges are inclusive; enhancement lowers native endExclusive by one.
+      check(Number.isInteger(args.fromHeight)&&Number.isInteger(args.toHeight)&&args.fromHeight>=0&&args.toHeight>=args.fromHeight&&args.toHeight<=height+2,'bounded funding or empty suffix history');
+      args.signal?.throwIfAborted();
+      if(args.address===fundingAddress&&args.fromHeight<=height&&args.toHeight>=height){
+        const transaction=await base.getTransaction({txid:data.txid,...(args.signal?{signal:args.signal}:{})});
+        check(transaction&&transaction.txid===data.txid&&transaction.raw.length===fundingRaw.length&&transaction.raw.every((byte,index)=>byte===fundingRaw[index]),'preserve exact native funding transaction');
+        yield transaction;
+      }
     },
     async *streamCompactBlocks(args){
       if(!active){yield*base.streamCompactBlocks(args);return;}
@@ -184,7 +197,9 @@ async function publicEmptyForkChecks(options,seed,name,data){
   const configured={...options,light:source,storage:{...options.storage,...(options.storage.kind==='browser-opfs'?{name:options.storage.name+'-fork'}:{path:options.storage.path+'-fork'})},recovery:{mode:'offline'}};
   let wallet;
   try{
-    wallet=await createWalletClient(configured);await wallet.sync({target:data.target});active=true;
+    wallet=await createWalletClient(configured);await wallet.sync({target:data.target});
+    const utxos=await wallet.listUtxos({accountId:data.accountId});
+    const funding=utxos.items.find(item=>item.txid===data.txid);check(funding?.address,'native funding address for bounded fork history');fundingAddress=funding.address;active=true;
     const first=await wallet.sync({target:{height:height+2,hash:hash(height+2)}});
     check(first.targetReached&&delivered.length===2,'public sync scans initial empty suffix');
     branch=1;reads.length=0;delivered.length=0;

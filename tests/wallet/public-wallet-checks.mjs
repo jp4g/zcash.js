@@ -58,3 +58,37 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
   }
   return {publicWallet:true,localTransfer:true,localShield:true,localTex:true};
 }
+
+// Payload handler for the existing native gRPC / gRPC-Web test servers. Framing,
+// TLS and status delivery stay with those servers; status 5 is real NOT_FOUND.
+export async function publicWalletResponses(fixture,definition) {
+  const {initialize:wire}=await import('../../dist/src/runtime/lightwire-capsule.mjs');
+  const native=await import('../../dist/src/runtime/primitive-capsule.mjs');
+  const {scalar,bytesField,concat}=await import('../clients/light-chain-reads-fixtures.mjs');
+  native.initialize();const codec=wire(),target=fixture.publicWallet.target;
+  const branch=native.consensusContext(definition.parametersFormat,definition.parameters,target.height).branchId;
+  const encoded=bytes=>Array.from(bytes,byte=>byte.toString(16).padStart(2,'0')).join('');
+  const text=(field,value)=>bytesField(field,new TextEncoder().encode(value));
+  const request=(method,input)=>encoded(codec.encodeRequest(method,JSON.stringify(input)));
+  const sent=[],known=new Map();
+  return {submitted:()=>sent.map(row=>({...row})),response(method,payload){
+    const key=encoded(payload);
+    if(method==='GetLightdInfo')return {payload:concat(text(1,'fixture'),text(2,'synthetic'),text(4,'regtest'),scalar(5,20),text(6,branch.toString(16).padStart(8,'0')),scalar(7,target.height),text(18,'v0.5.0'))};
+    if(method==='GetLatestBlock')return {payload:concat(scalar(1,target.height),bytesField(2,hex(target.hash).reverse()))};
+    if(method==='GetTreeState') {
+      const genesis=key===request(method,{hash:definition.genesisHash});
+      check(genesis||key===request(method,{height:String(target.height)}),'known public wallet tree request');
+      return {payload:concat(text(1,'regtest'),scalar(2,genesis?0:target.height),text(3,genesis?definition.genesisHash:target.hash),text(5,'000000'),text(6,'000000'),text(7,'000000'))};
+    }
+    if(method==='SendTransaction') {
+      const dto=codec.decodeResponse('GetTransaction',payload),raw=hex(dto.data);
+      const tx=native.decodeTransaction(raw,branch),row={txid:tx.display,hex:encoded(raw)};
+      sent.push(row);known.set(request('GetTransaction',{hash:encoded(tx.txid)}),raw);
+      return {payload:text(2,JSON.stringify(tx.display))};
+    }
+    if(method==='GetTransaction') {
+      const raw=known.get(key);return raw?{payload:concat(bytesField(1,raw),scalar(2,0))}:{status:5};
+    }
+    throw Error(`unexpected public wallet fixture method ${method}`);
+  }};
+}

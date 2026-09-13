@@ -14,10 +14,11 @@ export async function threadedChecks(options,fixture,definition,WorkerType) {
   const {initialize}=await import('../../dist/src/runtime/lightwire-capsule.mjs'),codec=initialize();
   const responses=await publicWalletResponses(fixture,definition);
   const request=(method,value)=>encoded(codec.encodeRequest(method,JSON.stringify(value)));
+  const priorRequest=request('GetTreeState',{height:String(data.import.birthday.firstScanHeight-1)}),priorTreeState=hex(data.import.birthday.priorTreeState);
   const expectedRange=request('GetBlockRange',{start:{height:String(data.target.height)},end:{height:String(data.target.height)}});
   let streams=0;
   const light=createLightClient({network,transport:{kind:'custom-lightwallet',sourceId:'threaded-native-fixture',protocolRevision:revision,
-    async unary({method,request:bytes}){const result=responses.response(method,bytes);check(result.payload,'known native fixture read');return result.payload;},
+    async unary({method,request:bytes}){if(method==='GetTreeState'&&encoded(bytes)===priorRequest)return priorTreeState;const result=responses.response(method,bytes);check(result.payload,'known native fixture read');return result.payload;},
     async *stream({method,request:bytes,signal}){check(method==='GetBlockRange'&&encoded(bytes)===expectedRange,'exact native funding range');if(signal.aborted)return;streams++;yield hex(data.block);}}});
   const confirmations={trusted:1,untrusted:1,allowZeroConfirmationShielding:false};
   const diagnostics=[],owners=new Set(),children=[],terminated=new Set(),originalPost=WorkerType.prototype.postMessage,originalTerminate=WorkerType.prototype.terminate;

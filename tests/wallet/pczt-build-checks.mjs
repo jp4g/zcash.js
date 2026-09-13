@@ -2,13 +2,21 @@ import {defineNetwork,pczt} from '../../dist/src/index.js';
 import {walletAccounts} from '../../dist/src/wallet/accounts.js';
 import {WalletProposals} from '../../dist/src/wallet/proposals.js';
 import {walletSign} from '../../dist/src/wallet/sign.js';
+import {saplingAssets} from '../../dist/src/wallet/proving-assets.js';
 const hex=value=>Uint8Array.from(value.match(/../g)??[],byte=>parseInt(byte,16));
 const check=(ok,label)=>{if(!ok)throw Error(label);};
 const equal=(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index]);
 
 // Actual worker composition, shared by filesystem and OPFS. Full send is qualified separately.
-export async function pcztBuildChecks(open,fixture,definition) {
+export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
   const network=await defineNetwork(definition);
+  const namespace=`wallet-proof-${crypto.randomUUID()}`,total=saplingAssets.reduce((n,value)=>n+value.byteLength,0);
+  let loads=0;
+  const proving={kind:'local',maxConcurrentProofs:1,cache:{kind:'persistent',namespace,maxBytes:total},
+    assets:saplingAssets.map(({sha256,blake2b512,...asset})=>({...asset,digest:{algorithm:'sha256',hex:sha256}})),
+    async loadAsset({requirement,signal}){loads++;const response=await fetch(new URL(`/proving/${requirement.assetId}`,provingOrigin),{signal,credentials:'omit'});check(response.ok,'canonical asset TLS response');return new Uint8Array(await response.arrayBuffer());}};
+  const proofLimits={maxMemoryBytes:1024*1024*1024,maxQueuedBytes:104*1024*1024};
+  try {
   for(const scope of ['external','internal']) {
     const data=fixture[scope],wallet=await open(scope),accounts=walletAccounts(wallet,network);
     let signer,reopened,signerAccount;
@@ -22,7 +30,7 @@ export async function pcztBuildChecks(open,fixture,definition) {
       const proposals=new WalletProposals(wallet.session,network);
       const proposal=await proposals.create({revision:(await wallet.session.scan.state()).revision,accountId:created.account.id,
         payments:[{to:destination.address,amount:10000n}],
-        policy:{spendPools:['sapling'],transparent:'disallow',changePool:'sapling',feeRule:'zip317-standard',confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20}});
+        policy:{spendPools:['sapling'],transparent:'disallow',changePool:provingOrigin&&scope==='internal'?'ironwood':'sapling',feeRule:'zip317-standard',confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20}});
       check(proposal.steps[0].outputs.some(output=>output.kind==='change'&&output.address===null),'proposal defers exact change address');
       const artifact=await proposals.build({proposal}),retained=await wallet.session.pczt.get({operationId:proposal.operationId});
       check(artifact.outputs.some(output=>output.kind==='change'&&typeof output.address==='string'),'native build resolves owned change');
@@ -37,6 +45,10 @@ export async function pcztBuildChecks(open,fixture,definition) {
       finally {await exchanged.dispose();}
       exchange.bytes.fill(0);
       check(equal((await wallet.session.pczt.get({operationId:proposal.operationId})).bytes,retained.bytes),'mutable exchange leaves retained full copy unchanged');
+      if(provingOrigin){
+        try{await new WalletProposals(wallet.session,network,proving).prove({pczt:artifact});throw Error('missing queue admission');}
+        catch(error){check(error.code==='RESOURCE_LIMIT'&&loads===(scope==='external'?0:2),'proof queue bound precedes asset callback');}
+      }
       let authorization;
       if(scope==='internal') {
         const signed=await walletSign(proposals,wallet.session,accounts)({pczt:artifact,signer});
@@ -51,7 +63,15 @@ export async function pcztBuildChecks(open,fixture,definition) {
       try {const inspection=await pczt.inspect({pczt:parsed});check(inspection.authorizationComplete&&!inspection.proofsComplete,'built PCZT signed after wallet close');}
       finally {await parsed.dispose();}
       await signer.dispose();
-      reopened=await open(scope);
+      if(provingOrigin&&scope==='external'){
+        const limited=await open(scope,{...proofLimits,maxMemoryBytes:640*1024*1024});
+        try{const api=new WalletProposals(limited.session,network,proving),existing=await api.restore({operationId:proposal.operationId});
+          const owned=await api.build({proposal:existing});
+          try{await api.prove({pczt:owned});throw Error('missing proof memory admission');}
+          catch(error){check(error.code==='RESOURCE_LIMIT'&&loads===0,'proof working-memory bound precedes asset callback');}
+        }finally{await limited.close();}
+      }
+      reopened=await open(scope,provingOrigin?proofLimits:undefined);
       const inventory=await reopened.session.proposals.list({afterSequence:'0',limit:200});
       check(inventory.items.length===1,'reopen discovers operation without saved ID');
       const restored=await reopened.session.pczt.get({operationId:inventory.items[0].operationId,artifactId:artifact.artifactId});
@@ -82,13 +102,45 @@ export async function pcztBuildChecks(open,fixture,definition) {
         const signed=await walletSign(imports,reopened.session,{attachedSigner(){return adapter;}})({pczt:unsigned});
         check(authorizations===1&&signed.artifactId===imported.artifactId,'captured custom signer contribution is checked and retained');
       }
-      await reopened.close();reopened=await open(scope);
+      let proved;
+      if(provingOrigin){
+        const cancelled=new AbortController();
+        const cancelledApi=new WalletProposals(reopened.session,network,{...proving,cache:{...proving.cache,namespace:namespace+'-cancel'},
+          loadAsset(){cancelled.abort();return new Promise(()=>{});}});
+        try{await cancelledApi.prove({pczt:imported,signal:cancelled.signal});throw Error('missing asset-load cancellation');}
+        catch(error){check(error.code==='ABORTED','asset-load cancellation leaves owner usable');}
+        const proofApi=new WalletProposals(reopened.session,network,proving);
+        globalThis.walletPhase=`native-proof-${scope}`;
+        proved=await proofApi.prove({pczt:imported});
+        check(proved.proofsComplete&&proved.authorizationComplete&&proved.artifactId!==imported.artifactId,'real native proof retains signed artifact version');
+        const proof=await reopened.session.pczt.get({operationId,artifactId:proved.artifactId});
+        const inspected=await pczt.parse({bytes:proof.bytes,context:proposal.context,maxBytes:65536});
+        try{const info=await pczt.inspect({pczt:inspected});check(info.proofsComplete&&info.authorizationComplete,'native serialized proof state');
+          check(info.pools.includes('sapling')&&(scope!=='internal'||info.pools.includes('ironwood')),'nonempty native proof pools');}
+        finally{await inspected.dispose();}
+        const count=loads;
+        check((await proofApi.prove({pczt:proved})).artifactId===proved.artifactId&&loads===count,'already proven artifact loads no assets');
+        check(loads===2,'persistent parameter cache reused across independent owners');
+        proved={artifact:proved,bytes:proof.bytes};
+      }
+      await reopened.close();reopened=await open(scope,provingOrigin?proofLimits:undefined);
       const discovered=await reopened.session.proposals.list({afterSequence:'0',limit:200});
       check(discovered.items.length===1,'reopen discovers signed operation without saved ID');
       const latest=await reopened.session.pczt.get({operationId:discovered.items[0].operationId});
-      check(latest.artifactId===imported.artifactId&&latest.authorizationComplete&&equal(latest.bytes,signed.bytes),'signed artifact bytes survive new owner');
+      check(latest.artifactId===(proved?.artifact.artifactId??imported.artifactId)&&latest.authorizationComplete&&equal(latest.bytes,proved?.bytes??signed.bytes),'latest artifact bytes survive new owner');
+      if(proved){const previous=await reopened.session.pczt.get({operationId,artifactId:imported.artifactId});check(equal(previous.bytes,signed.bytes)&&!previous.proofsComplete,'proving preserves preceding signed version');}
       const original=await reopened.session.pczt.get({operationId:discovered.items[0].operationId,artifactId:artifact.artifactId});
       check(equal(original.bytes,retained.bytes)&&!original.authorizationComplete,'old artifact identity still resolves original unsigned bytes');
     } finally {await signerAccount?.viewing.dispose();await signer?.dispose();await reopened?.close();await accounts.close();await wallet.close();}
+  }
+  }finally{
+    if(provingOrigin){
+      for(const value of [namespace,namespace+'-cancel']){
+        const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');
+        const name='zakura-proving-'+hash,fs=globalThis.process?.getBuiltinModule?.('fs/promises');
+        if(fs){const os=process.getBuiltinModule('os'),path=process.getBuiltinModule('path'),directory=path.join(os.homedir(),'.cache','zakura',name);await fs.rm(directory,{recursive:true,force:true});check(!await fs.stat(directory).catch(()=>null),'proof filesystem cache cleanup');}
+        else {await caches.delete(name);check(!(await caches.keys()).includes(name),'proof CacheStorage cleanup');}
+      }
+    }
   }
 }

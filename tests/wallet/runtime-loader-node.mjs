@@ -1,6 +1,7 @@
 import {shieldingChecks} from './shielding-checks.mjs';
 import {accountsChecks} from './accounts-checks.mjs';
 import {pcztBuildChecks} from './pczt-build-checks.mjs';
+import {provingFixture} from './proving-fixture.mjs';
 // Real TLS acquisition, reviewed executable bytes, actual worker/Rust filesystem wallet.
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, readdir, mkdir, writeFile } from 'node:fs/promises';
@@ -42,9 +43,11 @@ const requests = [], unexpected = [];
 let stalled;
 const stalledRequest = new Promise(resolve => { stalled = resolve; });
 const certificate = '/home/jack/zcash-runtime-artifacts-scratch';
+const provingAssets=await provingFixture(process.env.WALLET_PROVING_PARAMETERS);
 const server = createServer({ key: await readFile(`${certificate}/server.key`), cert: await readFile(`${certificate}/server.crt`) }, (req, res) => {
   requests.push(req.url);
   if (req.headers.cookie || req.headers.authorization) unexpected.push('credentials');
+  if(provingAssets.has(req.url)){res.writeHead(200,{'content-type':'application/octet-stream'});res.end(provingAssets.get(req.url));return;}
   const [, mode, name] = req.url.split('/');
   if (!assets.has(name)) { unexpected.push(req.url); res.writeHead(404).end(); return; }
   if (mode === 'stall') { res.writeHead(200); res.write('{'); stalled(); return; }
@@ -125,7 +128,7 @@ try {
   await mnemonicWalletChecks(name=>openWalletRuntime(options(`mnemonic-${name}`)));
   await memorySignerChecks(()=>openWalletRuntime(options('complete-signer')),signerFixture,network);
   await accountsChecks(suffix=>openWalletRuntime(options(`accounts-${suffix}`)),{...fixture,signer:signerFixture},network);
-  await pcztBuildChecks(suffix=>openWalletRuntime(options(`pczt-${suffix}`)),fixture.pczt,network);
+  await pcztBuildChecks((suffix,limits)=>{const input=options(`pczt-${suffix}`);return openWalletRuntime({...input,runtime:{...input.runtime,...limits}});},fixture.pczt,network,provingAssets.size?origin:undefined);
   let account, addresses, previousScan;
   for (const reopen of [false, true]) {
     const input = options('wallet'), diagnostics = [];
@@ -209,6 +212,7 @@ try {
   }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 150, 'six pinned assets per owner, including signed PCZT reopen; no execution refetch');
-  console.log(JSON.stringify({ pass: true, shielding:true, idempotency:true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, provingAssets.size?156:150, 'six pinned assets per owner, including PCZT reopen and proof memory admission; no execution refetch');
+  if(provingAssets.size)assert.equal(requests.filter(path=>path.startsWith('/proving/')).length,2,'persistent parameter cache suppresses repeated callback loads');
+  console.log(JSON.stringify({ pass: true, proving:provingAssets.size>0, shielding:true, idempotency:true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

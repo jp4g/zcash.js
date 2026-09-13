@@ -4,12 +4,14 @@ import { networkBinding } from '../network.js';
 import { failure, invalidArgument } from '../errors.js';
 import { ownBytes } from '../clients/owned-plumbing.js';
 
-export interface NativeProposalInput {
-  readonly revision: string; readonly accountId: AccountId;
-  readonly payments: readonly { readonly to: string; readonly amount: bigint; readonly memo?: Uint8Array | null }[];
+export type NativeProposalIntent = {
+  readonly accountId: AccountId; readonly idempotencyKey?: string;
   readonly policy: Omit<TransactionPolicy, 'freshness' | 'shieldingThreshold'>;
   readonly maxFee?: bigint;
-}
+} & ({ readonly kind?: never;
+  readonly payments: readonly { readonly to: string; readonly amount: bigint; readonly memo?: Uint8Array | null }[];
+} | { readonly kind: 'shield'; readonly threshold: bigint; readonly fromAddresses?: readonly string[] });
+export type NativeProposalInput = NativeProposalIntent & {readonly revision: string};
 export interface NativeProposalReview {
   readonly operationId: string; readonly proposalId: string; readonly reviewCommitment: string;
   readonly accountId: AccountId; readonly revision: string; readonly targetHeight: number;

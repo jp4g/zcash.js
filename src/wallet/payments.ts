@@ -97,7 +97,7 @@ export class WalletPayments {
     for(const row of page.items){const next=sequence(row.sequence);id(row.operationId);if(next<=previous||next>high)throw protocol();previous=next;}return page;
   }
   get(args:{operationId:string}&Op):Promise<PaymentState|null>{const input=snapshot(args,['operationId','signal']),operationId=id(input.operationId);return this.run(input.signal,async signal=>{const value=await this.read(operationId,signal);return value?this.project(value):null;});}
-  private async require(operationId:string,signal?:AbortSignal){const value=await this.read(operationId,signal);if(!value)throw missing();return value;}
+  private async requirePayment(operationId:string,signal?:AbortSignal){const value=await this.read(operationId,signal);if(!value)throw missing();return value;}
   list(args:Parameters<OperationsApi['list']>[0]={}):ReturnType<OperationsApi['list']>{
     const input=snapshot(args,['cursor','limit','accountId','signal']),limit=positive(input.limit??50);if(limit>200)throw invalidArgument();
     if(input.accountId!==undefined&&(typeof input.accountId!=='string'||!input.accountId.length||input.accountId.length>128))throw invalidArgument();
@@ -107,7 +107,7 @@ export class WalletPayments {
       const page=await this.page({afterSequence:cursor?.afterSequence??'0',...(cursor?{highWater:cursor.highWater}:{}),limit,...(input.accountId?{accountId:input.accountId}:{}),signal});
       if(cursor&&cursor.revision!==page.revision)throw failure('CURSOR_STALE','observation','correct-input','Payment cursor is stale.');
       const items:PaymentState[]=[],releases:(()=>void)[]=[];
-      try{for(const row of page.items){const value=await this.require(row.operationId,signal);if(value.state.revision!==page.revision)throw failure('CURSOR_STALE','observation','correct-input','Payment cursor is stale.');releases.push(this.wallet.session.reserveWorking(8*JSON.stringify(value.state).length,async()=>{}));items.push(this.project(value));}
+      try{for(const row of page.items){const value=await this.requirePayment(row.operationId,signal);if(value.state.revision!==page.revision)throw failure('CURSOR_STALE','observation','correct-input','Payment cursor is stale.');releases.push(this.wallet.session.reserveWorking(8*JSON.stringify(value.state).length,async()=>{}));items.push(this.project(value));}
         const last=page.items.at(-1);return {items,revision:page.revision,nextCursor:last&&page.items.length===limit?JSON.stringify({revision:page.revision,afterSequence:last.sequence,highWater:page.highWater,accountId:input.accountId??null}):null};
       }finally{for(const release of releases)release();}
     });
@@ -178,7 +178,7 @@ export class WalletPayments {
     const clear=()=>{for(const row of queue)row.release();queue.length=0;};
     const run=()=>this.run(AbortSignal.any([input.signal??new AbortController().signal,controller.signal]),async signal=>{
       let revision:string|undefined;
-      try{for(;;){let value=await this.require(operationId,signal);const source=this.light??this.broadcaster;
+      try{for(;;){let value=await this.requirePayment(operationId,signal);const source=this.light??this.broadcaster;
         if(source)value=await this.observe(value,source,signal);
         const state=this.project(value);
         if(state.revision!==revision){if(queue.length>=this.observation.maxBufferedUpdates)throw resource();const release=this.wallet.session.reserveWorking(8*JSON.stringify(state).length,async()=>{});queue.push({state,release});revision=state.revision;wake?.();wake=undefined;}
@@ -200,7 +200,7 @@ export class WalletPayments {
     const stop=input.timeoutMs===undefined?()=>{}:timeout(()=>timer.abort(),input.timeoutMs);
     let iterator:AsyncIterableIterator<PaymentState>|undefined,last:PaymentState|undefined;
     try{
-      caller.check();this.check();last=await this.run(dependent.signal,async signal=>this.project(await this.require(operationId,signal)));
+      caller.check();this.check();last=await this.run(dependent.signal,async signal=>this.project(await this.requirePayment(operationId,signal)));
       if(last.steps.some(step=>step.txid===null))throw partial('NOT_FINALIZED',last);
       if(!this.light&&!this.broadcaster)throw unavailable();
       iterator=this.events(operationId,{signal:dependent.signal});
@@ -240,7 +240,7 @@ export class WalletPayments {
               if(!page.items.length)break;
               for(const row of page.items){
                 if(pending.signal.aborted){halt=true;break;}
-                after=row.sequence;const value=await this.require(row.operationId,signal);
+                after=row.sequence;const value=await this.requirePayment(row.operationId,signal);
                 if(value.state.steps.some(step=>step.txid!==null)){
                   try{const checked=await this.observe(value,this.light!,pending.signal);observed++;
                     if(this.policy.rebroadcast&&!pending.signal.aborted)await this.submit(row.operationId,pending.signal,true,checked);

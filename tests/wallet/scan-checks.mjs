@@ -214,3 +214,14 @@ export async function offlineSyncChecks(session) {
     check(after.scan.revision===before.scan.revision, 'offline attempts do not mutate wallet');
   } finally { await sync.stop(); }
 }
+
+export async function memoryWalletChecks(session, fixture, populate) {
+  check((await session.accounts.list()).length===0,'new memory wallet starts empty');
+  if (!populate) return;
+  const account=await session.accounts.import({...fixture.import,birthday:'fullScan'});
+  check((await session.accounts.get({accountId:account.id})).id===account.id,'memory native account query');
+  const balance=await session.getBalance({accountId:account.id,confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:true}});
+  check(balance.accountId===account.id&&balance.amounts===null,'memory native unsynced balance');
+  const address=await session.addresses.next({accountId:account.id,request:{format:'transparent'}});
+  check((await session.addresses.list({accountId:account.id})).some(row=>row.address===address.address),'memory native address allocation');
+}

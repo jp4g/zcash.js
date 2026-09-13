@@ -20,7 +20,7 @@ export function ownBytes(bytes: Uint8Array, protocol: () => Error, resourceLimit
 }
 
 const resource = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Client input exceeds limit.');
-export function snapshot<T extends object>(args: T, keys: readonly string[]): T {
+export function snapshot<T extends object>(args: T, keys: readonly string[], maximum = 4 * 1024 * 1024): T {
   try {
     if (!args || typeof args !== 'object' || ![null, Object.prototype].includes(Object.getPrototypeOf(args))) throw invalidArgument();
     const output = Object.create(null);
@@ -30,7 +30,7 @@ export function snapshot<T extends object>(args: T, keys: readonly string[]): T 
       if (!field || !Object.hasOwn(field, 'value')) throw invalidArgument();
       output[key] = field.value;
     }
-    if ('bytes' in output) output.bytes = ownBytes(output.bytes, invalidArgument, resource);
+    if ('bytes' in output) output.bytes = ownBytes(output.bytes, invalidArgument, resource, maximum);
     if ('addresses' in output) {
       const values = output.addresses;
       if (!Array.isArray(values) || !values.length || values.length > 1000) throw invalidArgument();

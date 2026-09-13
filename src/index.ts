@@ -1,4 +1,5 @@
 export { createCustomSigner } from './signer.js';
+export { pczt } from './pczt.js';
 export { resolveBirthday } from './birthday.js';
 export { createPublicClient } from './public.js';
 export { accountFromViewingKey, viewing, addresses } from './viewing.js';
@@ -11,7 +12,7 @@ export { isZcashError } from './errors.js';
 export { http } from './http.js';
 export type {
   Signer, SignerCapabilities, SignerSelector, SigningRequest, SigningResult,
-  Birthday, AccountDescriptor, ViewKeyHandle, ViewingApi, AddressApi, AddressRecord, AddressRequest, DecodedAddress, SelectedReceiver, ConsensusContext, Pool, NonEmpty, ReceiverType,
+  PcztApi, PcztHandle, PcztInspection, Birthday, AccountDescriptor, ViewKeyHandle, ViewingApi, AddressApi, AddressRecord, AddressRequest, DecodedAddress, SelectedReceiver, ConsensusContext, Pool, NonEmpty, ReceiverType,
   Network, NetworkDefinition, Op, AccountIndex, DiversifierIndex, TxId, BlockHash, ErrorCode, ErrorInfo, ZcashError,
   PublicClient, ObservationOptions, WaitOptions, ChainPoint, ChainTip, BlockSelector, BlockHeader, PublicBlock,
   PublicTransaction, TransactionObservation, Inclusion, PublicUtxo, PublicUtxos, TreeState, SubtreeRoot, SubtreeRequest, BroadcastReport, ConfirmedTransaction,

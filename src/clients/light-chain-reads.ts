@@ -27,6 +27,15 @@ const unsupportedSignalProxy = (() => {
   return host.process?.getBuiltinModule?.('node:util').types.isProxy ?? (() => true);
 })();
 
+function admitSignal(signal: AbortSignal | undefined): void {
+  if (signal === undefined) return;
+  try {
+    if (unsupportedSignalProxy(signal) || Object.getPrototypeOf(signal) !== AbortSignal.prototype
+      || Object.hasOwn(signal, 'aborted') || Object.hasOwn(signal, 'reason')) throw invalidArgument();
+    signalAborted.call(signal);
+  } catch { throw invalidArgument(); }
+}
+
 export function admit(transport: CustomLightTransport, args: Op, keys: readonly string[]): string {
   try {
     if (transport.protocolRevision !== revision) throw protocol();
@@ -36,12 +45,7 @@ export function admit(transport: CustomLightTransport, args: Op, keys: readonly 
     if (!args || typeof args !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(args))
       || Reflect.ownKeys(args).some(key => typeof key !== 'string' || !keys.includes(key)
         || !Object.hasOwn(Object.getOwnPropertyDescriptor(args, key)!, 'value'))) throw invalidArgument();
-    if (args.signal !== undefined) {
-      // A native dependent signal must not observe caller-overridden state accessors.
-      if (unsupportedSignalProxy(args.signal) || Object.getPrototypeOf(args.signal) !== AbortSignal.prototype
-        || Object.hasOwn(args.signal, 'aborted') || Object.hasOwn(args.signal, 'reason')) throw invalidArgument();
-      signalAborted.call(args.signal);
-    }
+    admitSignal(args.signal);
     return sourceId;
   } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
 }
@@ -63,6 +67,7 @@ const aborted = () => failure('ABORTED', 'query', 'none', 'Light-chain read abor
 // Native dependent signals propagate cancellation independently of caller event listeners.
 // Keep the dependent signal private: synthetic events on the caller/transport signal cannot cancel us.
 export function operation(signal: AbortSignal | undefined, release: () => void = () => {}) {
+  admitSignal(signal);
   const controller = new AbortController();
   const dependent = signal === undefined ? undefined : AbortSignal.any([signal]);
   let cancelled = false, closed = false;

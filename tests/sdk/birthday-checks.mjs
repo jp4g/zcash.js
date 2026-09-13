@@ -26,6 +26,12 @@ export async function birthdayChecks(api){
   await reject(api.resolveBirthday({light,firstScanHeight:0}),'INVALID_ARGUMENT');
   await reject(api.resolveBirthday({light,firstScanHeight:1,recoverUntilExclusive:0}),'INVALID_ARGUMENT');
   const before=calls.length;
+  for(const property of ['aborted','reason']) {
+    const shadow=new AbortController();let reads=0;
+    Object.defineProperty(shadow.signal,property,{get(){reads++;return true;}});
+    await reject(api.resolveBirthday({light,firstScanHeight:1,signal:shadow.signal}),'INVALID_ARGUMENT');
+    check(reads===0&&calls.length===before,'shadow signal rejected without getters or dispatch');
+  }
   await reject(api.resolveBirthday({light,firstScanHeight:1,signal:AbortSignal.abort()}),'ABORTED');check(calls.length===before,'preabort avoids dispatch');
   const controller=new AbortController();let release;
   const pending=api.resolveBirthday({light:{network,getTreeState:()=>new Promise(resolve=>{release=resolve;})},firstScanHeight:1,signal:controller.signal});

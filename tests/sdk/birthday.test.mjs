@@ -24,6 +24,14 @@ test('birthday composition owns source bytes and preserves cancellation without 
   await assert.rejects(resolveBirthday({light,firstScanHeight:0}),e=>e.code==='INVALID_ARGUMENT');
   await assert.rejects(resolveBirthday({light,firstScanHeight:1,signal:AbortSignal.abort()}),e=>e.code==='ABORTED');assert.equal(requests,1);
   await assert.rejects(resolveBirthday({light:{network,async getTreeState(){return {...tree(),point:{height:1,hash:network.genesisHash}};}},firstScanHeight:1}),e=>e.code==='PROTOCOL_MISMATCH');
+  const shadow=new AbortController();let getters=0,shadowRequests=0,releaseShadow;
+  Object.defineProperty(shadow.signal,'aborted',{get(){getters++;return true;}});
+  const shadowRead=resolveBirthday({light:{network,getTreeState(){shadowRequests++;return new Promise(resolve=>{releaseShadow=resolve;});}},firstScanHeight:1,signal:shadow.signal});
+  shadow.abort();
+  let timer;
+  try { await assert.rejects(Promise.race([shadowRead,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('shadow signal stalled')),100);})]),e=>e.code==='INVALID_ARGUMENT'); }
+  finally {clearTimeout(timer);releaseShadow?.(tree());}
+  assert.equal(getters,0);assert.equal(shadowRequests,0);
   const controller=new AbortController();let release;
   const pending=resolveBirthday({light:{network,getTreeState(){return new Promise(resolve=>{release=resolve;});}},firstScanHeight:1,signal:controller.signal});
   controller.abort();await assert.rejects(pending,e=>e.code==='ABORTED');release(tree());assert.equal(calls.length,1);

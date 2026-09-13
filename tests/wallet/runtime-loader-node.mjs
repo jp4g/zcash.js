@@ -6,8 +6,21 @@ import { createServer } from 'node:https';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
-import { openWalletRuntime } from '../../dist/src/runtime/wallet.js';
+import { openWalletRuntime, browserThreadingPrerequisites } from '../../dist/src/runtime/wallet.js';
 
+// Capability admission only; actual native runtime qualification follows below.
+const capabilityNames = ['isSecureContext', 'crossOriginIsolated', 'Worker', 'Atomics'];
+const descriptors = capabilityNames.map(name => Object.getOwnPropertyDescriptor(globalThis, name));
+try {
+  Object.assign(globalThis, { isSecureContext: true, crossOriginIsolated: true, Worker: function () {} });
+  assert.equal(browserThreadingPrerequisites(), true);
+  for (const value of [undefined, {}, { wait() {} }, { notify() {} }]) {
+    globalThis.Atomics = value;
+    assert.equal(browserThreadingPrerequisites(), false, 'missing Atomics wait/notify selects fallback');
+  }
+} finally {
+  capabilityNames.forEach((name, index) => descriptors[index] ? Object.defineProperty(globalThis, name, descriptors[index]) : delete globalThis[name]);
+}
 assert.ok(process.argv[2], 'actual reviewed package directory required');
 const packet = process.argv[2], sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const manifestBytes = await readFile(`${packet}/manifest.json`), manifest = JSON.parse(manifestBytes);
@@ -50,6 +63,17 @@ const options = (name, mode = 'good') => ({ network, storage: { kind: 'node-file
   maxQueuedJobs: 8, scanBatchSize: 10, maxPcztBytes: 1048576,
 } });
 try {
+  const threaded = { mode: 'prefer-threaded', artifact: { manifestUrl: `${origin}/threaded/manifest.json`, manifestSha256: sha(manifestBytes) }, workers: 2, startupTimeoutMs: 1000 };
+  for (const [index, value] of [threaded, { ...threaded, workers: 0 }, { ...threaded, startupTimeoutMs: Infinity },
+    { ...threaded, artifact: { ...threaded.artifact, manifestUrl: 'http://localhost/manifest.json' } },
+    { ...threaded, artifact: { ...threaded.artifact, manifestSha256: 'bad' } },
+    { ...threaded, extra: true }, { mode: 'baseline', workers: 2 }].entries()) {
+    const input = options(`threaded-${index}`), count = requests.length;
+    input.runtime.threading = value;
+    await assert.rejects(openWalletRuntime(input), { code: index === 0 ? 'RUNTIME_UNAVAILABLE' : 'INVALID_ARGUMENT' });
+    assert.equal(requests.length, count, 'threaded admission performs no fetch');
+    assert.equal(existsSync(input.storage.path), false);
+  }
   for (const [name, limits] of [['native-only-memory', { maxMemoryBytes: 256 * 1024 * 1024 }],
     ['scan-scratch-memory', { maxMemoryBytes: 384 * 1024 * 1024 }],
     ['query-scratch-memory', { maxMemoryBytes: 416 * 1024 * 1024 }],
@@ -84,7 +108,11 @@ try {
   const fixture = JSON.parse(fixtureBytes);
   let account, addresses, previousScan;
   for (const reopen of [false, true]) {
-    const opened = await openWalletRuntime(options('wallet'));
+    const input = options('wallet'), diagnostics = [];
+    input.runtime.onDiagnostic = event => { diagnostics.push(event); throw Error('ignored diagnostic failure'); };
+    const opened = await openWalletRuntime(input);
+    assert.deepEqual(diagnostics, [{ code: 'BASELINE_SELECTED', reason: 'requested' }]);
+    assert.equal(Object.isFrozen(diagnostics[0]), true);
     try {
       assert.equal(opened.identity.buildSha256, manifest.buildSha256);
       if (!reopen) {

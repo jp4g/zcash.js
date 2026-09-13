@@ -1,7 +1,8 @@
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance, ZcashError } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
-import { ownBytes } from '../clients/owned-plumbing.js';
+import { ownBytes, snapshot as fields } from '../clients/owned-plumbing.js';
+import { networkBinding } from '../network.js';
 import type { ScanTarget, ScanPlan, ScanBatch, ScanReceipt, ScanBlock, ScanRewind, ScanCompletion, Completion } from './session.js';
 import type { EnhancementRequests, EnhancementApply } from './session.js';
 import type { WalletCommand, WalletReply } from './worker.js';
@@ -42,7 +43,7 @@ async function watch(signal: AbortSignal | undefined, cancel: () => void): Promi
 }
 
 /** Copy supported control values without invoking caller getters or cloning unbounded inputs. */
-function snapshot(args: object, maximum: number) {
+function snapshot(args: object, maximum: number, command: WalletCommand) {
   let size = 0;
   let signal: AbortSignal | undefined;
   // Reserve both the queued owned input and its structured-clone transfer copy.
@@ -79,7 +80,19 @@ function snapshot(args: object, maximum: number) {
     return result;
   };
   let value: unknown;
-  try { value = copy(args, 0); }
+  try {
+    if (command === 'account_import') {
+      const input = fields(args as ViewingImport, ['viewingKey', 'birthday', 'name', 'viewOnly', 'enabledPools', 'signal']);
+      if (input.birthday !== 'fullScan') {
+        const birthday = fields(input.birthday, ['network', 'firstScanHeight', 'priorTreeState', 'recoverUntilExclusive', 'source']);
+        const { definition } = networkBinding(birthday.network);
+        const { network: _network, ...checkpoint } = birthday;
+        args = { ...input, birthday: { ...checkpoint, parameters: definition.parameters.bytes,
+          genesis: Uint8Array.from(definition.genesisHash.match(/../g)!.reverse(), byte => parseInt(byte, 16)) } };
+      } else args = input;
+    }
+    value = copy(args, 0);
+  }
   catch (error) { if (isZcashError(error)) throw error; throw invalidArgument(); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidArgument();
   return { args: value, size, signal };
@@ -128,7 +141,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     let input: ReturnType<typeof snapshot>;
     try {
       // One fixed close control is reserved even when the work queue is full.
-      input = close ? { args: {}, size: 0, signal: undefined } : snapshot(args, maxQueuedBytes);
+      input = close ? { args: {}, size: 0, signal: undefined } : snapshot(args, maxQueuedBytes, command);
       if (input.signal && aborted.call(input.signal)) throw abortError();
       if (!close && (queue.length + (active ? 1 : 0) >= maxQueuedJobs || input.size > maxQueuedBytes - bytes)) throw limitError();
       if (nextId >= Number.MAX_SAFE_INTEGER) throw limitError();
@@ -178,7 +191,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
   port.start();
   return {
     accounts: {
-      import: (args: ViewingImport & { readonly birthday: 'fullScan' }) => call<AccountRecord>('account_import', args),
+      import: (args: ViewingImport) => call<AccountRecord>('account_import', args),
       list: (args?: Op) => call<readonly AccountRecord[]>('account_list', args),
       get: (args: Parameters<AccountsApi['get']>[0]) => call<AccountRecord | null>('account_get', args),
     },

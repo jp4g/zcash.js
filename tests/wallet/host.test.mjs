@@ -3,6 +3,7 @@ import test from 'node:test';
 import { MessageChannel } from 'node:worker_threads';
 import { attachWalletWorker } from '../../dist/src/wallet/host.js';
 import { installWalletWorker } from '../../dist/src/wallet/worker.js';
+import { defineNetwork } from '../../dist/src/network.js';
 import { isZcashError } from '../../dist/src/errors.js';
 
 function local(t, call, close = () => {}, limits = { maxQueuedJobs: 4, maxQueuedBytes: 4096 }) {
@@ -236,4 +237,30 @@ test('inventory queries own filters and preserve unknown fields and read cancell
   await assert.rejects(host.listUtxos({ accountId: 'account', signal: controller.signal }), error =>
     error.code === 'ABORTED' && host.completion(error).completion === 'none');
   assert.equal((await host.listUtxos({ accountId: 'account' })).items[0].eligibility, 'unknown');
+});
+
+test('checkpoint import snapshots registered network and bounded bytes before queueing', async t => {
+  const definition = {identity:'checkpoint-fixture',genesisHash:Array.from({length:32},(_,i)=>i.toString(16).padStart(2,'0')).join(''),
+    parametersFormat:'zcash-js-network/1',parameters:new TextEncoder().encode('{"encoding":"regtest","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}')};
+  const network = await defineNetwork(definition), calls = [];
+  const {host} = local(t, (_g,_i,op,args) => { calls.push([op,args]); return args; });
+  const input = {viewingKey:'fixture',birthday:{network,firstScanHeight:100,priorTreeState:new Uint8Array([1,2,3]),source:'checkpoint'}};
+  const pending = host.accounts.import(input);
+  input.birthday.priorTreeState.fill(9); input.birthday.firstScanHeight=1;
+  const received = await pending;
+  assert.deepEqual(received.birthday.priorTreeState,new Uint8Array([1,2,3]));
+  assert.equal(received.birthday.firstScanHeight,100);
+  assert.deepEqual(received.birthday.genesis,Uint8Array.from({length:32},(_,i)=>31-i));
+  assert.deepEqual(received.birthday.parameters,definition.parameters);
+  assert.equal(Object.hasOwn(received.birthday,'network'),false);
+  assert.equal(Object.hasOwn(received.birthday,'recoverUntilExclusive'),false);
+  let reads=0;
+  for(const birthday of [{...input.birthday,network:{...network}},
+    {...input.birthday,get priorTreeState(){reads++;return new Uint8Array();}}]) {
+    await assert.rejects(host.accounts.import({...input,birthday}), error => {
+      assert.equal(error.code,'INVALID_ARGUMENT');assert.equal(host.completion(error).completion,'none');return true;
+    });
+  }
+  await assert.rejects(host.accounts.import({...input,birthday:{...input.birthday,priorTreeState:new Uint8Array(4096)}}),{code:'RESOURCE_LIMIT'});
+  assert.equal(reads,0);assert.equal(calls.length,1);
 });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 export const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 export const claims = ['packed-esm', 'packed-bundle', 'amounts-ids', 'no-eager', 'negative-eager',
-  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry', 'public-network','public-light','public-client','public-viewing'];
+  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry', 'public-network','public-light','public-client','public-viewing','public-birthday'];
 export function verifyAssets(manifest, assets) {
   assert.equal(assets.size, Object.keys(manifest.files).length, 'asset integrity count');
   for (const [name, expected] of Object.entries(manifest.files)) {
@@ -13,6 +13,7 @@ export function verifyAssets(manifest, assets) {
 export function verifyResult(result) {
   assert.deepEqual(result?.claims, claims, 'browser claims incomplete');
   assert.equal(result.ok, true);
+  assert.deepEqual(result.birthdays,Array.from({length:2},()=>({nativeValidated:true,nonpalindromicGenesis:true,cancelled:2})));
   assert.deepEqual(result.viewing, Array.from({length:2},()=>({operations:7,independentAuthorities:3,cancelled:2,unknownReceivers:true})));
   assert.deepEqual(result.publicClients,[{methods:11,cancelled:1,broadcastUnknown:1},{methods:11,cancelled:1,broadcastUnknown:1}]);
   assert.deepEqual(result.light,[{methods:11,cancelled:2,broadcastUnknown:1},{methods:11,cancelled:2,broadcastUnknown:1}]);

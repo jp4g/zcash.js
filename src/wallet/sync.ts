@@ -8,6 +8,7 @@ import { applyEnhancement } from './enhancement.js';
 type Session = ReturnType<typeof attachWalletWorker>;
 const reverse = (hash: string) => hash.match(/../g)!.reverse().join('');
 const mismatch = () => failure('PROTOCOL_MISMATCH', 'sync', 'sync', 'Sync source changed or returned inconsistent blocks.');
+const unavailable = () => failure('OBSERVATION_UNAVAILABLE', 'sync', 'configure', 'No light client is configured for wallet sync.');
 const recovery = () => failure('RECOVERY_REQUIRED', 'sync', 'sync', 'No retained common checkpoint is available.');
 
 type Subscriber = { push(status: SyncStatus): void; finish(error?: unknown): void };
@@ -24,7 +25,7 @@ export class WalletSync {
   private watching: Promise<void> | undefined;
   private watchController: AbortController | undefined;
   private readonly observation: ObservationOptions;
-  constructor(private readonly session: Session, private readonly light: LightClient, observation: ObservationOptions) {
+  constructor(private readonly session: Session, private readonly light: LightClient | undefined, observation: ObservationOptions) {
     if (!observation || typeof observation !== 'object') throw invalidArgument();
     const poll = Object.getOwnPropertyDescriptor(observation, 'pollIntervalMs');
     const buffer = Object.getOwnPropertyDescriptor(observation, 'maxBufferedUpdates');
@@ -72,6 +73,7 @@ export class WalletSync {
             started = true;
             // Native host admission checks arguments and caller signal before subscription.
             const initial = await this.getSyncStatus(owned);
+            if (!this.light) throw unavailable();
             if (!done) {
               pending = operation(owned.signal, () => subscriber.finish(failure('ABORTED', 'sync', 'none', 'Sync observation aborted.')));
               pending.check();
@@ -171,6 +173,7 @@ export class WalletSync {
     try {
       // Host admission validates the caller's native signal before composing dependencies.
       await this.session.scan.state(signal === undefined ? {} : { signal });
+      if (!this.light) throw unavailable();
       const dependent = signal === undefined ? this.controller!.signal : AbortSignal.any([signal, this.controller!.signal]);
       if (this.subscribers.size) this.publish(await this.getSyncStatus());
       const point = target ?? await this.light.getTip({ signal: dependent });

@@ -219,7 +219,7 @@ try {
     assert.ok(fixture.pczt.publicWallet,'native public wallet database fixture');
     const responses=await publicWalletResponses(fixture.pczt,network),service={},handlers={};
     rpcServer=new Server({'grpc.max_receive_message_length':2*1024*1024+1024});
-    for(const method of ['GetLightdInfo','GetLatestBlock','GetTreeState','GetTransaction','SendTransaction']){
+    for(const method of ['GetLightdInfo','GetLatestBlock','GetTreeState','GetTransaction','GetAddressUtxos','SendTransaction']){
       service[method]={path:'/cash.z.wallet.sdk.rpc.CompactTxStreamer/'+method,requestStream:false,responseStream:false,
         requestSerialize:Buffer.from,requestDeserialize:Buffer.from,responseSerialize:Buffer.from,responseDeserialize:Buffer.from};
       handlers[method]=(call,callback)=>{try{const response=responses.response(method,call.request);callback(response.status?{code:response.status,details:'fixture not found'}:null,response.payload??Buffer.alloc(0));}

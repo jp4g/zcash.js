@@ -3,6 +3,7 @@ import {walletAccounts} from '../../dist/src/wallet/accounts.js';
 import {WalletProposals} from '../../dist/src/wallet/proposals.js';
 import {walletSign} from '../../dist/src/wallet/sign.js';
 import {saplingAssets} from '../../dist/src/wallet/proving-assets.js';
+import {networkBinding} from '../../dist/src/network.js';
 const hex=value=>Uint8Array.from(value.match(/../g)??[],byte=>parseInt(byte,16));
 const check=(ok,label)=>{if(!ok)throw Error(label);};
 const equal=(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index]);
@@ -107,7 +108,7 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
         const signed=await walletSign(imports,reopened.session,{attachedSigner(){return adapter;}})({pczt:unsigned});
         check(authorizations===1&&signed.artifactId===imported.artifactId,'captured custom signer contribution is checked and retained');
       }
-      let proved;
+      let proved,finalized;
       if(provingOrigin){
         const cancelled=new AbortController();
         const cancelledApi=new WalletProposals(reopened.session,network,{...proving,cache:{...proving.cache,namespace:namespace+'-cancel'},
@@ -126,6 +127,15 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
         const count=loads;
         check((await proofApi.prove({pczt:proved})).artifactId===proved.artifactId&&loads===count,'already proven artifact loads no assets');
         check(loads===2,'persistent parameter cache reused across independent owners');
+        globalThis.walletPhase=`native-finalize-${scope}`;
+        finalized=await proofApi.finalize({pczt:proved});
+        const decoded=networkBinding(network).codec.decodeTransaction(finalized.bytes,proposal.context.branchId);
+        check(decoded.display===finalized.txid,'native finalized bytes match transaction identity');
+        const stored=finalized.bytes.slice(),beforeFinalizeLoads=loads;
+        const repeated=await new WalletProposals(reopened.session,network).finalize({pczt:proved});
+        check(repeated.txid===finalized.txid&&equal(repeated.bytes,stored)&&loads===beforeFinalizeLoads,'finalization retry returns exact bytes without proving assets');
+        repeated.bytes.fill(0);
+        check(equal((await reopened.session.pczt.finalized({operationId})).transactions[0].bytes,stored),'caller bytes cannot mutate finalized outbox');
         proved={artifact:proved,bytes:proof.bytes};
       }
       await reopened.close();reopened=await open(scope,provingOrigin?proofLimits:undefined);
@@ -134,6 +144,10 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
       const latest=await reopened.session.pczt.get({operationId:discovered.items[0].operationId});
       check(latest.artifactId===(proved?.artifact.artifactId??imported.artifactId)&&latest.authorizationComplete&&equal(latest.bytes,proved?.bytes??signed.bytes),'latest artifact bytes survive new owner');
       if(proved){const previous=await reopened.session.pczt.get({operationId,artifactId:imported.artifactId});check(equal(previous.bytes,signed.bytes)&&!previous.proofsComplete,'proving preserves preceding signed version');}
+      if(finalized){
+        const stored=(await reopened.session.pczt.finalized({operationId:discovered.items[0].operationId})).transactions[0];
+        check(stored.txid===finalized.txid&&stored.exactBytesSha256===finalized.exactBytesSha256&&equal(stored.bytes,finalized.bytes),'ID-free reopen finds exact finalized bytes');
+      }
       const original=await reopened.session.pczt.get({operationId:discovered.items[0].operationId,artifactId:artifact.artifactId});
       check(equal(original.bytes,retained.bytes)&&!original.authorizationComplete,'old artifact identity still resolves original unsigned bytes');
     } finally {await signerAccount?.viewing.dispose();await signer?.dispose();await reopened?.close();await accounts.close();await wallet.close();}

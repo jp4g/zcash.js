@@ -42,7 +42,7 @@ function capture<T extends LightClient|PublicClient>(client:T,network:Network,li
     copy[name]=(args:Op={})=>{
       const input=callInput(args);
       if(!stream)return (async()=>{const pending=operation(input.signal);try{pending.check();return await pending.wait(Reflect.apply(method,client,[{...input,signal:pending.signal}]));}finally{pending.close();}})();
-      let pending:ReturnType<typeof operation>|undefined,iterator:AsyncIterator<unknown>|undefined,done=false,reading=false;
+      let pending:ReturnType<typeof operation>|undefined,iterator:AsyncIterator<unknown>|undefined,done=false;
       const finish=()=>{done=true;pending?.close();try{void Promise.resolve(iterator?.return?.()).catch(()=>{});}catch{/* Caller-owned iterator cleanup cannot retain wallet lifetime. */}};
       return {[Symbol.asyncIterator](){return this;},async next(){if(done)return {done:true,value:undefined};try{
         if(!pending){pending=operation(input.signal);pending.check();iterator=Reflect.apply(method,client,[{...input,signal:pending.signal}])[Symbol.asyncIterator]();}

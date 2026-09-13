@@ -39,7 +39,7 @@ for (const failing of ['release','close','control','busy']) test(`shared owner i
 });
 
 // Protocol only: actual shared Rust/TLS and scanner work require the native artifact.
-test('threaded owner admits storage only after native pool build', async t => {
+for (const buildFailure of [false,true]) test(`threaded owner pool build ${buildFailure?'failure retains initialization id':'gates readiness'}`, async t => {
   const root=await mkdtemp(join(tmpdir(),'wallet-owner-pool-'));
   const worker=new Worker(new URL('../../dist/src/runtime/wallet-worker.js',import.meta.url));
   t.after(async()=>{await worker.terminate();await rm(root,{recursive:true,force:true});});
@@ -49,14 +49,16 @@ test('threaded owner admits storage only after native pool build', async t => {
     export const runtimeIdentity=${JSON.stringify(identity)};
     let prepared=false;
     export function prepareThreaded(bytes,count){if(count!==2)throw Error('INVALID_ARGUMENT');prepared=true;return {module:new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0])),memory:new WebAssembly.Memory({initial:1,maximum:2,shared:true})};}
-    export function finishThreaded(){if(!prepared)throw Error('PROTOCOL_MISMATCH');return {invalid:false};}
+    export function finishThreaded(){if(!prepared)throw Error('PROTOCOL_MISMATCH');${buildFailure?"throw Error('RUNTIME_UNAVAILABLE');":''}return {invalid:false};}
   `);
   const answers=[];worker.on('message',value=>answers.push(value));
   const reply=async data=>{const answer=once(worker,'message',{signal:AbortSignal.timeout(5000)});worker.postMessage(data);return (await answer)[0];};
   const pool=await reply({id:1,type:'initialize',moduleUrl:pathToFileURL(join(root,'native.mjs')).href,wasm:new Uint8Array([0]),expected,maxMemoryBytes:512*1024*1024,workers:2});
   assert.equal(pool.type,'pool');assert.ok(pool.memory.buffer instanceof SharedArrayBuffer);
   assert.equal(answers.some(value=>value.type==='ready'),false);
-  const ready=await reply({type:'pool-build'});assert.equal(ready.type,'ready');assert.equal(ready.id,1);
+  const ready=await reply({type:'pool-build'});assert.equal(ready.id,1);
+  if(buildFailure){assert.equal(ready.type,'failure');assert.equal(ready.code,'RUNTIME_UNAVAILABLE');assert.equal(ready.fatal,true);return;}
+  assert.equal(ready.type,'ready');
   const duplicate=await reply({type:'pool-build'});assert.equal(duplicate.type,'failure');assert.equal(duplicate.fatal,true);
 });
 

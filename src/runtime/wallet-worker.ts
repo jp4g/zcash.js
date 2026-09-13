@@ -139,6 +139,6 @@ async function handle(data: any) {
     try { if (backend?.owned) backend.release(); } catch { cleanupFailed = true; failure = 'STORAGE_ERROR'; }
     const fatal = cleanupFailed || data?.type !== 'open' || phase !== 'ready' || runtime?.invalid === true || nativeOpening && !(typeof tag === 'string' && allowed.includes(tag));
     if (fatal) phase = 'failed';
-    control.postMessage({ type: 'failure', code: failure, id: data?.id, fatal });
+    control.postMessage({ type: 'failure', code: failure, id: data?.type === 'pool-build' ? initializationId : data?.id, fatal });
   }
 }

@@ -137,7 +137,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     return Object.freeze({ identity: owner.identity, session: opened.session, close: opened.close,
       // Internal signer composition retains this owner independently of its creating wallet.
       owner: Object.freeze({
-        identity: owner,
+        identity: owner.token,
         retain() {
           owner.check(); selected.refs++; let done = false;
           return async () => {
@@ -262,7 +262,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
       }) || !sameRecord(identity.memory, { initialPages: 307, maximumPages: 4096, shared: false })) throw mismatch();
       return {
-        identity: Object.freeze(identity), check, destroy,
+        token: Object.freeze({}), identity: Object.freeze(identity), check, destroy,
         async open(storage: WalletStorage, parametersFormat: string, parameters: Uint8Array, genesis: Uint8Array, release: () => Promise<void>): Promise<OpenedWallet> {
           check();
           const channel = channels();

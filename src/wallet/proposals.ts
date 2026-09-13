@@ -1,5 +1,7 @@
-import type { AccountId, Network, Op, Pool, Proposal, ProposedOutput, PcztArtifact, ReviewedOutput, TransactionPolicy, WalletPcztApi } from '../../docs/api/public-api.js';
+import type { AccountId, Network, Op, Pool, Proposal, ProposedOutput, PcztArtifact, ReviewedOutput, TransactionPolicy, WalletPcztApi, LocalProvingOptions } from '../../docs/api/public-api.js';
 import type { openWalletRuntime } from '../runtime/wallet.js';
+import {ProvingAssets} from './proving-assets.js';
+import {operation} from '../clients/light-chain-reads.js';
 import { networkBinding } from '../network.js';
 import { failure, invalidArgument } from '../errors.js';
 import { ownBytes, snapshot } from '../clients/owned-plumbing.js';
@@ -25,6 +27,7 @@ export interface NativePcztBuildInput { readonly operationId: string; readonly p
 export interface NativePcztArtifact {
   readonly operationId: string; readonly artifactId: string; readonly accountId: AccountId;
   readonly outputs: readonly (Omit<ReviewedOutput, 'memo'> & { readonly memo: Uint8Array | null })[];
+  readonly requiresSaplingProofs?: boolean; readonly requiresIronwoodProof?: boolean; readonly requiresOrchardProof?: boolean;
   readonly bytes: Uint8Array; readonly proofsComplete: boolean; readonly authorizationComplete: boolean;
 }
 export interface ProposalInventoryInput { readonly afterSequence: string; readonly highWater?: string; readonly limit: number }
@@ -36,7 +39,9 @@ const protocol = () => failure('PROTOCOL_MISMATCH','proposal','reopen','Native p
 
 /** Private composition after wallet policy/freshness admission; not WalletClient.propose. */
 export class WalletProposals {
-  constructor(private readonly session: Session, private readonly network: Network) { networkBinding(network); }
+  private readonly proving?:ProvingAssets;
+  private reserved=false;
+  constructor(private readonly session: Session, private readonly network: Network, proving?:LocalProvingOptions) { networkBinding(network);if(proving)this.proving=new ProvingAssets(proving); }
   private project(value: NativeProposalReview): Proposal {
     const bound=networkBinding(this.network);
     if (![value.operationId,value.proposalId,value.reviewCommitment].every(id=>typeof id==='string'&&/^[0-9a-f]{64}$/.test(id))
@@ -74,6 +79,28 @@ export class WalletProposals {
     const input=snapshot(args,['proposal','signal']),binding=proposalBinding(input.proposal,this.session);
     const value=await this.session.pczt.build({...binding,...(input.signal===undefined?{}:{signal:input.signal})});
     return this.projectArtifact(value,binding.operationId,input.proposal.accountIds[0]);
+  }
+  async prove(args: {pczt:PcztArtifact} & Op):Promise<PcztArtifact> {
+    const input=snapshot(args,['pczt','signal']),binding=pcztArtifactBinding(input.pczt,this.session);
+    const pending=operation(input.signal);let release:(()=>void)|undefined,working:(()=>void)|undefined;
+    try {
+      pending.check();if(!this.proving)throw failure('PROVING_MATERIAL_REQUIRED','proving','configure','Local proving is not configured.');
+      release=this.session.pczt.startProof();
+      const retained=await this.session.pczt.get({...binding,signal:pending.signal});pending.check();
+      if(!retained)throw protocol();
+      if([retained.requiresSaplingProofs,retained.requiresIronwoodProof,retained.requiresOrchardProof].some(value=>typeof value!=='boolean'))throw protocol();
+      if(retained.requiresOrchardProof)throw failure('ROLE_PRECONDITION','proving','correct-input','Legacy Orchard proving is unsupported.');
+      let assets:{spend:Uint8Array;output:Uint8Array}={spend:new Uint8Array(),output:new Uint8Array()};
+      if(retained.requiresSaplingProofs){
+        this.session.pczt.checkProvingAssets();
+        if(!this.reserved){this.session.pczt.reserveProving(this.proving.cacheReservation,()=>this.proving!.close());this.reserved=true;}
+        working=this.session.pczt.reserveProving(this.proving.workingReservation,()=>this.proving!.close());
+        assets=await this.proving.sapling(pending.signal);
+      }
+      pending.check();
+      const value=await this.session.pczt.prove({...binding,...assets,signal:pending.signal});
+      return this.projectArtifact(value,binding.operationId,input.pczt.accountIds[0]);
+    }finally{working?.();release?.();pending.close();}
   }
   async import(args: Parameters<WalletPcztApi['import']>[0]): Promise<PcztArtifact> {
     const input=snapshot(args,['operationId','bytes','signal'],this.session.pczt.maximum);

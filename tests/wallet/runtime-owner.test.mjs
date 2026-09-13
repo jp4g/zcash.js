@@ -9,7 +9,7 @@ import {once} from 'node:events';
 import {Worker,MessageChannel} from 'node:worker_threads';
 import {walletProfile} from '../../dist/src/runtime/wallet-profile.js';
 
-for (const failing of ['release','close','control']) test(`shared owner invalidation after ${failing} failure`, async t => {
+for (const failing of ['release','close','control','busy']) test(`shared owner invalidation after ${failing} failure`, async t => {
   const root=await mkdtemp(join(tmpdir(),'wallet-owner-cleanup-'));
   t.after(()=>rm(root,{recursive:true,force:true}));
   const identity={...walletProfile,mode:'baseline',buildSha256:'0'.repeat(64),dependencyGraphSha256:'1'.repeat(64),memory:{initialPages:307,maximumPages:4096,shared:false}};
@@ -20,7 +20,7 @@ for (const failing of ['release','close','control']) test(`shared owner invalida
     export const initializeWalletRuntime=()=>({invalid:false,open(){${failing==='release'?"throw 'NETWORK_MISMATCH'":"return {}"};}});
     export const viewsForStorage=()=>{let reads=0;return {get generation(){if(!reads++)throw Error('INVALID_ARGUMENT');return 1},instance:'fixture',close(){throw Error('cleanup')}};};
   `);
-  await writeFile(join(root,'host.mjs'),`export const acquire=async()=>({owned:true,release(){${failing==='release'?"throw Error('cleanup')":''};}});`);
+  await writeFile(join(root,'host.mjs'),failing==='busy' ? `export const acquire=async()=>{throw new DOMException('private fixture path','NoModificationAllowedError')};` : `export const acquire=async()=>({owned:true,release(){${failing==='release'?"throw Error('cleanup')":''};}});`);
   const worker=new Worker(new URL('../../dist/src/runtime/wallet-worker.js',import.meta.url));
   const channel=new MessageChannel();
   t.after(async()=>{channel.port1.close();channel.port2.close();await worker.terminate();});
@@ -32,6 +32,8 @@ for (const failing of ['release','close','control']) test(`shared owner invalida
     return;
   }
   const result=await reply({id:2,type:'open',storage:{kind:'node-filesystem',path:root},hostUrl:pathToFileURL(join(root,'host.mjs')).href,parametersFormat:'zcash-js-network/1',parameters:new Uint8Array([1]),genesis:new Uint8Array(32),port:channel.port2});
-  assert.equal(result.type,'failure');assert.equal(result.fatal,true);
+  assert.equal(result.type,'failure');
+  if(failing==='busy'){assert.equal(result.code,'STORAGE_BUSY');assert.equal(result.fatal,false);assert.doesNotMatch(JSON.stringify(result),/private fixture path/);return;}
+  assert.equal(result.fatal,true);
   assert.equal(result.code,failing==='release'?'STORAGE_ERROR':'INVALID_ARGUMENT');
 });

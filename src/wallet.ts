@@ -1,4 +1,4 @@
-import type {WalletClient,WalletOptions,ZcashClient,LightClient,PublicClient,Network,Op,LocalProvingOptions,AssetRequirement} from '../docs/api/public-api.js';
+import type {WalletClient,WalletOptions,ZcashClient,LightClient,PublicClient,Network,Op,LocalProvingOptions,AssetRequirement,SyncStatus} from '../docs/api/public-api.js';
 import {openWalletRuntime} from './runtime/wallet.js';
 import {networkBinding} from './network.js';
 import {lightClientBinding} from './light.js';
@@ -42,7 +42,7 @@ function capture<T extends LightClient|PublicClient>(client:T,network:Network,li
     copy[name]=(args:Op={})=>{
       const input=callInput(args);
       if(!stream)return (async()=>{const pending=operation(input.signal);try{pending.check();return await pending.wait(Reflect.apply(method,client,[{...input,signal:pending.signal}]));}finally{pending.close();}})();
-      let pending:ReturnType<typeof operation>|undefined,iterator:AsyncIterator<unknown>|undefined,done=false;
+      let pending:ReturnType<typeof operation>|undefined,iterator:AsyncIterator<unknown>|undefined,done=false,reading=false;
       const finish=()=>{done=true;pending?.close();try{void Promise.resolve(iterator?.return?.()).catch(()=>{});}catch{/* Caller-owned iterator cleanup cannot retain wallet lifetime. */}};
       return {[Symbol.asyncIterator](){return this;},async next(){if(done)return {done:true,value:undefined};try{
         if(!pending){pending=operation(input.signal);pending.check();iterator=Reflect.apply(method,client,[{...input,signal:pending.signal}])[Symbol.asyncIterator]();}
@@ -128,7 +128,19 @@ export async function createWalletClient(args:WalletOptions):Promise<WalletClien
       getBalance:call(args=>runtimeOwner.session.getBalance({...snapshot(args,['accountId','signal']),confirmations})),
       getHistory:call(runtimeOwner.session.getHistory),getTransaction:call(runtimeOwner.session.getTransaction),listNotes:call(runtimeOwner.session.listNotes),listUtxos:call(runtimeOwner.session.listUtxos),
       sync:call(args=>syncOwner.sync(args),true),getSyncStatus:call(args=>syncOwner.getSyncStatus(args),true),
-      watchSync(args={}){check();const owned=snapshot(args,['signal']);const iterator=syncOwner.watchSync(owned);return {[Symbol.asyncIterator](){return {next(){check();return iterator.next();},return:()=>iterator.return!()};}};},
+      watchSync(args={}):AsyncIterableIterator<SyncStatus>{
+        check();const owned=snapshot(args,['signal']);let iterator:ReturnType<WalletSync['watchSync']>|undefined,caller:ReturnType<typeof operation>|undefined,pending:ReturnType<typeof operation>|undefined,done=false,reading=false;
+        const finish=()=>{done=true;pending?.close();caller?.close();};
+        const read=call(async()=>iterator!.next());
+        return {[Symbol.asyncIterator](){return this;},async next(){
+          check();if(done)return {done:true as const,value:undefined};
+          if(reading)throw failure('RESOURCE_LIMIT','sync','configure','Concurrent sync observation reads are unsupported.');reading=true;
+          try{
+            if(!iterator){caller=operation(owned.signal);caller.check();pending=operation(AbortSignal.any([caller.signal,stopped.signal]));iterator=syncOwner.watchSync({signal:pending.signal});}
+            const result=await read({});if(result.done)finish();return result;
+          }catch(error){finish();throw error;}finally{reading=false;}
+        },async return(){finish();return iterator?iterator.return!():{done:true as const,value:undefined};}};
+      },
       close(){if(closing)return closing;
         let draining:Promise<void>[];
         closing=Promise.resolve().then(async()=>{const results=await Promise.allSettled(draining);await Promise.allSettled([...active]);let closeError:unknown;

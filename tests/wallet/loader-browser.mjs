@@ -175,7 +175,9 @@ async function browserDispatchCrash(options,fixture){
     const directory=await root.getDirectoryHandle(fixture.name,{create:true}),file=await directory.getFileHandle('wallet.db',{create:true}),writer=await file.createWritable();
     try{await writer.write(await (await fetch('/crash-wallet.db')).arrayBuffer());}finally{await writer.close();}
   }
-  const NativeWorker=globalThis.Worker;let initializations=0,terminations=0;
+  const NativeWorker=globalThis.Worker,post=MessagePort.prototype.postMessage;let initializations=0,terminations=0;
+  if(!second){globalThis.walletCrashFinish=0;MessagePort.prototype.postMessage=function(message,...rest){if(message?.command==='payment_attempt_finish')globalThis.walletCrashFinish++;return Reflect.apply(post,this,[message,...rest]);};}
+  globalThis.walletCrashRestore=()=>{MessagePort.prototype.postMessage=post;globalThis.Worker=NativeWorker;};
   globalThis.Worker=class extends NativeWorker{
     postMessage(message,...rest){if(message?.type==='initialize'){initializations++;globalThis.walletCrashWorker=this;}return super.postMessage(message,...rest);}
     terminate(){terminations++;return super.terminate();}
@@ -190,7 +192,7 @@ async function browserDispatchCrash(options,fixture){
     if(!second){
       globalThis.walletCrashReady={txid:step.txid,digest:step.exactBytesSha256,attempts:step.attempts.length,initializations};
       // The driver destroys this worker and page; do not await dead-owner cleanup.
-      void wallet.broadcast({operationId:finalized[0].operationId}).catch(error=>{globalThis.walletCrashFailure={code:error.code};});
+      void wallet.broadcast({operationId:finalized[0].operationId}).then(()=>{globalThis.walletCrashSettled=true;},error=>{globalThis.walletCrashSettled=true;globalThis.walletCrashFailure={code:error.code};});
       wallet=undefined;return await new Promise(()=>{});
     }
     const evidence=await (await fetch('/crash-evidence')).json();
@@ -202,5 +204,5 @@ async function browserDispatchCrash(options,fixture){
     await wallet.close();wallet=undefined;check(terminations===1,'reopened native worker closed');
     await root.removeEntry(fixture.name,{recursive:true});
     return {browserDispatchCrash:true,unknownAttempt:true,exactRetry:true,draftUntouched:true,workerDestructions:terminations};
-  }finally{globalThis.Worker=NativeWorker;if(second)await wallet?.close();}
+  }finally{globalThis.walletCrashRestore();if(second)await wallet?.close();}
 }

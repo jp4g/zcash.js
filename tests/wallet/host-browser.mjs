@@ -202,7 +202,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       }catch(error){unexpected.push(String(error));res.destroy();}});
       await new Promise((resolve,reject)=>{transport.once('error',reject);transport.listen(0,'127.0.0.1',resolve);});
       server={origin:`${tls?'https':'http'}://127.0.0.1:${transport.address().port}`,calls,unexpected,
-        crashReceived:()=>Boolean(held),destroyHeld(){clearTimeout(holdTimer);held?.destroy();},
+        crashReceived:()=>Boolean(held),crashOutstanding:()=>Boolean(held&&!held.destroyed&&!held.writableEnded),destroyHeld(){clearTimeout(holdTimer);held?.destroy();},
         async close(){clearTimeout(holdTimer);held?.destroy();transport.closeAllConnections();await new Promise(resolve=>transport.close(resolve));}};
     }else server = await fixture(() => { throw Error('No RPC in local wallet test'); }, assets, tls);
     report.origin = server.origin;
@@ -236,8 +236,9 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     if(crash){
       const until=Date.now()+60000;
       while(!server.crashReceived()){stop.signal.throwIfAborted();assert.ok(Date.now()<until,'submission receipt deadline');const failure=await request(`/session/${session}/execute/sync`,'POST',{script:'return window.walletResult?.error || window.walletCrashFailure || null;',args:[]});assert.equal(failure,null);await pause(50);}
-      report.crash.before=await request(`/session/${session}/execute/sync`,'POST',{script:'return window.walletCrashReady;',args:[]});assert.equal(report.crash.before.initializations,1);
-      const terminated=await request(`/session/${session}/execute/sync`,'POST',{script:'if (!(window.walletCrashWorker instanceof Worker)) throw Error("missing captured worker"); window.walletCrashWorker.terminate(); return true;',args:[]});assert.equal(terminated,true);report.crash.terminated=true;
+      assert.equal(server.crashOutstanding(),true,'submission response remains open before native termination');
+      report.crash.before=await request(`/session/${session}/execute/sync`,'POST',{script:'if (!window.walletCrashReady || window.walletCrashReady.initializations !== 1 || window.walletCrashSettled || window.walletCrashFailure || window.walletCrashFinish !== 0) throw Error("dispatch no longer outstanding before termination"); if (!(window.walletCrashWorker instanceof Worker)) throw Error("missing captured worker"); window.walletCrashWorker.terminate(); window.walletCrashRestore(); return {...window.walletCrashReady,finishCommands:window.walletCrashFinish,settled:false};',args:[]});
+      assert.equal(report.crash.before.initializations,1);assert.equal(report.crash.before.finishCommands,0);assert.equal(report.crash.before.settled,false);report.crash.terminated=true;
       server.destroyHeld();await request(`/session/${session}/url`,'POST',{url:server.origin+'/?reopen=1'});
     }
     let answer;

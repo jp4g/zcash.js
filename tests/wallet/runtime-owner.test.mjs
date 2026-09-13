@@ -12,7 +12,7 @@ import {walletProfile} from '../../dist/src/runtime/wallet-profile.js';
 for (const failing of ['release','close','control','busy']) test(`shared owner invalidation after ${failing} failure`, async t => {
   const root=await mkdtemp(join(tmpdir(),'wallet-owner-cleanup-'));
   t.after(()=>rm(root,{recursive:true,force:true}));
-  const identity={...walletProfile,mode:'baseline',buildSha256:'0'.repeat(64),dependencyGraphSha256:'1'.repeat(64),memory:{initialPages:307,maximumPages:4096,shared:false}};
+  const identity={...walletProfile,mode:'baseline',buildSha256:'0'.repeat(64),dependencyGraphSha256:'1'.repeat(64),memory:{initialPages:319,maximumPages:4096,shared:false}};
   const {memory,...expected}=identity;
   await writeFile(join(root,'native.mjs'),`
     export const runtimeIdentity=${JSON.stringify(identity)};

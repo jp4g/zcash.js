@@ -26,7 +26,8 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       check((await wallet.accounts.list()).some(account=>account.id===data.accountId),'public native-funded account discovery');
       await wallet.accounts.attachSigner({accountId:data.accountId,signer});
       const synced=await wallet.sync({target:data.target});check(synced.targetReached&&synced.enhancement.actionable===0,'public sync resolves native unspent evidence');
-      check((await wallet.getBalance({accountId:data.accountId})).amounts!==null,'public balance has native scanned amounts');
+      const balance=await wallet.getBalance({accountId:data.accountId});
+      check(balance.amounts?.transparent.regular.spendable===40000n&&balance.amounts.sapling.spendable===40000n,'public balance matches native funded amounts');
       check((await wallet.getHistory({accountId:data.accountId})).items.length>0,'public history retains native funding');
       const destination=mode==='tex'?data.tex:(await wallet.addresses.next({accountId:data.accountId,request:{format:'transparent'}})).address;
       const intent=mode==='shield'?{accountId:data.accountId,toPool:'sapling',threshold:10000n,idempotencyKey:`public-${mode}`}:{accountId:data.accountId,to:destination,amount:10000n,idempotencyKey:`public-${mode}`};

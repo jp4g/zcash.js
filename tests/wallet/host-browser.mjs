@@ -226,9 +226,9 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     assert.ok(!answer.error, JSON.stringify(answer));
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
-    if(process.env.WALLET_LOADER&&provingAssets.size){for(const key of ['publicWallet','localTransfer','localShield','localTex'])assert.equal(answer.value[key],true);assert.ok(server.calls.length>0&&server.calls.every(call=>call.closed),'all native gRPC-Web responses closed');}
+    if(process.env.WALLET_LOADER&&provingAssets.size){for(const key of ['publicWallet','localTransfer','localShield','localTex','startupRecovery','retryBudget'])assert.equal(answer.value[key],true);assert.ok(server.calls.length>0&&server.calls.every(call=>call.closed),'all native gRPC-Web responses closed');}
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? provingAssets.size?31:24 : 2);
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? provingAssets.size?40:24 : 2);
     report.status = 'passed';
   } catch (error) {
     if (report.interruptedBy) report.status = 'interrupted';

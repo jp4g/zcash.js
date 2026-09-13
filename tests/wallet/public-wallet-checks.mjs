@@ -22,6 +22,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
         birthday:{network,source:'checkpoint',firstScanHeight:data.import.birthday.firstScanHeight,priorTreeState:hex(data.import.birthday.priorTreeState)}});
       signer=imported.signer;await authorityWallet.close();authorityWallet=undefined;
       const configured={...options(name),...common,transactionPolicy:{spendPools:mode==='shield'?['transparent']:['sapling'],transparent:mode==='shield'?'allow-owned':'disallow',changePool:'sapling',feeRule:'zip317-standard',confirmations,expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20,shieldingThreshold:10000n,freshness:{mode:'require-synced',maxLagBlocks:0}}};
+      const {proving,...withoutProving}=configured;
       wallet=await createWalletClient(configured);
       check((await wallet.accounts.list()).some(account=>account.id===data.accountId),'public native-funded account discovery');
       await wallet.accounts.attachSigner({accountId:data.accountId,signer});
@@ -41,6 +42,11 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
         const discovered=await wallet.operations.list();
         check(discovered.items.length===1&&discovered.items[0].steps.every(step=>step.txid!==null),'canceled native send retains complete outbox');
         check((await submitted()).length===before,'canceled fused completion does not dispatch');
+        await wallet.close();wallet=undefined;
+        wallet=await createWalletClient({...withoutProving,recovery:{mode:'online',timeoutMs:15000,rebroadcast:{mode:'previously-dispatched',maxAttempts:1,minIntervalMs:1}}});
+        check(wallet.recovery.local==='complete'&&wallet.recovery.operations===1&&wallet.recovery.observedOperations===1&&wallet.recovery.deferredOperations===0&&wallet.recovery.lastError===null,'startup discovers and observes canceled finalized operation');
+        check((await submitted()).length===before&&(await wallet.operations.list()).items[0].steps.every(step=>step.attempts.length===0),'startup policy never grants first dispatch');
+        await wallet.accounts.attachSigner({accountId:data.accountId,signer});
       }
       const pending=await (mode==='shield'?wallet.shield(intent):wallet.send(intent));
       const first=await pending.snapshot(),expected=mode==='tex'?2:1;
@@ -57,7 +63,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       await wallet.close();wallet=undefined;
       // Discover from the authoritative database, without an application-saved ID.
       const sentBeforeOpen=(await submitted()).length;
-      const {proving,...withoutProving}=configured;wallet=await createWalletClient({...withoutProving,recovery:{mode:'offline'}});
+      wallet=await createWalletClient({...withoutProving,recovery:{mode:'offline'}});
       check((await submitted()).length===sentBeforeOpen,'offline reopen never submits');
       const page=await wallet.operations.list({limit:1});
       check(page.items.length===1&&page.nextCursor===null,'public operation inventory survives new owner');
@@ -69,9 +75,21 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       check((await submitted()).length===sentBeforeOpen,'canceled broadcast never dispatches');
       await restored.broadcast();
       const resumed=(await submitted()).slice(sentBeforeOpen);check(resumed.length===expected&&resumed.every((row,index)=>row.txid===original[index].txid&&row.hex===original[index].hex),'resumed dispatch sends every original transaction without authority or proving');
+      const attemptCounts=(await restored.snapshot()).steps.map(step=>step.attempts.length);
+      for(const maxAttempts of [undefined,1,2]) {
+        await wallet.close();wallet=undefined;
+        const beforeRecovery=(await submitted()).length;
+        wallet=await createWalletClient({...withoutProving,recovery:{mode:'online',timeoutMs:15000,...(maxAttempts===undefined?{}:{rebroadcast:{mode:'previously-dispatched',maxAttempts,minIntervalMs:1}})}});
+        const report=wallet.recovery;
+        check(report.local==='complete'&&report.operations===1&&report.observation==='complete'&&report.observedOperations===1&&report.deferredOperations===0&&report.lastError===null,'online startup reconciles and observes the database operation');
+        const sent=(await submitted()).slice(beforeRecovery);
+        check(sent.length===(maxAttempts===1?expected:0)&&sent.every((row,index)=>row.txid===original[index].txid&&row.hex===original[index].hex),'startup retries exact ordered bytes only within persisted consent and budget');
+        const recovered=(await wallet.operations.list()).items;
+        check(recovered.length===1&&recovered[0].steps.length===expected&&recovered[0].steps.every((step,index)=>step.attempts.length===attemptCounts[index]+Number(maxAttempts!==undefined)),'looser reopen policy cannot replenish the automatic retry budget');
+      }
     }finally{await wallet?.close();await authorityWallet?.close();await signer?.dispose();}
   }
-  return {publicWallet:true,localTransfer:true,localShield:true,localTex:true};
+  return {publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,retryBudget:true};
 }
 
 // Payload handler for the existing native gRPC / gRPC-Web test servers. Framing,

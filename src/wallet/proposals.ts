@@ -5,6 +5,7 @@ import {operation} from '../clients/light-chain-reads.js';
 import { networkBinding } from '../network.js';
 import { failure, invalidArgument } from '../errors.js';
 import { ownBytes, snapshot } from '../clients/owned-plumbing.js';
+import { pczt } from '../pczt.js';
 
 export type NativeProposalIntent = {
   readonly accountId: AccountId; readonly idempotencyKey?: string;
@@ -106,6 +107,27 @@ export class WalletProposals {
     const input=snapshot(args,['operationId','bytes','signal'],this.session.pczt.maximum);
     const value=await this.session.pczt.import(input);
     return this.projectArtifact(value,input.operationId);
+  }
+  async export(args: Parameters<WalletPcztApi['export']>[0]): ReturnType<WalletPcztApi['export']> {
+    const input=snapshot(args,['proposal','pczt','signal']);
+    if(Object.hasOwn(input,'proposal')===Object.hasOwn(input,'pczt'))throw invalidArgument();
+    const op=input.signal===undefined?{}:{signal:input.signal};
+    if(Object.hasOwn(input,'proposal')) {
+      const artifact=await this.build({proposal:input.proposal!,...op});
+      try {return await this.export({pczt:artifact,...op});}
+      catch(error) {if(error&&typeof error==='object')this.session.committed(error,artifact);throw error;}
+    }
+    const binding=pcztArtifactBinding(input.pczt!,this.session);
+    const proposal=await this.restore({operationId:binding.operationId,...op});
+    if(!proposal)throw protocol();
+    const retained=await this.session.pczt.get({...binding,...op});
+    if(!retained||retained.operationId!==binding.operationId||retained.artifactId!==binding.artifactId)throw protocol();
+    const handle=await pczt.parse({bytes:retained.bytes,context:proposal.context,maxBytes:this.session.pczt.maximum,...op});
+    try {
+      const redacted=await pczt.redact({pczt:handle,profile:'zakura-signer-full/1',...op});
+      try {return {...binding,bytes:await pczt.serialize({pczt:redacted,...op})};}
+      finally {await redacted.dispose();}
+    } finally {await handle.dispose();}
   }
   private projectArtifact(value: NativePcztArtifact, operationId: string, accountId?: AccountId): PcztArtifact {
     try {

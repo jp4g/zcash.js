@@ -197,3 +197,21 @@ test('wallet close cancels asset delivery and releases shared proof/cache reserv
   const rejected=assert.rejects(pending,{code:'ABORTED'});await session.close();await rejected;
   assert.equal(assetSignal.aborted,true);assert.equal(shared.proving.bytes,0);assert.equal(shared.proving.active,false);
 });
+
+test('PCZT export rejects ambiguous and foreign handles before native reads',async t=>{
+  let calls=0;const one=setup(t,op=>{calls++;return op==='proposal_create'?review():built();});
+  const proposal=await one.api.create(args()),artifact=await one.api.build({proposal}),before=calls;
+  for(const input of [{},{proposal,pczt:artifact},{pczt:{...artifact}}])await assert.rejects(one.api.export(input),{code:'INVALID_ARGUMENT'});
+  const other=setup(t,()=>{throw Error('foreign export dispatched');});
+  await assert.rejects(other.api.export({pczt:artifact}),{code:'WRONG_INSTANCE'});
+  await assert.rejects(other.api.export({proposal}),{code:'WRONG_INSTANCE'});
+  assert.equal(calls,before);
+});
+
+test('proposal export preserves a completed build if later export observes cancellation',async t=>{
+  const {api,session}=setup(t,op=>op==='proposal_create'?review():built());
+  const proposal=await api.create(args()),controller=new AbortController(),build=api.build.bind(api);
+  api.build=async input=>{const artifact=await build(input);controller.abort();return artifact;};
+  await assert.rejects(api.export({proposal,signal:controller.signal}),error=>error.code==='ABORTED'
+    &&session.completion(error).completion==='committed'&&session.completion(error).value.artifactId==='06'.repeat(32));
+});

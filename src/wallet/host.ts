@@ -52,11 +52,12 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
   let size = 0;
   const copied: Uint8Array[] = [];
   let signal: AbortSignal | undefined;
+  let unspentInventory=false;
   // Reserve both the queued owned input and its structured-clone transfer copy.
   const charge = (n: number) => { size += 2 * n; if (size > maximum) throw limitError(); };
   const copy = (value: unknown, depth: number, byteMaximum?: number, arrayMaximum=16): unknown => {
     charge(8);
-    if (depth > (command==='enhancement_apply'?6:5)) throw invalidArgument();
+    if (depth > (unspentInventory?6:5)) throw invalidArgument();
     if (value === null || typeof value === 'boolean') return value;
     if (typeof value === 'bigint') { if (value < 0n || value >= (1n << 88n)) throw invalidArgument(); charge(16); return value; }
     if (typeof value === 'number' && Number.isSafeInteger(value)) return value;
@@ -83,12 +84,18 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
           catch { throw invalidArgument(); }
         }
       } else Object.defineProperty(result, key, { value: command === 'signer_authorize' && depth === 0 && key === 'maximum' ? pcztMaximum : copy(property.value, depth + 1,
-        (command === 'pczt_prove'||command==='pczt_finalize'||command==='fused_send') && depth === 0 && (key === 'spend'||key === 'output') ? Math.min(saplingAssets[key==='spend'?0:1].byteLength,Math.floor((maximum-size)/2)) : (command === 'signer_authorize' || command === 'pczt_import') && depth === 0 && key === 'bytes' ? Math.min(pcztMaximum,4 * 1024 * 1024) : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined, command==='enhancement_apply'&&depth===3&&key==='unspentOutputs'?1000:16), enumerable: true });
+        (command === 'pczt_prove'||command==='pczt_finalize'||command==='fused_send') && depth === 0 && (key === 'spend'||key === 'output') ? Math.min(saplingAssets[key==='spend'?0:1].byteLength,Math.floor((maximum-size)/2)) : (command === 'signer_authorize' || command === 'pczt_import') && depth === 0 && key === 'bytes' ? Math.min(pcztMaximum,4 * 1024 * 1024) : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined, unspentInventory&&((depth===1&&key==='transactions')||(depth===3&&key==='unspentOutputs'))?1000:16), enumerable: true });
     }
     return result;
   };
   let value: unknown;
   try {
+    if(command==='enhancement_apply'){
+      const input=fields(args as any,['revision','request','result','signal']);
+      const request=fields(input.request,['kind','txid','address','start','endExclusive','requestAt','txStatus','outputStatus']);
+      unspentInventory=request.kind==='address'&&request.txStatus==='all'&&request.outputStatus==='unspent'&&request.endExclusive===null;
+      args={...input,request};
+    }
     if (command === 'account_import' || mnemonicCommand(command)) {
       const input = fields(args as any, command === 'account_import'
         ? ['viewingKey', 'birthday', 'name', 'viewOnly', 'enabledPools', 'signal']

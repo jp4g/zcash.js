@@ -95,9 +95,7 @@ async function unspent(session:Session,light:LightClient,revision:string,request
       const group:NonNullable<ReturnType<typeof groups.get>>=groups.get(id)??{height:item.minedHeight,outputs:[]};if(group.height!==item.minedHeight)throw protocol();
       group.outputs.push({outputIndex:item.outputIndex,script,value:item.value});groups.set(id,group);
     }
-    let batch:{txid:string;bytes:Uint8Array;minedHeight:number|null;unspentOutputs:{outputIndex:number;script:Uint8Array;value:bigint}[]}[]=[],bytes=0;
-    const coherent=async()=>{const after=point(await pending.wait(light.getTip(op)));if(after.height!==before.height||after.hash!==before.hash||after.sourceId!==before.sourceId)throw protocol();};
-    const flush=async(complete:boolean)=>{await coherent();pending.check();revision=(await session.enhancement.apply({revision,request,result:{transactions:batch,asOfHeight:before.height,asOfHash:nativeHash,complete},...op})).revision;batch=[];bytes=0;};
+    const batch:{txid:string;bytes:Uint8Array;minedHeight:number|null;unspentOutputs:{outputIndex:number;script:Uint8Array;value:bigint}[]}[]=[];let bytes=0;
     for(const [id,group] of groups){
       const supplied=await pending.wait(light.getTransaction({txid:id as TxId,...op}));if(supplied===null)throw protocol();
       const transaction=evidence(supplied,['txid','raw','observation','sourceId','observedAt']);
@@ -105,10 +103,11 @@ async function unspent(session:Session,light:LightClient,revision:string,request
       if(transaction.txid!==id||transaction.sourceId!==before.sourceId||observed.txid!==id||observed.sourceId!==before.sourceId)throw protocol();
       const height=observed.state==='mined'?evidence(observed.inclusion!,['height','blockHash','confirmations']).height:null;
       if(!['mined','mempool'].includes(observed.state)||(observed.state==='mined'&&(height===null||!Number.isInteger(height)))||(observed.state==='mempool'&&observed.inclusion!==null)||height!==group.height)throw protocol();
-      const raw=ownBytes(transaction.raw,protocol,limit,2*1024*1024),size=raw.length+group.outputs.reduce((n,output)=>n+output.script.length,0);if(size>2*1024*1024)throw limit();
-      if(batch.length===16||bytes+size>2*1024*1024)await flush(false);
+      const scriptBytes=group.outputs.reduce((n,output)=>n+output.script.length,0);
+      const raw=ownBytes(transaction.raw,protocol,limit,2*1024*1024-bytes-scriptBytes),size=raw.length+scriptBytes;
       batch.push({txid:id,bytes:raw,minedHeight:group.height,unspentOutputs:group.outputs});bytes+=size;
     }
-    await flush(true);
+    const after=point(await pending.wait(light.getTip(op)));if(after.height!==before.height||after.hash!==before.hash||after.sourceId!==before.sourceId)throw protocol();
+    pending.check();await session.enhancement.apply({revision,request,result:{transactions:batch,asOfHeight:before.height,asOfHash:nativeHash,complete:true},...op});
   }finally{pending.close();}
 }

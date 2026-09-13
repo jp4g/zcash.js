@@ -43,7 +43,7 @@ function unspentFixture(count=17){
   const items=Array.from({length:count},(_,i)=>({txid:(i+1).toString(16).padStart(64,'0'),outputIndex:0,address:'fixture',value:1n,script:new Uint8Array([1]),minedHeight:2}));
   const commits=[],control={tips:0,failAfter:false,wrongNative:false,raw:0,stall:false,entered:null};let revision='0';
   const session={scan:{async state(){return {revision,tipHeight:50};},async block(){return {revision,point:{height:50,hash:control.wrongNative?'ff'.repeat(32):nativeHash}};}},enhancement:{async apply(args){assert.equal(args.revision,revision);assert.equal(args.result.asOfHash,nativeHash);commits.push(structuredClone(args.result));return {revision:revision=String(+revision+1)};}}};
-  const light={async getTip(){control.tips++;return {height:50,hash:control.failAfter&&control.tips>=3?'ff'.repeat(32):hash,sourceId:'source',observedAt:'fixture'};},
+  const light={async getTip(){control.tips++;return {height:50,hash:control.failAfter&&control.tips>=2?'ff'.repeat(32):hash,sourceId:'source',observedAt:'fixture'};},
     async getAddressUtxos(){return {items,tip:null,sourceId:'source',observedAt:'fixture'};},
     async getTransaction({txid}){control.raw++;if(control.stall){control.entered?.();return new Promise(()=>{});}items[0]?.script.fill(99);return {txid,raw:new Uint8Array([1,2]),sourceId:'source',observedAt:'fixture',observation:{txid,state:'mined',inclusion:{height:2,blockHash:null,confirmations:null},tip:null,priorInclusion:null,sourceId:'source',observedAt:'fixture'}};}};
   return {session,light,request,commits,control,items};
@@ -54,9 +54,9 @@ test('unspent enhancement owns positive outputs, brackets native tip and complet
     const value=unspentFixture();value.control.failAfter=failAfter;
     const result=applyEnhancement(value.session,value.light,'0',value.request);
     if(failAfter)await assert.rejects(result,{code:'PROTOCOL_MISMATCH'});else await result;
-    assert.equal(value.control.raw,17);assert.equal(value.commits[0].transactions.length,16);assert.equal(value.commits[0].complete,false);
-    assert.equal(value.commits[0].transactions[0].unspentOutputs[0].script[0],1);assert.equal(value.commits[0].transactions[0].txid,value.items[0].txid);
-    assert.equal(value.commits.length,failAfter?1:2);if(!failAfter)assert.equal(value.commits[1].complete,true);
+    assert.equal(value.control.raw,17);assert.equal(value.commits.length,failAfter?0:1);
+    if(!failAfter){assert.equal(value.commits[0].transactions.length,17);assert.equal(value.commits[0].complete,true);
+      assert.equal(value.commits[0].transactions[0].unspentOutputs[0].script[0],1);assert.equal(value.commits[0].transactions[0].txid,value.items[0].txid);}
   }
 });
 
@@ -81,6 +81,10 @@ test('worker admission copies bounded nested positive outputs using existing que
     const args={revision:'0',request:unspentFixture(0).request,result:{transactions:[{txid:'01'.repeat(32),bytes:new Uint8Array([1]),minedHeight:2,unspentOutputs:outputs}],asOfHeight:50,asOfHash:'ab'.repeat(32),complete:true}};
     const pending=session.enhancement.apply(args);outputs[0].script[0]=99;await pending;
     assert.equal(received.result.transactions[0].txid,'01'.repeat(32));assert.equal(received.result.transactions[0].unspentOutputs.length,20);assert.equal(received.result.transactions[0].unspentOutputs[0].script[0],1);assert.equal(received.result.transactions[0].unspentOutputs[0].value,2n);
+    const original=args.result.transactions[0];args.result.transactions=Array.from({length:17},()=>({...original,unspentOutputs:[outputs[0]]}));await session.enhancement.apply(args);assert.equal(received.result.transactions.length,17);
+    let reads=0;const request=new Proxy(args.request,{getOwnPropertyDescriptor(target,key){if(key==='txStatus'){reads++;return {...Reflect.getOwnPropertyDescriptor(target,key),value:reads===1?'all':'mined'};}return Reflect.getOwnPropertyDescriptor(target,key);}});
+    await session.enhancement.apply({...args,request});assert.equal(reads,1);assert.equal(received.request.txStatus,'all');
+    args.result.transactions=[original];
     args.result.transactions[0].unspentOutputs=Array.from({length:1001},()=>outputs[0]);await assert.rejects(session.enhancement.apply(args),{code:'INVALID_ARGUMENT'});
   }finally{await session.close();}
 });
@@ -91,4 +95,9 @@ test('empty inventory and positive mempool evidence complete without inventing m
   const value=unspentFixture(1);value.items[0].minedHeight=null;
   value.light.getTransaction=async({txid})=>({txid,raw:new Uint8Array([1]),sourceId:'source',observedAt:'fixture',observation:{txid,state:'mempool',inclusion:null,tip:null,priorInclusion:null,sourceId:'source',observedAt:'fixture'}});
   await applyEnhancement(value.session,value.light,'0',value.request);assert.equal(value.commits[0].transactions[0].minedHeight,null);
+});
+
+test('unspent raw-plus-script overflow rejects the whole inventory before any commit',async()=>{
+  const value=unspentFixture(2),get=value.light.getTransaction;value.light.getTransaction=async args=>({...await get(args),raw:new Uint8Array(1024*1024)});
+  await assert.rejects(applyEnhancement(value.session,value.light,'0',value.request),{code:'RESOURCE_LIMIT'});assert.equal(value.commits.length,0);
 });

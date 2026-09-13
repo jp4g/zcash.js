@@ -104,9 +104,14 @@ export interface WalletCompletion {
   readonly value?: unknown;
 }
 
+/** One admitted queue budget shared by every wallet port in a native owner. */
+export interface WalletQueueBudget {
+  jobs: number; bytes: number; active: boolean; wake: Set<() => void>; crash?: () => void;
+}
+
 /** Packaging supplies an initialized private port, worker destruction, and calls crashed() on worker loss. */
 export function attachWalletWorker(port: MessagePort, destroy: () => Promise<void>,
-  limits: { maxQueuedJobs: number; maxQueuedBytes: number }) {
+  limits: { maxQueuedJobs: number; maxQueuedBytes: number }, shared?: WalletQueueBudget) {
   const { maxQueuedJobs, maxQueuedBytes } = limits;
   if (![maxQueuedJobs, maxQueuedBytes].every(n => Number.isSafeInteger(n) && n > 0)) throw invalidArgument();
   type Job = { id: number; command: WalletCommand; args: object; size: number; ready: boolean; cancelled: boolean;
@@ -114,23 +119,29 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
   const queue: Job[] = [], receipts = new WeakMap<object, WalletCompletion>();
   let active: Job | undefined, bytes = 0, nextId = 0, stopped = false;
   let closing: Promise<void> | undefined, destroyed: Promise<void> | undefined;
-  const dispose = () => destroyed ??= Promise.resolve().then(destroy).finally(() => { port.onmessage = null; port.onmessageerror = null; port.close(); });
+  const dispose = () => destroyed ??= Promise.resolve().then(destroy).finally(() => { shared?.wake.delete(pump); port.onmessage = null; port.onmessageerror = null; port.close(); });
   const reject = (job: Job, error: ZcashError, receipt: WalletCompletion) => {
     receipts.set(error, Object.freeze(receipt)); job.reject(error);
   };
-  const release = (job: Job) => { bytes -= job.size; try { job.cleanup(); } catch { /* Do not replace completion. */ } };
+  const release = (job: Job) => { bytes -= job.size;
+    if (shared) {
+      if (job.command !== 'close') { shared.jobs--; shared.bytes -= job.size; }
+      if (active === job) shared.active = false;
+      queueMicrotask(() => { for (const wake of shared.wake) wake(); });
+    }
+    try { job.cleanup(); } catch { /* Do not replace completion. */ } };
   const crashed = () => {
     if (stopped) return;
-    stopped = true;
+    stopped = true; shared?.crash?.();
     if (active) { release(active); reject(active, crashedError(), { completion: 'unknown' }); active = undefined; }
     for (const job of queue.splice(0)) { release(job); reject(job, crashedError(), { completion: 'none' }); }
     void dispose().catch(() => {});
   };
   const pump = () => {
-    if (active || stopped) return;
+    if (active || stopped || shared?.active) return;
     const job = queue[0];
     if (!job?.ready) return;
-    queue.shift(); active = job;
+    queue.shift(); active = job; if (shared) shared.active = true;
     try { port.postMessage({ id: job.id, command: job.command, args: job.args }); }
     catch { crashed(); }
   };
@@ -144,6 +155,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       input = close ? { args: {}, size: 0, signal: undefined } : snapshot(args, maxQueuedBytes, command);
       if (input.signal && aborted.call(input.signal)) throw abortError();
       if (!close && (queue.length + (active ? 1 : 0) >= maxQueuedJobs || input.size > maxQueuedBytes - bytes)) throw limitError();
+      if (!close && shared && (shared.jobs >= maxQueuedJobs || input.size > maxQueuedBytes - shared.bytes)) throw limitError();
       if (nextId >= Number.MAX_SAFE_INTEGER) throw limitError();
     } catch (error) {
       if (error && typeof error === 'object') receipts.set(error, { completion: 'none' });
@@ -153,6 +165,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       const job: Job = { id: ++nextId, command, args: input.args, size: input.size, ready: false, cancelled: false,
         cleanup: () => {}, resolve: value => resolve(value as T), reject: rejectPromise };
       queue.push(job); bytes += job.size;
+      if (shared && !close) { shared.jobs++; shared.bytes += job.size; }
       void watch(input.signal, () => {
         job.cancelled = true;
         const index = queue.indexOf(job);
@@ -177,7 +190,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
         || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync'].includes(e.stage)
         || !['reopen', 'sync', 'none', 'correct-input', 'configure'].includes(e.recovery)) { crashed(); return; }
     } else if (data.invalid) { crashed(); return; }
-    active = undefined; release(job);
+    release(job); active = undefined;
     if (job.cancelled && data.outcome.ok) {
       reject(job, abortError(), { completion: data.completion, value: data.outcome.value });
     } else if (data.outcome.ok) job.resolve(data.outcome.value);
@@ -188,6 +201,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     if (data.invalid) crashed(); else pump();
   };
   port.onmessageerror = crashed;
+  shared?.wake.add(pump);
   port.start();
   return {
     accounts: {

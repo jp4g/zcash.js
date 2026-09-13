@@ -9,25 +9,31 @@ const builtin = 'node:worker_threads';
 const threads = node ? await import(builtin) : undefined;
 const control: Pick<MessagePort, 'postMessage' | 'onmessage'> = node
   ? threads.parentPort : globalThis as unknown as MessagePort;
-let phase: 'new' | 'starting' | 'ready' | 'opening' | 'open' | 'failed' = 'new';
+let phase: 'new' | 'starting' | 'ready' | 'failed' = 'new';
 let api: {
   runtimeIdentity: WalletRuntimeIdentity;
   initializeWalletRuntime(wasm: Uint8Array): {
+    readonly invalid: boolean;
     open(backend: unknown, format: string, parameters: Uint8Array, genesis: Uint8Array): unknown;
     openMemory(format: string, parameters: Uint8Array, genesis: Uint8Array): unknown;
   };
   viewsForStorage(storage: unknown): InitializedViews;
   consensusContext(format: string, parameters: Uint8Array, height: number): unknown;
-};
+}
 let runtime: ReturnType<typeof api.initializeWalletRuntime>;
-let backend: { owned: boolean; release(): void } | undefined;
-let owner: InitializedViews | undefined;
+
 function executableUrl(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith(node ? 'file:' : 'blob:');
 }
 function failed(code: string): never { throw new Error(code); }
 
-control.onmessage = async ({ data }) => {
+// Open requests serialize only acquisition; existing wallet ports keep their own queues.
+let opening = Promise.resolve();
+control.onmessage = ({ data }) => { opening = opening.then(() => handle(data)); };
+async function handle(data: any) {
+  let backend: { owned: boolean; release(): void } | undefined;
+  let owner: InitializedViews | undefined;
+  let nativeOpening = false;
   let failure = 'RUNTIME_UNAVAILABLE';
   try {
     if (phase === 'new' && data?.type === 'initialize') {
@@ -48,11 +54,10 @@ control.onmessage = async ({ data }) => {
       runtime = api.initializeWalletRuntime(data.wasm);
       data.wasm.fill(0);
       phase = 'ready';
-      control.postMessage({ type: 'ready', identity });
+      control.postMessage({ type: 'ready', identity, id: data.id });
       return;
     }
     if (phase !== 'ready' || data?.type !== 'open') failed('PROTOCOL_MISMATCH');
-    phase = 'opening';
     const storage: WalletStorage = data.storage;
     if (!storage || (storage.kind !== 'memory' && (node ? storage.kind !== 'node-filesystem' : storage.kind !== 'browser-opfs'))
       || (storage.kind !== 'memory' && !executableUrl(data.hostUrl)) || !(data.port instanceof (node ? threads.MessagePort : MessagePort))
@@ -63,35 +68,39 @@ control.onmessage = async ({ data }) => {
     api.consensusContext(data.parametersFormat, data.parameters, 0);
     failure = 'STORAGE_ERROR';
     let opened: unknown;
-    if (storage.kind === 'memory') opened = runtime.openMemory(data.parametersFormat, data.parameters, data.genesis);
+    if (storage.kind === 'memory') { nativeOpening = true; opened = runtime.openMemory(data.parametersFormat, data.parameters, data.genesis); }
     else {
       if (storage.kind === 'node-filesystem') {
         const filesystem = 'node:fs';
         const fs = await import(filesystem);
-        if (phase !== 'opening') failed('PROTOCOL_MISMATCH');
+        if (phase !== 'ready') failed('PROTOCOL_MISMATCH');
         try { fs.mkdirSync(storage.path, { mode: 0o700 }); }
         catch (error) { if ((error as { code?: string }).code !== 'EEXIST') throw error; }
       }
       const host = await import(data.hostUrl);
-      if (phase !== 'opening') failed('PROTOCOL_MISMATCH');
+      if (phase !== 'ready') failed('PROTOCOL_MISMATCH');
       backend = await host.acquire(storage.kind === 'node-filesystem' ? storage.path : (storage as { name: string }).name, { create: true });
-      if (phase !== 'opening') failed('PROTOCOL_MISMATCH');
+      if (phase !== 'ready') failed('PROTOCOL_MISMATCH');
+      nativeOpening = true;
       opened = runtime.open(backend, data.parametersFormat, data.parameters, data.genesis);
     }
     owner = api.viewsForStorage(opened);
-    installWalletWorker(owner, data.port);
-    phase = 'open';
-    control.postMessage({ type: 'opened' });
+    installWalletWorker(owner, data.port, () => runtime.invalid);
+    control.postMessage({ type: 'opened', id: data.id });
   } catch (error) {
-    phase = 'failed';
+    if (phase !== 'ready') phase = 'failed';
     // Only fixed known tags cross the control channel; never filesystem or native text.
     let tag: unknown;
     try { tag = typeof error === 'string' ? error : Object.getOwnPropertyDescriptor(error, 'message')?.value; } catch { /* Unknown failure remains sanitized. */ }
-    try { if (Object.getOwnPropertyDescriptor(error, 'code')?.value === 'EBUSY') failure = 'STORAGE_BUSY'; } catch { /* Keep the fixed fallback. */ }
+    try { if (Object.getOwnPropertyDescriptor(error, 'code')?.value === 'EBUSY'
+      || error instanceof DOMException && error.name === 'NoModificationAllowedError') failure = 'STORAGE_BUSY'; } catch { /* Keep the fixed fallback. */ }
     const allowed = ['INVALID_ARGUMENT', 'PROTOCOL_MISMATCH', 'RESOURCE_LIMIT', 'NETWORK_MISMATCH', 'SCHEMA_MISMATCH', 'VIEWING_SCHEMA_REQUIRED'];
     if (typeof tag === 'string' && allowed.includes(tag)) failure = tag;
-    try { if (owner) owner.close(owner.generation, owner.instance); } catch { /* Whole worker is terminal. */ }
-    try { if (backend?.owned) backend.release(); } catch { failure = 'STORAGE_ERROR'; }
-    control.postMessage({ type: 'failure', code: failure });
+    let cleanupFailed = false;
+    try { if (owner) owner.close(owner.generation, owner.instance); } catch { cleanupFailed = true; }
+    try { if (backend?.owned) backend.release(); } catch { cleanupFailed = true; failure = 'STORAGE_ERROR'; }
+    const fatal = cleanupFailed || data?.type !== 'open' || phase !== 'ready' || runtime?.invalid === true || nativeOpening && !(typeof tag === 'string' && allowed.includes(tag));
+    if (fatal) phase = 'failed';
+    control.postMessage({ type: 'failure', code: failure, id: data?.id, fatal });
   }
-};
+}

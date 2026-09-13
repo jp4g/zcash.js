@@ -22,12 +22,13 @@ export async function runBrowser() {
     for (const reopened of [false, true]) {
       const worker = new Worker(urls.get('worker.mjs'), { type: 'module' });
       const { port1, port2 } = new MessageChannel();
-      let host;
+      let host,nextId=0;
       const request = (data, transfer = []) => new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(Error('runtime startup deadline')), 15000);
-        worker.onmessage = ({ data }) => { clearTimeout(timer); resolve(data); };
+        const id=++nextId;
+        worker.onmessage = ({ data }) => { clearTimeout(timer);if(data.id!==id)reject(Error('runtime reply identity'));else resolve(data); };
         worker.onerror = () => { clearTimeout(timer); reject(Error('runtime worker failed')); };
-        worker.postMessage(data, transfer);
+        worker.postMessage({...data,id}, transfer);
       });
       try {
         check((await request({ type: 'initialize', moduleUrl: urls.get('wallet.mjs'), wasm, expected,

@@ -56,7 +56,7 @@ function errorInfo(error: unknown, command: WalletCommand): { error: ErrorInfo; 
 }
 
 /** Called only after the packaged worker initializes its actual Rust storage owner. */
-export function installWalletWorker(owner: InitializedViews, port: MessagePort): void {
+export function installWalletWorker(owner: InitializedViews, port: MessagePort, ownerInvalid: () => boolean = () => false): void {
   const session = new WalletSession(owner);
   const calls = {
     account_import: session.accounts.import, account_list: session.accounts.list, account_get: session.accounts.get,
@@ -87,6 +87,7 @@ export function installWalletWorker(owner: InitializedViews, port: MessagePort):
         invalid: false, outcome: { ok: true, value } } satisfies WalletReply);
     } catch (error) {
       const info = errorInfo(error, command);
+      info.invalid ||= ownerInvalid();
       if (info.invalid) closed = true;
       const completion = typeof error === 'object' && error !== null ? session.completion(error) ?? 'unknown' : 'unknown';
       port.postMessage({ id: data?.id, completion, invalid: info.invalid, outcome: { ok: false, error: info.error } } satisfies WalletReply);

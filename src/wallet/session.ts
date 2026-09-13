@@ -1,5 +1,5 @@
-import { failure, invalidArgument } from '../errors.js';
-import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
+import { failure } from '../errors.js';
+import type { AccountRecord, AccountsApi, Birthday, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 
 /** Accepted, already initialized VIEW owner. Construct and consume in its worker. */
@@ -64,16 +64,6 @@ export class WalletSession {
     }
     const result = this.tail.then(() => {
       try {
-        // Check at dispatch, so queued input cannot bypass the fullScan boundary.
-        if (operation === 'account_import') {
-          let fullScan = false;
-          try { fullScan = Object.getOwnPropertyDescriptor(args, 'birthday')?.value === 'fullScan'; } catch { /* Uninspectable input is invalid. */ }
-          if (!fullScan) {
-            const error = invalidArgument();
-            this.completions.set(error, 'none');
-            throw error;
-          }
-        }
         // The accepted owner supplies the frozen API DTOs, including bigint indices.
         return this.owner.call(this.generation, this.instance, operation, args) as T;
       } catch (error) {
@@ -90,7 +80,7 @@ export class WalletSession {
   }
 
   readonly accounts: Pick<AccountsApi, 'list' | 'get'> & {
-    import(args: ViewingImport & { readonly birthday: 'fullScan' }): Promise<AccountRecord>;
+    import(args: Omit<ViewingImport, 'birthday'> & { readonly birthday: 'fullScan' | Omit<Birthday, 'network'> & { readonly parameters: Uint8Array; readonly genesis: Uint8Array } }): Promise<AccountRecord>;
   } = {
     import: args => this.invoke('account_import', args),
     list: args => this.invoke('account_list', args),

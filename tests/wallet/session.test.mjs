@@ -62,34 +62,14 @@ test('completion distinguishes precommit and unknown failures; close failure is 
   }
 });
 
-test('public Birthday projection is not admitted', async () => {
+test('checkpoint import delegates validation and preserves native completion', async () => {
+  const error = Object.assign(Error('INVALID_BIRTHDAY'), {commit:'none'});
+  const args = {viewingKey:'test', birthday:{firstScanHeight:100}};
   const session = new WalletSession({generation:1, instance:'worker',
-    call() { assert.fail('must not invoke native import'); }, close() {},
+    call(_generation, _instance, operation, received) { assert.equal(operation,'account_import'); assert.equal(received,args); throw error; }, close() {},
   });
-  const invalid = error => {
-    assert.equal(isZcashError(error), true);
-    assert.equal(error.code, 'INVALID_ARGUMENT');
-    assert.equal(error.stage, 'validation');
-    assert.equal(error.recovery, 'correct-input');
-    assert.equal(error.message, 'Invalid argument.');
-    assert.equal(error.retryable, false);
-    assert.equal(Object.isFrozen(error), true);
-    assert.equal(session.completion(error), 'none');
-    return true;
-  };
-  await assert.rejects(session.accounts.import({viewingKey:'test', birthday:{}}), invalid);
-  const args = {viewingKey:'test', birthday:'fullScan'};
-  const queued = session.accounts.import(args);
-  args.birthday = {};
-  await assert.rejects(queued, invalid);
-  let reads = 0;
-  await assert.rejects(session.accounts.import({get birthday() { reads++; return 'fullScan'; }}), invalid);
-  const revoked = Proxy.revocable({}, {}); revoked.revoke();
-  for (const args of [null, undefined, revoked.proxy, new Proxy({}, {
-    getOwnPropertyDescriptor() { throw {get message() { reads++; return 'secret'; }}; },
-    get() { reads++; return 'secret'; },
-  })]) await assert.rejects(session.accounts.import(args), invalid);
-  assert.equal(reads, 0);
+  await assert.rejects(session.accounts.import(args), rejected => rejected === error);
+  assert.equal(session.completion(error), 'none');
   await session.close();
 });
 

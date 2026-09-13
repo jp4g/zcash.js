@@ -1,5 +1,5 @@
 // Same native scanner workflow runs against the real Node and OPFS loader owners.
-import {defineNetwork,createLightClient} from '../../dist/src/index.js';
+import {defineNetwork,createLightClient,resolveBirthday} from '../../dist/src/index.js';
 import {WalletSync} from '../../dist/src/wallet/sync.js';
 import {initialize as wireCodec} from '../../dist/src/runtime/lightwire-capsule.mjs';
 import {consensusContext,initialize as initializePrimitive} from '../../dist/src/runtime/primitive-capsule.mjs';
@@ -67,7 +67,17 @@ export async function scanChecks(session,fixture,definition) {
       }finally{closed++;}
     },
   }});
-  const account=await session.accounts.import(fixture.import),sync=new WalletSync(session,light,{pollIntervalMs:1000,maxBufferedUpdates:16});
+  const birthday=await resolveBirthday({light,firstScanHeight:1,recoverUntilExclusive:target.height+1});
+  const foreign=await defineNetwork({...definition,genesisHash:'ff'.repeat(32)});
+  const beforeImport=await session.scan.state();
+  try {await session.accounts.import({...fixture.import,birthday:{...birthday,network:foreign}});throw Error('foreign birthday accepted');}
+  catch(error){check(error.code==='NETWORK_MISMATCH','foreign birthday native admission');}
+  check((await session.accounts.list()).length===0&&(await session.scan.state()).revision===beforeImport.revision,'foreign birthday does not mutate wallet');
+  const imported=session.accounts.import({...fixture.import,birthday});
+  birthday.priorTreeState.fill(255);
+  const account=await imported;
+  check(account.birthdayHeight===1,'resolved birthday imported');
+  const sync=new WalletSync(session,light,{pollIntervalMs:1000,maxBufferedUpdates:16});
   const query={accountId:account.id,confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:true}};
   const before=await session.scan.state(),controller=new AbortController();controller.abort();
   check((await sync.sync({signal:controller.signal})).activity==='stopped','sync pre-abort status');

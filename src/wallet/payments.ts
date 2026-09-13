@@ -176,11 +176,11 @@ export class WalletPayments {
   private async wait(operationId:string,args:Parameters<PendingPayment['wait']>[0]={}):Promise<PaymentConfirmation>{
     const input=snapshot(args,['signal','confirmations','timeoutMs']),confirmations=positive(input.confirmations??1);
     if(input.timeoutMs!==undefined)positive(input.timeoutMs);
-    const caller=operation(input.signal),timer=new AbortController(),dependent=operation(AbortSignal.any([caller.signal,timer.signal]));
+    const caller=operation(input.signal),timer=new AbortController(),dependent=operation(AbortSignal.any([caller.signal,timer.signal,this.stopped.signal]));
     const stop=input.timeoutMs===undefined?()=>{}:timeout(()=>timer.abort(),input.timeoutMs);
     let iterator:AsyncIterableIterator<PaymentState>|undefined,last:PaymentState|undefined;
     try{
-      caller.check();this.check();last=this.project(await this.require(operationId,dependent.signal));
+      caller.check();this.check();last=await this.run(dependent.signal,async signal=>this.project(await this.require(operationId,signal)));
       if(last.steps.some(step=>step.txid===null))throw partial('NOT_FINALIZED',last);
       if(!this.light&&!this.broadcaster)throw unavailable();
       iterator=this.events(operationId,{signal:dependent.signal});
@@ -224,7 +224,8 @@ export class WalletPayments {
                   try{const checked=await this.observe(value,this.light!,pending.signal);observed++;
                     if(this.policy.rebroadcast&&!pending.signal.aborted)await this.submit(row.operationId,pending.signal,true,checked);
                   }catch(error){
-                    if(error&&typeof error==='object'&&this.wallet.session.completion(error)||isZcashError(error)&&['storage','runtime'].includes(error.stage))throw error;
+                    const receipt=error&&typeof error==='object'?this.wallet.session.completion(error):undefined;
+                    if(receipt&&receipt.completion!=='none'||isZcashError(error)&&['storage','runtime'].includes(error.stage))throw error;
                     const known=isZcashError(error)?error:failure('TRANSPORT_ERROR','observation','configure','Payment endpoint is unavailable.');
                     lastError={code:known.code,stage:known.stage,recovery:known.recovery,retryable:known.retryable,message:'Payment recovery network pass did not complete.'};halt=true;
                   }

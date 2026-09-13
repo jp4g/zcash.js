@@ -21,11 +21,11 @@ function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delaye
     if(command==='payment_list')return {revision:String(control.revision),highWater:args.highWater??String(count),observationPosition:control.position,
       items:journal.filter(row=>BigInt(row.sequence)>BigInt(args.afterSequence)&&BigInt(row.sequence)<=BigInt(args.highWater??count)).slice(0,args.limit).map(row=>({sequence:row.sequence,operationId:row.state.operationId}))};
     if(command==='payment_recovery_position'){control.position=args.afterSequence;control.revision++;return;}
-    if(command==='payment_get')return row?current(row):null;
+    if(command==='payment_get'){if(control.getGate){control.started?.();return control.getGate.then(()=>row?current(row):null);}return row?current(row):null;}
     if(!row)throw Object.assign(Error('OPERATION_NOT_FOUND'),{commit:'none'});
     const step=row.state.steps[0];
     if(command==='payment_reconcile'){for(const attempt of step.attempts)if(attempt.outcome==='started')attempt.outcome='unknown';control.revision++;return current(row);}
-    if(command==='payment_observe'){step.observation=args.observation;step.inclusion=args.observation.inclusion;row.observationSequence=String(+row.observationSequence+1);control.revision++;return current(row);}
+    if(command==='payment_observe'){if(control.observeError)throw Object.assign(Error(control.observeError),{commit:'none'});step.observation=args.observation;step.inclusion=args.observation.inclusion;row.observationSequence=String(+row.observationSequence+1);control.revision++;return current(row);}
     if(command==='payment_attempt_begin'){
       assert.equal(args.maximum,65536);if(!step.txid)throw Object.assign(Error('NOT_FINALIZED'),{commit:'none'});
       if(args.mode==='automatic')return null;
@@ -43,7 +43,7 @@ function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delaye
   const client={network,async getTreeState({height}){control.requests++;const block=height===0?network.genesisHash:hash;return {network,point:{height,hash:block},sapling:null,ironwood:null,encoded:concat(scalar(2,height),bytesField(3,new TextEncoder().encode(block))),sourceId:'source',observedAt:new Date().toISOString()};},
     async getTip(){control.requests++;return {height:20,hash,sourceId:'source',observedAt:new Date().toISOString()};},
     async getTransaction(){throw Error('not used');},
-    async getTransactionStatus(){control.reads++;if(control.stalled){control.started?.();return new Promise(()=>{});}return {txid,state:control.mined?'mined':'notSeen',inclusion:control.mined?{height:19,blockHash:hash,confirmations:999}:null,tip:null,priorInclusion:null,sourceId:'source',observedAt:new Date().toISOString()};},
+    async getTransactionStatus(){control.reads++;if(control.stalled){control.started?.();return new Promise(()=>{});}return {txid,state:control.mined?'mined':'notSeen',inclusion:control.mined?{height:19,blockHash:hash,confirmations:999}:null,tip:null,priorInclusion:control.prior??null,sourceId:'source',observedAt:new Date().toISOString()};},
     async broadcastTransaction({bytes}){assert.deepEqual([...bytes],[1,2,3]);control.dispatches++;control.started?.();if(delayed)return new Promise(resolve=>{control.reply=resolve;});return {txid,outcome:'acknowledged',diagnosticCode:null,sourceId:'source',observedAt:new Date().toISOString()};}};
   const wallet={session,close:()=>session.close()};
   const options={network,storage:{kind:'memory'},runtime:{maxQueuedJobs:8},observation:{pollIntervalMs:5,maxBufferedUpdates:buffer},recovery:online?{mode:'online',timeoutMs:30}:{mode:'offline'},...(light?{light:client}:{}),broadcaster:client};
@@ -95,4 +95,32 @@ test('close cancels a hung observer and leaves runtime closure to its owner',asy
   const {payments,control}=setup(t);await payments.recover();control.stalled=true;
   const started=new Promise(resolve=>{control.started=resolve;}),handle=await payments.operations.resume({operationId:operationId(1)}),events=handle.events();
   const next=events.next();const rejected=assert.rejects(next,{code:'ABORTED'});await started;await payments.close();await rejected;await events.return();assert.equal(control.closed,0);
+});
+
+ test('close drains a wait stalled in its initial local read',async t=>{
+  const {payments,control}=setup(t);await payments.recover();
+  const handle=await payments.operations.resume({operationId:operationId(1)});
+  let release,started;control.getGate=new Promise(resolve=>{release=resolve;});
+  const entered=new Promise(resolve=>{started=resolve;});control.started=started;
+  const pending=handle.wait({timeoutMs:60000});const rejected=assert.rejects(pending,{code:'ABORTED'});
+  await entered;let closed=false;const closing=payments.close().then(()=>{closed=true;});
+  await wait(10);assert.equal(closed,false);release();await rejected;await closing;
+  assert.equal(control.requests,0);
+});
+
+test('recovery retains native no-commit observation uncertainty but rejects storage failure',async t=>{
+  const uncertain=setup(t,{online:true});uncertain.control.observeError='RECOVERY_REQUIRED';
+  const report=await uncertain.payments.recover();assert.equal(report.local,'complete');
+  assert.equal(report.lastError.code,'RECOVERY_REQUIRED');assert.equal(report.deferredOperations,1);
+  const broken=setup(t,{online:true});broken.control.observeError='STORAGE_ERROR';
+  await assert.rejects(broken.payments.recover(),{code:'STORAGE_ERROR'});
+});
+
+test('first observation retains owned source prior inclusion without old confirmations',async t=>{
+  const {payments,control}=setup(t);await payments.recover();
+  control.prior={height:18,blockHash:hash,confirmations:100};
+  const handle=await payments.operations.resume({operationId:operationId(1)}),events=handle.events();
+  const state=(await events.next()).value;control.prior.height=1;
+  assert.deepEqual(state.steps[0].observation.priorInclusion,{height:18,blockHash:hash,confirmations:null});
+  await events.return();
 });

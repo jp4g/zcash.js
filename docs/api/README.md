@@ -1,7 +1,7 @@
 # Proposed v1 API book
 
 ::: warning Partial private implementation
-The private SDK now exposes public, light and wallet clients, with scoped synthetic Node filesystem and Firefox OPFS qualification. See [local installation](installation.md) and the [qualification requirements](host-contract.md). This book preserves the frozen [issue #1](https://github.com/jp4g/zcash.js/issues/1) contract; full acceptance remains incomplete, including #97, #98, #102 and healthy threading. No published package is claimed. Embedded examples remain compile-only contracts.
+The private SDK now exposes public, light and wallet clients, with scoped synthetic Node filesystem and Firefox OPFS qualification. See [local installation](installation.md) and the [qualification requirements](host-contract.md). This book preserves the frozen [issue #1](https://github.com/jp4g/zcash.js/issues/1) contract; full acceptance remains incomplete, including #97, #102 and healthy threading. No published package is claimed. Embedded examples remain compile-only contracts.
 :::
 
 Start with the [end-to-end walkthrough](walkthrough.md), then follow the chapters in sidebar order. A stakeholder should be able to explain who owns the account, what has actually been submitted, and what survives a restart before reviewing the implementation boundary.

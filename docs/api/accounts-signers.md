@@ -12,7 +12,7 @@ Create wallet records separately from custody. Applications obtain and back up m
 
 Mnemonic `accounts.import` requires `accountIndex` plus a validated `Birthday` or `'fullScan'`. Birthday identifies the first scanned block and prior-block tree state; `recoverUntilExclusive` is exclusive. `resolveBirthday` obtains that state from a light client for an explicit first height. Recovery must never silently start at today's tip.
 
-All checksum-valid standard BIP39 word counts (12/15/18/21/24) are accepted. Mnemonic/passphrase inputs are UTF-8 bytes with required normalization. Omitted passphrase means empty; another passphrase derives another seed, not a detectable wrong-password error. Names default to null. Enabled pools default to all three v1 pools; missing required authority rejects.
+All checksum-valid standard BIP39 word counts (12/15/18/21/24) are accepted. Mnemonic/passphrase inputs are UTF-8 bytes with required normalization. Omitted passphrase means empty; another passphrase derives another seed, not a detectable wrong-password error. Names default to null. Mnemonic creation/import uses all supported pools and accepts no `enabledPools` option. Transaction spend-pool policy and address receiver selection remain independent. UFVK import retains its optional `enabledPools` selection; missing required viewing authority rejects.
 
 <<< ./examples/accounts.ts
 

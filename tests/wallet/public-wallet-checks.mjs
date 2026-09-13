@@ -18,8 +18,8 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
     let authorityWallet,wallet,signer;
     try {
       authorityWallet=await createWalletClient({...options(`${name}-authority`),...common,storage:{kind:'memory'},recovery:{mode:'offline'}});
-      const imported=await authorityWallet.accounts.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:fixture.accountIndex,
-        birthday:{network,source:'checkpoint',firstScanHeight:fixture.external.import.birthday.firstScanHeight,priorTreeState:hex(fixture.external.import.birthday.priorTreeState)}});
+      const imported=await authorityWallet.accounts.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:data.accountIndex,
+        birthday:{network,source:'checkpoint',firstScanHeight:data.import.birthday.firstScanHeight,priorTreeState:hex(data.import.birthday.priorTreeState)}});
       signer=imported.signer;await authorityWallet.close();authorityWallet=undefined;
       const configured={...options(name),...common,transactionPolicy:{spendPools:mode==='shield'?['transparent']:['sapling'],transparent:mode==='shield'?'allow-owned':'disallow',changePool:'sapling',feeRule:'zip317-standard',confirmations,expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20,shieldingThreshold:10000n,freshness:{mode:'require-synced',maxLagBlocks:0}}};
       wallet=await createWalletClient(configured);
@@ -28,6 +28,16 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       const destination=mode==='tex'?data.tex:(await wallet.addresses.next({accountId:data.accountId,request:{format:'transparent'}})).address;
       const intent=mode==='shield'?{accountId:data.accountId,toPool:'sapling',threshold:10000n,idempotencyKey:`public-${mode}`}:{accountId:data.accountId,to:destination,amount:10000n,idempotencyKey:`public-${mode}`};
       const before=submitted().length;
+      if(mode==='transfer') {
+        const controller=new AbortController(),post=MessagePort.prototype.postMessage;
+        MessagePort.prototype.postMessage=function(value,...rest){const result=Reflect.apply(post,this,[value,...rest]);if(value?.command==='fused_send')controller.abort();return result;};
+        try {await wallet.send({...intent,signal:controller.signal});throw Error('missing committed public send cancellation');}
+        catch(error){check(error.code==='ABORTED'&&typeof error.operationId==='string','committed send cancellation retains public operation identity');}
+        finally {MessagePort.prototype.postMessage=post;}
+        const discovered=await wallet.operations.list();
+        check(discovered.items.length===1&&discovered.items[0].steps.every(step=>step.txid!==null),'canceled native send retains complete outbox');
+        check(submitted().length===before,'canceled fused completion does not dispatch');
+      }
       const pending=await (mode==='shield'?wallet.shield(intent):wallet.send(intent));
       const first=await pending.snapshot(),expected=mode==='tex'?2:1;
       check(first.steps.length===expected&&first.steps.every(step=>step.txid!==null&&step.exactBytesSha256!==null),'public local execution persists every native transaction');

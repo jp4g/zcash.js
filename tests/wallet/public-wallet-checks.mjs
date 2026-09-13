@@ -25,6 +25,9 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       wallet=await createWalletClient(configured);
       check((await wallet.accounts.list()).some(account=>account.id===data.accountId),'public native-funded account discovery');
       await wallet.accounts.attachSigner({accountId:data.accountId,signer});
+      const synced=await wallet.sync({target:data.target});check(synced.targetReached&&synced.enhancement.actionable===0,'public sync resolves native unspent evidence');
+      check((await wallet.getBalance({accountId:data.accountId})).amounts!==null,'public balance has native scanned amounts');
+      check((await wallet.getHistory({accountId:data.accountId})).items.length>0,'public history retains native funding');
       const destination=mode==='tex'?data.tex:(await wallet.addresses.next({accountId:data.accountId,request:{format:'transparent'}})).address;
       const intent=mode==='shield'?{accountId:data.accountId,toPool:'sapling',threshold:10000n,idempotencyKey:`public-${mode}`}:{accountId:data.accountId,to:destination,amount:10000n,idempotencyKey:`public-${mode}`};
       const before=(await submitted()).length;
@@ -90,7 +93,7 @@ export async function publicWalletResponses(fixture,definition) {
     if(method==='GetTreeState') {
       const genesis=key===request(method,{hash:definition.genesisHash})||key===request(method,{height:'0'});
       check(genesis||key===request(method,{height:String(target.height)}),'known public wallet tree request');
-      return {payload:concat(text(1,'regtest'),scalar(2,genesis?0:target.height),text(3,genesis?definition.genesisHash:target.hash),text(5,'000000'),text(6,'000000'),text(7,'000000'))};
+      return {payload:genesis?concat(text(1,'regtest'),scalar(2,0),text(3,definition.genesisHash),text(5,'000000'),text(6,'000000'),text(7,'000000')):hex(fixture.publicWallet.treeState)};
     }
     if(method==='SendTransaction') {
       const dto=codec.decodeResponse('GetTransaction',payload),raw=hex(dto.data);
@@ -98,6 +101,8 @@ export async function publicWalletResponses(fixture,definition) {
       sent.push(row);known.set(request('GetTransaction',{hash:encoded(tx.txid)}),{raw,height:0});
       return {payload:text(2,JSON.stringify(tx.display))};
     }
+    if(method==='GetAddressUtxos')return {payload:new Uint8Array()};
+    if(method==='GetBlockRange')return {payload:hex(fixture.publicWallet.block)};
     if(method==='GetTransaction') {
       const row=known.get(key);return row?{payload:concat(bytesField(1,row.raw),scalar(2,row.height))}:{status:5};
     }

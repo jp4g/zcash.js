@@ -124,7 +124,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       const manifest = JSON.parse(manifestBytes);
       const metadataBytes = await readFile(`${runtimePacket}/build.json`);
       assert.equal(createHash('sha256').update(metadataBytes).digest('hex'), manifest.buildSha256);
-      assert.equal(createHash('sha256').update(await readFile(`${packet}/build.json`)).digest('hex'), JSON.parse(metadataBytes).nativeBuildSha256);
+      if(!threadedPacket) assert.equal(createHash('sha256').update(await readFile(`${packet}/build.json`)).digest('hex'), JSON.parse(metadataBytes).nativeBuildSha256);
       report.manifestSha256 = createHash('sha256').update(manifestBytes).digest('hex');
       assets.set('/runtime/manifest.json', manifestBytes);
       for (const file of manifest.files) {
@@ -135,7 +135,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       }
     }
     if(threadedPacket){
-      const bytes=await readFile(threadedPacket+'/manifest.json'),manifest=JSON.parse(bytes);assert.equal(manifest.mode,'threaded');report.threadedManifestSha256=createHash('sha256').update(bytes).digest('hex');assert.equal(createHash('sha256').update(await readFile(threadedPacket+'/build.json')).digest('hex'),manifest.buildSha256);assets.set('/threaded/manifest.json',bytes);
+      const bytes=await readFile(threadedPacket+'/manifest.json'),manifest=JSON.parse(bytes),metadata=await readFile(threadedPacket+'/build.json');assert.equal(manifest.mode,'threaded');report.threadedManifestSha256=createHash('sha256').update(bytes).digest('hex');assert.equal(createHash('sha256').update(metadata).digest('hex'),manifest.buildSha256);assert.equal(createHash('sha256').update(await readFile(`${packet}/build.json`)).digest('hex'),JSON.parse(metadata).nativeBuildSha256);assets.set('/threaded/manifest.json',bytes);
       for(const file of manifest.files){const bytes=await readFile(threadedPacket+'/'+file.url);assert.equal(bytes.length,file.byteLength);assert.equal(createHash('sha256').update(bytes).digest('hex'),file.sha256);assets.set('/threaded/'+file.url,bytes);}
     }
     if (process.env.WALLET_LOADER) {

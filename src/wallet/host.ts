@@ -1,5 +1,5 @@
 import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalIntent, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
-import type {NativePayment,PaymentInventory,PaymentInventoryInput,PaymentObserve,PaymentAttempt,PaymentAttemptInput,PaymentAttemptFinish,NativeFinalized,NativeFusedInput,NativeFused} from './payments.js';
+import type {NativePayment,PaymentInventory,PaymentInventoryInput,PaymentObserve,PaymentAttempt,PaymentAttemptInput,PaymentAttemptFinish,NativeFinalized,NativeFusedInput,NativeFused,PaymentReconcile} from './payments.js';
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance, ZcashError } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
@@ -266,7 +266,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       start(operationId:string){if(stopped||closing)throw closedError();if(submissions.has(operationId))throw failure('STORAGE_BUSY','submission','none','Submission is already active.');if(submissions.size>=maxQueuedJobs)throw limitError();submissions.add(operationId);return()=>{submissions.delete(operationId);};},
       get:(args:{operationId:string}&Op)=>call<NativePayment|null>('payment_get',args),
       list:(args:PaymentInventoryInput&Op)=>call<PaymentInventory>('payment_list',args),
-      reconcile:(args:{operationId:string;wallTimeMs:number}&Op)=>call<NativePayment>('payment_reconcile',args),
+      reconcile:(args:PaymentReconcile&Op)=>call<NativePayment>('payment_reconcile',args),
       observe:(args:PaymentObserve&Op)=>call<NativePayment>('payment_observe',args),
       begin:(args:PaymentAttemptInput&Op)=>call<PaymentAttempt|null>('payment_attempt_begin',args),
       finish:(args:PaymentAttemptFinish)=>call<NativePayment>('payment_attempt_finish',args),
@@ -274,7 +274,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     },
     pczt: {
       finalize:(args:{operationId:string;artifactId:string;spend:Uint8Array;output:Uint8Array}&Op)=>call<NativeFinalized>('pczt_finalize',args),
-      finalized:(args:{operationId:string}&Op)=>call<NativeFinalized|null>('finalized_get',args),
+      finalized:(args:{operationId:string}&Op)=>call<NativeFused>('finalized_get',args),
       checkProvingAssets() { if(maxQueuedBytes<2*saplingAssets.reduce((sum,value)=>sum+value.byteLength,0)+1024)throw limitError(); },
       reserveProving:reserveWorking,
       startProof() {

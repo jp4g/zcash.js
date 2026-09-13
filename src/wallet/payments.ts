@@ -2,11 +2,12 @@ import type {PaymentState,TransactionObservation,TxId,AccountId} from '../../doc
 export type NativePaymentState=Omit<PaymentState,'durability'|'steps'> & {readonly steps:readonly (Omit<PaymentState['steps'][number],'attempts'> & {
   readonly attempts:readonly (Omit<PaymentState['steps'][number]['attempts'][number],'startedAt'|'completedAt'> & {readonly startedAt:number;readonly completedAt:number|null})[];
 })[]};
-export interface NativePayment {readonly state:NativePaymentState;readonly observationSequence:string}
+export interface NativePayment {readonly state:NativePaymentState;readonly observationSequence:string;readonly observationSequences:readonly string[]}
+export interface PaymentReconcile {readonly operationId:string;readonly wallTimeMs:number;readonly policy?:{readonly maxAttempts:number;readonly minIntervalMs:number}}
 export interface PaymentInventoryInput {readonly afterSequence:string;readonly highWater?:string;readonly limit:number;readonly accountId?:string}
 export interface PaymentInventory {readonly revision:string;readonly highWater:string;readonly observationPosition:string;readonly items:readonly {sequence:string;operationId:string}[]}
-export interface PaymentObserve {readonly operationId:string;readonly stepIndex:0;readonly observation:TransactionObservation;readonly wallTimeMs:number}
-export interface PaymentAttemptInput {readonly operationId:string;readonly stepIndex:0;readonly sourceId:string;readonly routeBinding:string|null;readonly mode:'explicit'|'automatic';readonly origin?:'broadcast'|'send'|'shield';readonly wallTimeMs:number;readonly monotonicElapsedMs:number;readonly observationSequence:string;readonly policy?:{readonly maxAttempts:number;readonly minIntervalMs:number}}
+export interface PaymentObserve {readonly operationId:string;readonly stepIndex:number;readonly observation:TransactionObservation;readonly wallTimeMs:number}
+export interface PaymentAttemptInput {readonly operationId:string;readonly stepIndex:number;readonly sourceId:string;readonly routeBinding:string|null;readonly mode:'explicit'|'automatic';readonly origin?:'broadcast'|'send'|'shield';readonly wallTimeMs:number;readonly monotonicElapsedMs:number;readonly observationSequence:string;readonly policy?:{readonly maxAttempts:number;readonly minIntervalMs:number}}
 export interface PaymentAttempt {readonly attemptId:string;readonly bytes:Uint8Array;readonly txid:TxId}
 export interface PaymentAttemptFinish {readonly operationId:string;readonly attemptId:string;readonly outcome:'acknowledged'|'rejected'|'unknown';readonly txid?:TxId;readonly wallTimeMs:number;readonly diagnosticCode?:string}
 export interface NativeFinalized {readonly operationId:string;readonly stepIndex:0;readonly artifactId:string;readonly txid:TxId;readonly bytes:Uint8Array;readonly exactBytesSha256:string;readonly revision:string}
@@ -80,6 +81,9 @@ export class WalletPayments {
     const state=value.state;
     if(!state||typeof state.revision!=='string'||!Array.isArray(state.accountIds)||!state.accountIds.length||!Array.isArray(state.steps)||state.steps.length>16)throw protocol();
     id(state.operationId);sequence(value.observationSequence);
+    if(!Array.isArray(value.observationSequences)||value.observationSequences.length!==state.steps.length)throw protocol();
+    value.observationSequences.forEach(sequence);
+    if(state.steps.some((step,index)=>step.index!==index||step.dependsOn.some((parent:number)=>!Number.isInteger(parent)||parent<0||parent>=index)))throw protocol();
     const iso=(n:number)=>{if(!Number.isSafeInteger(n)||n<0||n>8640000000000000)throw protocol();return new Date(n).toISOString();};
     return frozen({...state,durability:this.durability,accountIds:[...state.accountIds] as unknown as NonEmpty<AccountId>,missing:[...state.missing],steps:state.steps.map((step:NativePaymentState['steps'][number])=>({...step,
       dependsOn:[...step.dependsOn],blockedBy:[...step.blockedBy],expiry:{...step.expiry},inclusion:step.inclusion?{...step.inclusion}:null,
@@ -115,11 +119,15 @@ export class WalletPayments {
   }
   private async observe(value:NativePayment,source:PaymentSource,signal:AbortSignal):Promise<NativePayment>{
     const steps=value.state.steps.filter(step=>step.txid!==null);if(!steps.length)return value;
-    if(steps.length!==1||steps[0]!.index!==0)throw failure('METHOD_NOT_SUPPORTED','observation','configure','Multi-step payment observation is not available.');
+    for(const step of steps)value=await this.observeStep(value,step.index,source,signal);
+    return value;
+  }
+  private async observeStep(value:NativePayment,index:number,source:PaymentSource,signal:AbortSignal):Promise<NativePayment>{
+    const step=value.state.steps[index];if(!step?.txid)throw protocol();
     const release=this.wallet.session.reserveWorking(16*1024*1024,async()=>{});
-    try{const observation=await source.observe(steps[0]!.txid!,signal);if(signal.aborted)throw failure('ABORTED','observation','none','Observation aborted.');
+    try{const observation=await source.observe(step.txid,signal);if(signal.aborted)throw failure('ABORTED','observation','none','Observation aborted.');
       // Persist completed source evidence even if the network deadline expires during this commit.
-      return await this.wallet.session.payments.observe({operationId:value.state.operationId,stepIndex:0,observation,wallTimeMs:Date.now()});
+      return await this.wallet.session.payments.observe({operationId:value.state.operationId,stepIndex:index,observation,wallTimeMs:Date.now()});
     }finally{release();}
   }
   broadcast(args:{operationId:string}&Op):Promise<PaymentState>{const input=snapshot(args,['operationId','signal']),operationId=id(input.operationId);return this.run(input.signal,async signal=>this.project(await this.submit(operationId,signal,false)));}
@@ -130,22 +138,34 @@ export class WalletPayments {
   }
   private async submitLocked(operationId:string,signal:AbortSignal,automatic:boolean,observed:NativePayment|undefined,origin:'broadcast'|'send'|'shield'):Promise<NativePayment>{
     if(!this.broadcaster)throw failure('OBSERVATION_UNAVAILABLE','submission','configure','No submission route is configured.');
-    const value=observed??await this.observe(await this.wallet.session.payments.reconcile({operationId,wallTimeMs:Date.now(),signal}),this.light??this.broadcaster,signal);
+    let value=observed??await this.observe(await this.wallet.session.payments.reconcile({operationId,wallTimeMs:Date.now(),signal}),this.light??this.broadcaster,signal);
     const sourceId=await this.broadcaster.verify(signal),routeBinding=await this.broadcaster.route();if(signal.aborted)throw failure('ABORTED','submission','none','Submission aborted.');
+    this.project(value);
+    if(!value.state.steps.length||value.state.steps.some(step=>step.txid===null))throw partial('NOT_FINALIZED',this.project(value));
+    for(const step of value.state.steps){
+      if(step.inclusion?.confirmations&&step.observation?.state==='mined')continue;
+      value=await this.submitStep(value,step.index,sourceId,routeBinding,signal,automatic,origin);
+      if(value.state.steps.some(child=>child.dependsOn.includes(step.index)))
+        value=await this.observeStep(value,step.index,this.light??this.broadcaster,signal);
+    }
+    return value;
+  }
+  private async submitStep(value:NativePayment,index:number,sourceId:string,routeBinding:string|null,signal:AbortSignal,automatic:boolean,origin:'broadcast'|'send'|'shield'):Promise<NativePayment>{
+    const operationId=value.state.operationId,key=operationId+':'+index;
     const policy=this.policy.mode==='online'?this.policy.rebroadcast:undefined;
-    const args:PaymentAttemptInput={operationId,stepIndex:0,sourceId,routeBinding,mode:automatic?'automatic':'explicit',...(automatic?{}:{origin}),wallTimeMs:Date.now(),monotonicElapsedMs:Math.floor(performance.now()-(this.starts.get(operationId)?.at??this.opened)),observationSequence:value.observationSequence,...(automatic&&policy?{policy:{maxAttempts:policy.maxAttempts,minIntervalMs:policy.minIntervalMs}}:{})};
+    const args:PaymentAttemptInput={operationId,stepIndex:index,sourceId,routeBinding,mode:automatic?'automatic':'explicit',...(automatic?{}:{origin}),wallTimeMs:Date.now(),monotonicElapsedMs:Math.floor(performance.now()-(this.starts.get(key)?.at??this.opened)),observationSequence:value.observationSequences[index]!,...(automatic&&policy?{policy:{maxAttempts:policy.maxAttempts,minIntervalMs:policy.minIntervalMs}}:{})};
     let attempt:PaymentAttempt|null,remember:(()=>void)|undefined;
     try{
-      if(!this.starts.has(operationId))remember=this.wallet.session.reserveWorking(512,async()=>{});
+      if(!this.starts.has(key))remember=this.wallet.session.reserveWorking(512,async()=>{});
       try{attempt=await this.wallet.session.payments.begin({...args,signal});}
       catch(error){const receipt=error&&typeof error==='object'?this.wallet.session.completion(error):undefined;
         if(receipt?.completion==='committed'&&receipt.value!==undefined)attempt=receipt.value as PaymentAttempt|null;
         else{if(isZcashError(error)&&['PAYMENT_BLOCKED','TRANSACTION_EXPIRED','NOT_FINALIZED'].includes(error.code))throw partial(error.code,this.project(value));throw error;}
       }
       if(!attempt){if(signal.aborted)throw partial('ABORTED',this.project(value));return value;}
-      this.starts.set(operationId,{at:performance.now(),release:this.starts.get(operationId)?.release??remember!});remember=undefined;let result:PaymentAttemptFinish={operationId,attemptId:attempt.attemptId,outcome:'unknown',wallTimeMs:Date.now()};
+      this.starts.set(key,{at:performance.now(),release:this.starts.get(key)?.release??remember!});remember=undefined;let result:PaymentAttemptFinish={operationId,attemptId:attempt.attemptId,outcome:'unknown',wallTimeMs:Date.now()};
       try{
-        if(!signal.aborted){const pending=operation(signal);try{const reply=await pending.wait(this.broadcaster.broadcast(attempt.bytes,attempt.txid,sourceId,pending.signal));result={...result,outcome:reply.outcome,...(reply.outcome==='acknowledged'?{txid:reply.txid}:{}),...(reply.diagnosticCode===null?{}:{diagnosticCode:reply.diagnosticCode})};}finally{pending.close();}}
+        if(!signal.aborted){const pending=operation(signal);try{const reply=await pending.wait(this.broadcaster!.broadcast(attempt.bytes,attempt.txid,sourceId,pending.signal));result={...result,outcome:reply.outcome,...(reply.outcome==='acknowledged'?{txid:reply.txid}:{}),...(reply.diagnosticCode===null?{}:{diagnosticCode:reply.diagnosticCode})};}finally{pending.close();}}
       }catch{/* A durable attempt-start without a valid completion remains unknown. */}
       const finished=await this.wallet.session.payments.finish({...result,wallTimeMs:Date.now()});
       if(signal.aborted){const error=partial('ABORTED',this.project(finished));this.wallet.session.committed(error,finished);throw error;}return finished;
@@ -200,9 +220,10 @@ export class WalletPayments {
     const input=snapshot(args,['signal']);if(this.recoveryRun)return this.recoveryRun;
     return this.recoveryRun=this.run(input.signal,async signal=>{
       const captured=await this.page({afterSequence:'0',limit:200,signal});
+      const retry=this.policy.mode==='online'?this.policy.rebroadcast:undefined;
       let operations=0,candidates=0,after='0';
       for(;;){const page=after==='0'?captured:await this.page({afterSequence:after,highWater:captured.highWater,limit:200,signal});
-        for(const row of page.items){const value=await this.wallet.session.payments.reconcile({operationId:row.operationId,wallTimeMs:Date.now(),signal});this.project(value);operations++;if(value.state.steps.some(step=>step.txid!==null))candidates++;if(!Number.isSafeInteger(operations))throw resource();after=row.sequence;}
+        for(const row of page.items){const value=await this.wallet.session.payments.reconcile({operationId:row.operationId,wallTimeMs:Date.now(),...(retry?{policy:{maxAttempts:retry.maxAttempts,minIntervalMs:retry.minIntervalMs}}:{}),signal});this.project(value);operations++;if(value.state.steps.some(step=>step.txid!==null))candidates++;if(!Number.isSafeInteger(operations))throw resource();after=row.sequence;}
         if(!page.items.length)break;await pause(1,signal);
       }
       let observed=0,lastError:ErrorInfo|null=null;

@@ -105,8 +105,11 @@ export class WalletProposals {
     const input=snapshot(args,['pczt','signal']),binding=pcztArtifactBinding(input.pczt,this.session),pending=operation(input.signal);
     let working:(()=>void)|undefined,release:(()=>void)|undefined;
     try{
-      pending.check();const prior=await this.session.pczt.finalized({operationId:binding.operationId,signal:pending.signal});
-      if(prior){if(prior.artifactId!==binding.artifactId)throw failure('PCZT_ASSOCIATION_MISMATCH','finalization','correct-input','A different artifact was already finalized.');return prior;}
+      pending.check();const stored=await this.session.pczt.finalized({operationId:binding.operationId,signal:pending.signal});
+      if(stored.operationId!==binding.operationId||!Array.isArray(stored.transactions))throw protocol();
+      if(stored.transactions.length){const prior=stored.transactions[0]!;
+        if(stored.transactions.length!==1||prior.stepIndex!==0||prior.artifactId!==binding.artifactId)throw failure('PCZT_ASSOCIATION_MISMATCH','finalization','correct-input','A different artifact was already finalized.');
+        return {...prior,stepIndex:0,artifactId:binding.artifactId};}
       release=this.session.pczt.startProof();
       const retained=await this.session.pczt.get({...binding,signal:pending.signal}),proposal=await this.restore({operationId:binding.operationId,signal:pending.signal});
       if(!retained||!proposal)throw protocol();

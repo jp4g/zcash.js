@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:https';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
-import { scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
+import { offlineSyncChecks, scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
 import { openWalletRuntime, browserThreadingPrerequisites } from '../../dist/src/runtime/wallet.js';
 
 // Capability admission only; actual native runtime qualification follows below.
@@ -146,6 +146,9 @@ try {
   try { scanned = await scanChecks(first.session, fixture.scan, options('scanned').network); } finally { await first.close(); }
   const reopened = await openWalletRuntime(options('scanned'));
   try {
+    const offlineRequests = requests.length;
+    await offlineSyncChecks(reopened.session);
+    assert.equal(requests.length, offlineRequests, 'offline status does not fetch');
     const balance = await reopened.session.getBalance(scanned.query);
     checkBalance(balance, fixture.scan);
     await scanQueryChecks(reopened.session,fixture.scan,scanned.account.id,scanned.queries);
@@ -177,5 +180,5 @@ try {
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
   assert.equal(requests.filter(path => path.startsWith('/good/')).length, 66, 'six pinned assets per open; no execution refetch');
-  console.log(JSON.stringify({ pass: true, emptyCompleted:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  console.log(JSON.stringify({ pass: true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

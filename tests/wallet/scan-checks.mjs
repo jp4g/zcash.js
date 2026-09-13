@@ -192,3 +192,25 @@ export function checkBalance(balance, fixture) {
   const { revision, ...scan } = balance.scan;
   if (!same(scan, fixture.expectedScan) || !same(balance.amounts, fixture.expectedAmounts)) throw Error('native populated balance/scan mismatch');
 }
+
+// Reopened wallets remain locally useful without inventing a scan endpoint.
+export async function offlineSyncChecks(session) {
+  const sync = new WalletSync(session, undefined, {pollIntervalMs:1000,maxBufferedUpdates:2});
+  const reject = async (promise, code) => {
+    try { await promise; throw Error('unexpected offline success'); }
+    catch (error) { check(error.code===code, `offline ${code}: ${error.code}`); }
+  };
+  try {
+    const before = await sync.getSyncStatus();
+    check(before.activity==='idle' && before.scan.fullyScannedHeight===100, 'offline persisted scan status');
+    await reject(sync.sync({signal:{}}), 'INVALID_ARGUMENT');
+    const stopped = await sync.sync({signal:AbortSignal.abort()});
+    check(stopped.activity==='stopped', 'offline cancellation keeps finite stopped semantics');
+    await reject(sync.sync(), 'OBSERVATION_UNAVAILABLE');
+    const watch = sync.watchSync();
+    await reject(watch.next(), 'OBSERVATION_UNAVAILABLE');
+    await watch.return();
+    const after = await sync.getSyncStatus();
+    check(after.scan.revision===before.scan.revision, 'offline attempts do not mutate wallet');
+  } finally { await sync.stop(); }
+}

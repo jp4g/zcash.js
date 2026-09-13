@@ -1,4 +1,4 @@
-import { scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
+import { offlineSyncChecks, scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
 // Real HTTPS acquisition -> verified Blob worker -> native OPFS persistence.
 export async function runBrowser() {
   const { openWalletRuntime } = await import('/dist/src/runtime/wallet.js');
@@ -65,6 +65,7 @@ export async function runBrowser() {
     try { scanned = await scanChecks(first.session, fixture.scan, options.network); } finally { await first.close(); }
     const reopened = await openWalletRuntime(scanOptions);
     try {
+      await offlineSyncChecks(reopened.session);
       const balance = await reopened.session.getBalance(scanned.query);
       checkBalance(balance, fixture.scan);
       await scanQueryChecks(reopened.session,fixture.scan,scanned.account.id,scanned.queries);
@@ -94,7 +95,7 @@ export async function runBrowser() {
       try {cursor=await historyPageChecks(opened.session,fixture.history,reopen?cursor:undefined);}
       finally {await opened.close();}
     }
-    return { prerequisiteFallback:true, emptyCompleted:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    return { prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
     for (const entry of [name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {

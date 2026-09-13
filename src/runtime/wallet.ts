@@ -140,6 +140,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
       owner: Object.freeze({
         identity: owner.token,
         check: owner.check,
+        maxPcztBytes: runtime.maxPcztBytes,
         signers: owner.signers,
         invalidate: owner.invalidate,
         retain() {
@@ -271,7 +272,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
         const reply = await request({type:'signers',port:authorityChannel.port2},[authorityChannel.port2]);
         if (reply?.type !== 'signers-ready') throw mismatch();
         authority = attachWalletWorker(authorityChannel.port1, async () => {},
-          {maxQueuedJobs:runtime.maxQueuedJobs,maxQueuedBytes:runtime.maxQueuedBytes},budget);
+          {maxQueuedJobs:runtime.maxQueuedJobs,maxQueuedBytes:runtime.maxQueuedBytes,maxPcztBytes:runtime.maxPcztBytes},budget);
         sessions.add(authority);
       } catch (error) { authorityChannel.port1.close(); authorityChannel.port2.close(); throw error; }
       return {
@@ -285,7 +286,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
               parametersFormat, parameters, genesis, port: channel.port2 }, [channel.port2]);
             check(); if (opened?.type !== 'opened') { stop(mismatch()); throw mismatch(); }
             const session = attachWalletWorker(channel.port1, async () => { sessions.delete(session); await release(); },
-              {maxQueuedJobs:runtime.maxQueuedJobs,maxQueuedBytes:runtime.maxQueuedBytes}, budget);
+              {maxQueuedJobs:runtime.maxQueuedJobs,maxQueuedBytes:runtime.maxQueuedBytes,maxPcztBytes:runtime.maxPcztBytes}, budget);
             sessions.add(session);
             return { session, close: () => session.close() };
           } catch (error) { channel.port1.close(); channel.port2.close(); await release(); throw error; }

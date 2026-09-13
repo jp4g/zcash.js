@@ -9,7 +9,7 @@ const network=await defineNetwork({identity:'memory-signer-test',genesisHash:'03
 function owner(overrides={}) {
   let disposed=0;
   const identity={parameters:Buffer.from(parameters).toString('hex'),genesis:'03'.repeat(32)};
-  const authority={check(){},
+  const authority={maxPcztBytes:4*1024*1024,check(){},
     describe:async()=>({...identity,accountIndex:0,viewingKey:fixture.ufvk}),
     capabilities:async()=>({...identity,revision:'zakura-memory-signer/1',authorizations:[],accountDiscovery:'explicit-index',exportableViewing:['ufvk','uivk'],maxPcztBytes:4*1024*1024}),
     dispose:async()=>{disposed++;},authorize:async()=>{throw Error('must not sign');},...overrides,
@@ -54,4 +54,15 @@ test('cached memory signer methods observe retained owner invalidation',async()=
   await assert.rejects(signer.getCapabilities(),error=>error===crashed);
   await assert.rejects(signer.getAccount({network,selector:{kind:'derived',accountIndex:0}}),error=>error===crashed);
   await signer.dispose();
+});
+
+test('memory signer enforces configured PCZT maximum while advertising native capabilities',async()=>{
+  let dispatches=0;
+  const native=owner({maxPcztBytes:8,authorize:async()=>{dispatches++;throw Error('must not dispatch');}});
+  const signer=await memorySigner(network,native.authority);
+  try {
+    assert.equal((await signer.getCapabilities()).maxPcztBytes,4*1024*1024);
+    await assert.rejects(signer.authorize({requestId:'bounded',pczt:new Uint8Array(9),context:{network,targetHeight:100,branchId:1},accountIds:['routing'],reviewCommitment:'review',capabilityRevision:'zakura-memory-signer/1'}),{code:'RESOURCE_LIMIT'});
+    assert.equal(dispatches,0);
+  } finally {await signer.dispose();}
 });

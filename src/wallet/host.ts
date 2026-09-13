@@ -45,7 +45,7 @@ async function watch(signal: AbortSignal | undefined, cancel: () => void): Promi
 }
 
 /** Copy supported control values without invoking caller getters or cloning unbounded inputs. */
-function snapshot(args: object, maximum: number, command: WalletCommand) {
+function snapshot(args: object, maximum: number, command: WalletCommand, pcztMaximum: number) {
   let size = 0;
   const copied: Uint8Array[] = [];
   let signal: AbortSignal | undefined;
@@ -79,8 +79,8 @@ function snapshot(args: object, maximum: number, command: WalletCommand) {
           try { if (typeof aborted.call(signal) !== 'boolean') throw invalidArgument(); }
           catch { throw invalidArgument(); }
         }
-      } else Object.defineProperty(result, key, { value: copy(property.value, depth + 1,
-        mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined), enumerable: true });
+      } else Object.defineProperty(result, key, { value: command === 'signer_authorize' && depth === 0 && key === 'maximum' ? pcztMaximum : copy(property.value, depth + 1,
+        command === 'signer_authorize' && depth === 0 && key === 'bytes' ? pcztMaximum : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined), enumerable: true });
     }
     return result;
   };
@@ -99,6 +99,11 @@ function snapshot(args: object, maximum: number, command: WalletCommand) {
         args = { ...input, birthday: { ...checkpoint, parameters: definition.parameters.bytes,
           genesis: Uint8Array.from(definition.genesisHash.match(/../g)!.reverse(), byte => parseInt(byte, 16)) } };
       } else args = input;
+    }
+    if (command === 'signer_authorize') {
+      const field = Object.getOwnPropertyDescriptor(args, 'maximum');
+      if (!field || !('value' in field) || !Number.isSafeInteger(field.value) || field.value < 1) throw invalidArgument();
+      pcztMaximum = Math.min(pcztMaximum, field.value, 4 * 1024 * 1024);
     }
     value = copy(args, 0);
   }
@@ -122,9 +127,9 @@ export interface WalletQueueBudget {
 
 /** Packaging supplies an initialized private port, worker destruction, and calls crashed() on worker loss. */
 export function attachWalletWorker(port: MessagePort, destroy: () => Promise<void>,
-  limits: { maxQueuedJobs: number; maxQueuedBytes: number }, shared?: WalletQueueBudget) {
-  const { maxQueuedJobs, maxQueuedBytes } = limits;
-  if (![maxQueuedJobs, maxQueuedBytes].every(n => Number.isSafeInteger(n) && n > 0)) throw invalidArgument();
+  limits: { maxQueuedJobs: number; maxQueuedBytes: number; maxPcztBytes?: number }, shared?: WalletQueueBudget) {
+  const { maxQueuedJobs, maxQueuedBytes, maxPcztBytes = 4 * 1024 * 1024 } = limits;
+  if (![maxQueuedJobs, maxQueuedBytes, maxPcztBytes].every(n => Number.isSafeInteger(n) && n > 0)) throw invalidArgument();
   type Job = { id: number; command: WalletCommand; args: object; size: number; ready: boolean; cancelled: boolean;
     cleanup: () => void; resolve: (value: unknown) => void; reject: (error: unknown) => void };
   const queue: Job[] = [], receipts = new WeakMap<object, WalletCompletion>();
@@ -164,7 +169,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     let input: ReturnType<typeof snapshot> | undefined;
     try {
       // One fixed close control is reserved even when the work queue is full.
-      input = close ? { args: {}, size: 0, signal: undefined } : snapshot(args, maxQueuedBytes, command);
+      input = close ? { args: {}, size: 0, signal: undefined } : snapshot(args, maxQueuedBytes, command, maxPcztBytes);
       if (input.signal && aborted.call(input.signal)) throw abortError();
       if (!close && !cleanup && (queue.length + (active ? 1 : 0) >= maxQueuedJobs || input.size > maxQueuedBytes - bytes)) throw limitError();
       if (!close && !cleanup && shared && (shared.jobs >= maxQueuedJobs || input.size > maxQueuedBytes - shared.bytes)) throw limitError();

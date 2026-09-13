@@ -37,6 +37,7 @@ export async function memorySigner(network: Network, authority: Authority): Prom
     accountIndex(description.accountIndex);
     if (capabilities.maxPcztBytes !== maximum) throw mismatch();
   } catch (error) { await authority.dispose().catch(() => {}); throw error; }
+  const configuredMaximum = Math.min(maximum, authority.maxPcztBytes);
   let disposing: Promise<void> | undefined;
   const check = () => { if (disposing) throw failure('CLOSED','authorization','none','Signer is disposed.'); authority.check(); };
   const sameNetwork = (value: Network) => {
@@ -65,13 +66,13 @@ export async function memorySigner(network: Network, authority: Authority): Prom
       finally { pending.close(); }
     },
     async authorize(args: Parameters<Signer['authorize']>[0]) {
-      const {request,signal} = signingRequest(args,maximum);
+      const {request,signal} = signingRequest(args,configuredMaximum);
       sameNetwork(request.context.network);
       if (request.capabilityRevision !== capabilities.revision) throw mismatch();
       const pending = operation(signal);
       try {
         pending.check(); check();
-        const handle = await pczt.parse({bytes:request.pczt,context:request.context,maxBytes:maximum,signal:pending.signal});
+        const handle = await pczt.parse({bytes:request.pczt,context:request.context,maxBytes:configuredMaximum,signal:pending.signal});
         try {
           const info = await pczt.inspect({pczt:handle,signal:pending.signal});
           if (info.pools.some(pool => !capabilities.authorizations.some(role => role.pool === pool
@@ -80,11 +81,11 @@ export async function memorySigner(network: Network, authority: Authority): Prom
         } finally { await handle.dispose(); }
         pending.check(); check();
         const bytes = await authority.authorize({format:bound.definition.parametersFormat,parameters:bound.definition.parameters.bytes,
-          genesis,height:request.context.targetHeight,branch:request.context.branchId,bytes:request.pczt,maximum,signal:pending.signal});
+          genesis,height:request.context.targetHeight,branch:request.context.branchId,bytes:request.pczt,maximum:configuredMaximum,signal:pending.signal});
         pending.check(); check();
         // requestId/reviewCommitment are application associations, not native approval tokens.
         // The wallet validates immutable effects and associates returned bytes before accepting them.
-        return {requestId:request.requestId,pczt:ownBytes(bytes,invalidArgument,resource,maximum)};
+        return {requestId:request.requestId,pczt:ownBytes(bytes,invalidArgument,resource,configuredMaximum)};
       } finally { pending.close(); }
     },
     dispose() { return disposing ??= authority.dispose(); },

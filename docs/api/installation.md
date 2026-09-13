@@ -93,3 +93,9 @@ No namespace object is required. Types use type-only named imports; factories an
 The embedded specification examples remain compile-only. Supply real application configuration before execution and do not cast application data into opaque brands. Declared application inputs and callbacks represent code the consumer supplies; they are not SDK exports. The walkthrough keeps its explicit, typed application configuration outside the displayed setup region; the complete source includes those values. `parseZec` and `formatZec` are implemented root utilities for exact decimal ZEC input and display, with bigint zatoshis between them.
 
 The example tsconfig uses strict checking and `noEmit`. Its exact `zcash.js` path alias resolves to `../public-api.ts` solely for declaration checking; it does not provide runtime module resolution or generate JavaScript. The public API is available from the root entry; native Node gRPC also has the explicit `zcash.js/grpc-node` entry. Specification typechecking alone does not qualify runtime behavior.
+
+## Retained Webpack browser result
+
+Webpack 5.110.3's installed-package bundle was exercised by the existing Firefox wallet harness with accepted runtime package 03. The non-proving run passed public OPFS open/read/close through the bundled entry (`webpackWallet: true`), alongside the existing baseline workflows: 25 workers destroyed, 82,379 ms, and complete browser/driver/server cleanup. Receipt: `/home/jack/zcash-webpack-consumer-firefox-01-logs/firefox-GKpMPc.json`, SHA-256 `5f611b75666c2f1b382dc99dfb6209c74a60c95201b5b866742dc6d9c463b625`. The tested bundle-02 SHA-256 is `1665d7e443af7c512c6bada546b17c307e99799900e4b780a30d30cbaed994bc`.
+
+This qualifies the tested browser bundle and unchanged external runtime asset path. It does not establish Webpack Node/CJS output, threaded execution, a proving workload through the Webpack bundle, or complete v1 acceptance.

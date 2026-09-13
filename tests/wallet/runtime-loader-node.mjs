@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:https';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
-import { mnemonicWalletChecks, sharedWalletChecks, memoryWalletChecks, offlineSyncChecks, scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
+import { memorySignerChecks, mnemonicWalletChecks, sharedWalletChecks, memoryWalletChecks, offlineSyncChecks, scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
 import { openWalletRuntime, browserThreadingPrerequisites } from '../../dist/src/runtime/wallet.js';
 
 // Capability admission only; actual native runtime qualification follows below.
@@ -106,6 +106,10 @@ try {
   const fixtureBytes = await readFile(`${process.argv[3]}/bundle/tests/views-fixture.json`);
   assert.equal(sha(fixtureBytes), JSON.parse(nativeReceipt).artifacts['tests/views-fixture.json']);
   const fixture = JSON.parse(fixtureBytes);
+  const nativeBuild=JSON.parse(nativeReceipt);
+  const signerBytes=await readFile(`${nativeBuild.work}/source/tests/signer-fixture.json`);
+  assert.equal(sha(signerBytes),nativeBuild.sources['tests/signer-fixture.json']);
+  const signerFixture=JSON.parse(signerBytes);
   await assert.rejects(openWalletRuntime({...options('memory-invalid'),storage:{kind:'memory',path:'must-not-create'}}),{code:'INVALID_ARGUMENT'});
   await assert.rejects(openWalletRuntime({...options('memory-abort'),storage:{kind:'memory'},signal:AbortSignal.abort()}),{code:'ABORTED'});
   const walletDirectories=await readdir(root);
@@ -116,6 +120,7 @@ try {
   assert.deepEqual(await readdir(root),walletDirectories,'memory opens create no wallet filesystem directory');
   await sharedWalletChecks((name,signal)=>openWalletRuntime({...options(`shared-${name}`),signal}),fixture);
   await mnemonicWalletChecks(name=>openWalletRuntime(options(`mnemonic-${name}`)));
+  await memorySignerChecks(()=>openWalletRuntime(options('complete-signer')),signerFixture,network);
   let account, addresses, previousScan;
   for (const reopen of [false, true]) {
     const input = options('wallet'), diagnostics = [];
@@ -190,5 +195,5 @@ try {
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
   assert.equal(requests.filter(path => path.startsWith('/good/')).length, 90, 'six pinned assets per open; no execution refetch');
-  console.log(JSON.stringify({ pass: true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  console.log(JSON.stringify({ pass: true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

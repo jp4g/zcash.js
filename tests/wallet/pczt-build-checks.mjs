@@ -18,6 +18,8 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
   const proofLimits={maxMemoryBytes:1024*1024*1024,maxQueuedBytes:104*1024*1024};
   try {
   for(const scope of ['external','internal']) {
+    globalThis.walletPhase=`pczt-${scope}`;
+    if(globalThis.process?.versions?.node)console.error(JSON.stringify({pcztPhase:globalThis.walletPhase}));
     const data=fixture[scope],wallet=await open(scope),accounts=walletAccounts(wallet,network);
     let signer,reopened,signerAccount;
     try {
@@ -27,14 +29,17 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
       let revision=(await wallet.session.scan.plan({target:data.target})).revision;
       for(const batch of data.batches)revision=(await wallet.session.scan.ingest({...batch,revision,target:data.target,priorTreeState:hex(batch.priorTreeState),blocks:batch.blocks.map(hex)})).revision;
       const destination=await wallet.session.addresses.next({accountId:created.account.id,request:{format:'transparent'}});
+      const ironwood=provingOrigin&&scope==='internal'?await wallet.session.addresses.next({accountId:created.account.id,
+        request:{format:'unified',transparent:'omit',sapling:'omit',ironwood:'require'}}):undefined;
       const proposals=new WalletProposals(wallet.session,network);
       const proposal=await proposals.create({revision:(await wallet.session.scan.state()).revision,accountId:created.account.id,
-        payments:[{to:destination.address,amount:10000n}],
+        payments:[{to:destination.address,amount:10000n},...(ironwood?[{to:ironwood.address,amount:10000n}]:[])],
         policy:{spendPools:['sapling'],transparent:'disallow',changePool:provingOrigin&&scope==='internal'?'ironwood':'sapling',feeRule:'zip317-standard',confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20}});
       check(proposal.steps[0].outputs.some(output=>output.kind==='change'&&output.address===null),'proposal defers exact change address');
       const artifact=await proposals.build({proposal}),retained=await wallet.session.pczt.get({operationId:proposal.operationId});
       check(artifact.outputs.some(output=>output.kind==='change'&&typeof output.address==='string'),'native build resolves owned change');
       check(artifact.outputs.some(output=>output.kind==='payment'&&output.address===destination.address&&output.amount===10000n),'built recipient remains exact');
+      if(ironwood)check(artifact.outputs.some(output=>output.kind==='payment'&&output.pool==='ironwood'&&output.address===ironwood.address&&output.amount===10000n),'built Ironwood recipient remains exact');
       check((await proposals.build({proposal})).artifactId===artifact.artifactId,'repeated build retains artifact identity');
       check(equal((await wallet.session.pczt.get({operationId:proposal.operationId})).bytes,retained.bytes),'repeated build preserves exact bytes');
       const exchange=await proposals.export(scope==='external'?{pczt:artifact}:{proposal});

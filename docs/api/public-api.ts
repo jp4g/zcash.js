@@ -580,6 +580,11 @@ export interface ReviewedOutput {
   readonly memo: MemoInput | null;
   readonly kind: 'payment' | 'change' | 'step-funding';
 }
+/** Recipient intent is exact; native construction may choose wallet-owned internal addresses later. */
+export type ProposedOutput = Omit<ReviewedOutput, 'kind' | 'address'> & (
+  | { readonly kind: 'payment'; readonly address: string }
+  | { readonly kind: 'change' | 'step-funding'; readonly address: string | null }
+);
 export interface Proposal {
   readonly [opaque]: 'wallet-proposal';
   readonly operationId: string;
@@ -593,12 +598,13 @@ export interface Proposal {
   readonly steps: NonEmpty<{
     readonly index: number; readonly dependsOn: readonly number[];
     readonly transactionVersion: number; readonly expiryHeight: number; // zero = disabled
-    readonly inputs: readonly ReviewedInput[]; readonly outputs: readonly ReviewedOutput[];
+    readonly inputs: readonly ReviewedInput[]; readonly outputs: readonly ProposedOutput[];
     readonly fee: bigint;
   }>;
 }
 export interface PcztArtifact {
   readonly [opaque]: 'wallet-pczt';
+  readonly outputs: readonly ReviewedOutput[]; // exact native-built outputs, available before external signing
   readonly operationId: string;
   readonly artifactId: string;
   readonly accountIds: NonEmpty<AccountId>;

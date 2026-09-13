@@ -7,14 +7,14 @@ const bufferOf = Object.getOwnPropertyDescriptor(typedArray, 'buffer')!.get!;
 const offsetOf = Object.getOwnPropertyDescriptor(typedArray, 'byteOffset')!.get!;
 const lengthOf = Object.getOwnPropertyDescriptor(typedArray, 'byteLength')!.get!;
 const bufferLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength')!.get!;
-export function ownBytes(bytes: Uint8Array, protocol: () => Error, resourceLimit: () => Error): Uint8Array {
+export function ownBytes(bytes: Uint8Array, protocol: () => Error, resourceLimit: () => Error, maximum = 4 * 1024 * 1024): Uint8Array {
   try {
     if (tag.call(bytes) !== 'Uint8Array') throw protocol();
     const buffer = bufferOf.call(bytes);
     bufferLength.call(buffer);
     typedArray.values.call(bytes); // Reject detached/out-of-bounds original views.
     const length = lengthOf.call(bytes);
-    if (length > 4 * 1024 * 1024) throw resourceLimit();
+    if (length > maximum) throw resourceLimit();
     return new Uint8Array(new Uint8Array(buffer, offsetOf.call(bytes), length));
   } catch (error) { throw isZcashError(error) ? error : protocol(); }
 }

@@ -31,6 +31,13 @@ function authority(account: AccountDescriptor) {
   if (handle.closed) throw failure('CLOSED', 'account', 'none', 'Viewing authority is disposed.');
   return handle;
 }
+/** Preserve the genuine handle while projecting metadata from its native authority. */
+export function checkedAccountDescriptor(account: AccountDescriptor): AccountDescriptor {
+  const owned = snapshot(account, ['network','viewing','components','enabledPools','provenance']);
+  const state = authority(owned), data = state.native.describe();
+  return Object.freeze({network:state.network,viewing:owned.viewing,components:Object.freeze([...data.components]),
+    enabledPools:Object.freeze([...data.enabledPools]),provenance:data.provenance});
+}
 function descriptor(native: ViewingAuthority, network: Network): AccountDescriptor {
   try {
     const data = native.describe();

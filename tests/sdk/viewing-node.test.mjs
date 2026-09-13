@@ -1,3 +1,4 @@
+import {signerChecks} from './signer-checks.mjs';
 import {birthdayChecks} from './birthday-checks.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -14,5 +15,5 @@ test('packed public viewing authority and all address operations use actual nati
   const api=await import(pathToFileURL(join(scratch,'consumer/package/dist/src/index.js')));
   const result=await viewingChecks(api);
   assert.deepEqual(result,{operations:7,independentAuthorities:3,cancelled:2,unknownReceivers:true});
-  console.log(JSON.stringify({scratch,...result,birthday:await birthdayChecks(api)}));
+  console.log(JSON.stringify({scratch,...result,birthday:await birthdayChecks(api),signer:await signerChecks(api)}));
 });

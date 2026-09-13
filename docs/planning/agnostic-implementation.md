@@ -1,5 +1,20 @@
 # Initial WASM-independent implementation
 
+## Current custom signer adapter
+
+`createCustomSigner` captures an application's three signer callbacks, preserves
+stateful adapter method receivers, and copies requests and responses. It checks
+request IDs and genuine viewing handles, projecting account metadata from Rust.
+Capability records remain adapter advertisements; this boundary does not negotiate
+profiles or verify PCZT effects, keys, or signatures. Wallet attachment and signing
+acceptance remain unfinished. PCZT size policy belongs to wallet configuration and
+negotiation, not an invented adapter-wide ceiling. Capability control records have
+a 64 KiB text/numeric budget, 1,024 entries per array and 4,096 characters per string.
+
+The adapter receives cancellation and owns cleanup of account results it does not
+deliver. The wrapper never disposes an adapter's potentially shared viewing handle;
+a successfully returned descriptor remains caller-disposable.
+
 ## Current standalone viewing and birthdays
 
 The root exports `accountFromViewingKey`, `viewing.export`, `viewing.toIncoming`,

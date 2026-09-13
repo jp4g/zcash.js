@@ -1,10 +1,11 @@
+import {signerChecks} from './signer-checks.mjs';
 import {birthdayChecks} from './birthday-checks.mjs';
 import {viewingChecks} from './viewing-checks.mjs';
 import {publicClientChecks} from './public-client-fixture.mjs';
 import {lightClientChecks} from './light-client-fixture.mjs';
 // Browser-only probe. The internal read hook is test access, never a public SDK export.
 const claims = ['packed-esm', 'packed-bundle', 'amounts-ids', 'no-eager', 'negative-eager',
-  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry', 'public-network','public-light','public-client','public-viewing','public-birthday'];
+  'negative-unsupported', 'precision-utf8', 'deadline', 'abort', 'invalid-utf8', 'rpc-error-no-retry', 'public-network','public-light','public-client','public-viewing','public-birthday','public-custom-signer'];
 const check = (condition, label) => { if (!condition) throw Error(label); };
 const keys = ['Worker', 'SharedWorker', 'WebAssembly', 'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource'];
 export async function guarded(load) {
@@ -37,7 +38,7 @@ export async function run() {
     sdk = await import('/package/dist/src/index.js');
     bundled = await import('/bundle.mjs');
     for (const api of [sdk, bundled.sdk]) {
-      check(Object.keys(api).sort().join(',') === 'accountFromViewingKey,accountIndex,addresses,blockHash,createLightClient,createPublicClient,defineNetwork,diversifierIndex,formatZec,grpc,http,isZcashError,parseZec,resolveBirthday,txId,viewing', 'root exports');
+      check(Object.keys(api).sort().join(',') === 'accountFromViewingKey,accountIndex,addresses,blockHash,createCustomSigner,createLightClient,createPublicClient,defineNetwork,diversifierIndex,formatZec,grpc,http,isZcashError,parseZec,resolveBirthday,txId,viewing', 'root exports');
       check(api.parseZec('9007199254740993.00000001') === 900719925474099300000001n, 'amount parse');
       check(api.formatZec(900719925474099300000001n) === '9007199254740993.00000001', 'amount format');
       check(api.txId('a'.repeat(64)) === 'a'.repeat(64) && api.blockHash('b'.repeat(64)) === 'b'.repeat(64), 'hash IDs');
@@ -115,9 +116,10 @@ export async function run() {
       throw Error('public dispatch timeout');
     }));
   }
+  const signers=[]; for(const api of [sdk,bundled.sdk]) signers.push(await signerChecks(api));
   const birthdays=[]; for(const api of [sdk,bundled.sdk]) birthdays.push(await birthdayChecks(api));
   const viewing=[]; for(const api of [sdk,bundled.sdk]) viewing.push(await viewingChecks(api));
-  return { ok: true, claims, network, light, publicClients, viewing, birthdays, eager, importResources, negativeEager, precision: good.value.text, utf8: good.text, errors,
+  return { ok: true, claims, network, light, publicClients, viewing, birthdays, signers, eager, importResources, negativeEager, precision: good.value.text, utf8: good.text, errors,
     userAgent: navigator.userAgent, secureContext: isSecureContext, crossOriginIsolated };
 }
 

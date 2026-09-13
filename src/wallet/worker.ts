@@ -3,7 +3,7 @@ import { failure, isZcashError } from '../errors.js';
 import { WalletSession } from './session.js';
 import type { Completion, InitializedViews, InitializedSigners } from './session.js';
 
-export type WalletCommand = 'account_import' | 'account_list' | 'account_get' | 'account_balance'
+export type WalletCommand = 'account_remove' | 'account_check_key' | 'account_import' | 'account_list' | 'account_get' | 'account_balance'
   | 'account_import_mnemonic_signer' | 'account_create_mnemonic_signer' | 'signer_bind' | 'signer_unbind' | 'signer_describe' | 'signer_release' | 'signer_capabilities' | 'signer_authorize'
   | 'wallet_history' | 'wallet_transaction' | 'wallet_notes' | 'wallet_utxos'
   | 'enhancement_requests' | 'enhancement_apply'
@@ -14,7 +14,7 @@ export interface WalletReply {
   readonly invalid: boolean;
   readonly outcome: { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: ErrorInfo };
 }
-export const walletWrites = new Set<WalletCommand>(['account_import', 'account_import_mnemonic_signer', 'account_create_mnemonic_signer', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
+export const walletWrites = new Set<WalletCommand>(['account_remove', 'account_import', 'account_import_mnemonic_signer', 'account_create_mnemonic_signer', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
 export const mnemonicCommand = (command: unknown) => command === 'account_import_mnemonic_signer' || command === 'account_create_mnemonic_signer';
 /** Only SDK-owned plain structured-clone secret buffers reach this cleanup. */
 export function clearMnemonic(args: any): void {
@@ -22,6 +22,7 @@ export function clearMnemonic(args: any): void {
 }
 
 const nativeCodes: Record<string, ErrorCode> = {
+  INPUT_LOCKED: 'INPUT_LOCKED',
   INVALID_PCZT: 'INVALID_PCZT', ROLE_PRECONDITION: 'ROLE_PRECONDITION',
   UNSUPPORTED_VERSION: 'UNSUPPORTED_VERSION', UNSUPPORTED_POOL: 'UNSUPPORTED_POOL', PCZT_ASSOCIATION_MISMATCH: 'PCZT_ASSOCIATION_MISMATCH',
   RESOURCE_LIMIT: 'RESOURCE_LIMIT', STALE_REVISION: 'CURSOR_STALE', CURSOR_STALE: 'CURSOR_STALE',
@@ -69,6 +70,7 @@ function errorInfo(error: unknown, command: WalletCommand): { error: ErrorInfo; 
 export function installWalletWorker(owner: InitializedViews | undefined, port: MessagePort, ownerInvalid: () => boolean = () => false, signers?: InitializedSigners): void {
   const session = owner ? new WalletSession(owner) : undefined;
   const calls: Partial<Record<WalletCommand, (args: any) => unknown>> = session ? {
+    account_remove: session.accounts.remove, account_check_key: session.accounts.checkKey,
     account_import: session.accounts.import, account_list: session.accounts.list, account_get: session.accounts.get,
     address_current: session.addresses.current, address_next: session.addresses.next,
     address_list: session.addresses.list, address_at: session.addresses.at,

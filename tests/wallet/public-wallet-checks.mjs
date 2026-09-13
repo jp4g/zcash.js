@@ -101,8 +101,10 @@ export async function publicWalletResponses(fixture,definition) {
       sent.push(row);known.set(request('GetTransaction',{hash:encoded(tx.txid)}),{raw,height:0});
       return {payload:text(2,JSON.stringify(tx.display))};
     }
-    if(method==='GetAddressUtxos')return {payload:new Uint8Array()};
-    if(method==='GetBlockRange')return {payload:hex(fixture.publicWallet.block)};
+    if(method==='GetAddressUtxos'){
+      check(fixture.publicWallet.unspentAddresses.some(address=>key===request(method,{addresses:[address],start_height:'0',max_entries:1001})),'known unfunded ephemeral address request');
+      return {payload:new Uint8Array()};
+    }
     if(method==='GetTransaction') {
       const row=known.get(key);return row?{payload:concat(bytesField(1,row.raw),scalar(2,row.height))}:{status:5};
     }

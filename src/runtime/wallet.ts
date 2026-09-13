@@ -80,9 +80,10 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
   if (!Number.isSafeInteger(reserved) || runtime.maxMemoryBytes < reserved) throw resource();
   if (runtime.onDiagnostic !== undefined && typeof runtime.onDiagnostic !== 'function') throw invalidArgument();
   const storage = record(input.storage, ['kind', 'path', 'name']);
-  if (storage.kind !== (node ? 'node-filesystem' : 'browser-opfs')) throw unavailable();
+  if (storage.kind !== 'memory' && storage.kind !== (node ? 'node-filesystem' : 'browser-opfs')) throw unavailable();
   const name = node ? 'path' : 'name';
-  if (Object.keys(storage).length !== 2 || typeof storage[name] !== 'string' || !storage[name].length
+  if (storage.kind === 'memory') { if (Object.keys(storage).length !== 1) throw invalidArgument(); }
+  else if (Object.keys(storage).length !== 2 || typeof storage[name] !== 'string' || !storage[name].length
     || storage[name].includes('\0') || (!node && !/^[a-zA-Z0-9_-]{1,128}$/.test(storage.name))) throw invalidArgument();
   const network = bindNetworkDefinition(record(input.network, ['identity', 'genesisHash', 'parameters', 'parametersFormat']) as unknown as NetworkDefinition);
   const parameters = network.parameters.bytes;
@@ -188,7 +189,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
       }) || !sameRecord(identity.memory, { initialPages: 307, maximumPages: 4096, shared: false })) throw mismatch();
       try { runtime.onDiagnostic?.(Object.freeze(fallback ? { code: 'THREADED_FALLBACK', reason: 'prerequisiteMissing' } : { code: 'BASELINE_SELECTED', reason: 'requested' })); } catch { /* Diagnostics do not own startup. */ }
       check();
-      const opened = await request({ type: 'open', storage, hostUrl: urls[node ? 'node-fs.mjs' : 'opfs.mjs'],
+      const opened = await request({ type: 'open', storage, ...(storage.kind === 'memory' ? {} : { hostUrl: urls[node ? 'node-fs.mjs' : 'opfs.mjs'] }),
         parametersFormat: network.parametersFormat, parameters, genesis, port: channels.port2 }, [channels.port2]);
       check(); if (opened?.type !== 'opened') throw mismatch();
       session = attachWalletWorker(port, destroy, { maxQueuedJobs: runtime.maxQueuedJobs, maxQueuedBytes: runtime.maxQueuedBytes });

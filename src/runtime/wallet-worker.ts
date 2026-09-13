@@ -12,7 +12,10 @@ const control: Pick<MessagePort, 'postMessage' | 'onmessage'> = node
 let phase: 'new' | 'starting' | 'ready' | 'opening' | 'open' | 'failed' = 'new';
 let api: {
   runtimeIdentity: WalletRuntimeIdentity;
-  initializeWalletRuntime(wasm: Uint8Array): { open(backend: unknown, format: string, parameters: Uint8Array, genesis: Uint8Array): unknown };
+  initializeWalletRuntime(wasm: Uint8Array): {
+    open(backend: unknown, format: string, parameters: Uint8Array, genesis: Uint8Array): unknown;
+    openMemory(format: string, parameters: Uint8Array, genesis: Uint8Array): unknown;
+  };
   viewsForStorage(storage: unknown): InitializedViews;
   consensusContext(format: string, parameters: Uint8Array, height: number): unknown;
 };
@@ -51,26 +54,30 @@ control.onmessage = async ({ data }) => {
     if (phase !== 'ready' || data?.type !== 'open') failed('PROTOCOL_MISMATCH');
     phase = 'opening';
     const storage: WalletStorage = data.storage;
-    if (!storage || (node ? storage.kind !== 'node-filesystem' : storage.kind !== 'browser-opfs')
-      || !executableUrl(data.hostUrl) || !(data.port instanceof (node ? threads.MessagePort : MessagePort))
+    if (!storage || (storage.kind !== 'memory' && (node ? storage.kind !== 'node-filesystem' : storage.kind !== 'browser-opfs'))
+      || (storage.kind !== 'memory' && !executableUrl(data.hostUrl)) || !(data.port instanceof (node ? threads.MessagePort : MessagePort))
       || !(data.genesis instanceof Uint8Array) || data.genesis.length !== 32
       || !(data.parameters instanceof Uint8Array) || data.parameters.length < 1 || data.parameters.length > 256
-      || typeof (storage.kind === 'node-filesystem' ? storage.path : (storage as { name: string }).name) !== 'string') failed('INVALID_ARGUMENT');
+      || (storage.kind === 'memory' ? Object.keys(storage).length !== 1 : typeof (storage.kind === 'node-filesystem' ? storage.path : (storage as { name: string }).name) !== 'string')) failed('INVALID_ARGUMENT');
     // Native document validation precedes storage acquisition.
     api.consensusContext(data.parametersFormat, data.parameters, 0);
     failure = 'STORAGE_ERROR';
-    if (storage.kind === 'node-filesystem') {
-      const filesystem = 'node:fs';
-      const fs = await import(filesystem);
+    let opened: unknown;
+    if (storage.kind === 'memory') opened = runtime.openMemory(data.parametersFormat, data.parameters, data.genesis);
+    else {
+      if (storage.kind === 'node-filesystem') {
+        const filesystem = 'node:fs';
+        const fs = await import(filesystem);
+        if (phase !== 'opening') failed('PROTOCOL_MISMATCH');
+        try { fs.mkdirSync(storage.path, { mode: 0o700 }); }
+        catch (error) { if ((error as { code?: string }).code !== 'EEXIST') throw error; }
+      }
+      const host = await import(data.hostUrl);
       if (phase !== 'opening') failed('PROTOCOL_MISMATCH');
-      try { fs.mkdirSync(storage.path, { mode: 0o700 }); }
-      catch (error) { if ((error as { code?: string }).code !== 'EEXIST') throw error; }
+      backend = await host.acquire(storage.kind === 'node-filesystem' ? storage.path : (storage as { name: string }).name, { create: true });
+      if (phase !== 'opening') failed('PROTOCOL_MISMATCH');
+      opened = runtime.open(backend, data.parametersFormat, data.parameters, data.genesis);
     }
-    const host = await import(data.hostUrl);
-    if (phase !== 'opening') failed('PROTOCOL_MISMATCH');
-    backend = await host.acquire(storage.kind === 'node-filesystem' ? storage.path : (storage as { name: string }).name, { create: true });
-    if (phase !== 'opening') failed('PROTOCOL_MISMATCH');
-    const opened = runtime.open(backend, data.parametersFormat, data.parameters, data.genesis);
     owner = api.viewsForStorage(opened);
     installWalletWorker(owner, data.port);
     phase = 'open';

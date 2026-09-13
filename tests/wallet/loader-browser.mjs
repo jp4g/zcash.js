@@ -1,4 +1,4 @@
-import { offlineSyncChecks, scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
+import { memoryWalletChecks, offlineSyncChecks, scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
 // Real HTTPS acquisition -> verified Blob worker -> native OPFS persistence.
 export async function runBrowser() {
   const { openWalletRuntime } = await import('/dist/src/runtime/wallet.js');
@@ -18,6 +18,18 @@ export async function runBrowser() {
     terminate() { workerDestructions++; return super.terminate(); }
   };
   try {
+    for(const [storage,signal,code] of [[{kind:'memory',name:'invalid'},undefined,'INVALID_ARGUMENT'],[{kind:'memory'},AbortSignal.abort(),'ABORTED']]) {
+      try {await openWalletRuntime({...options,storage,signal});throw Error('unexpected memory startup');}
+      catch(error){check(error.code===code,'memory storage admission/cancellation');}
+    }
+    const storageRoot=await navigator.storage.getDirectory();
+    const names=[];for await(const name of storageRoot.keys())names.push(name);
+    for(const populate of [true,false]) {
+      const opened=await openWalletRuntime({...options,storage:{kind:'memory'}});
+      try {await memoryWalletChecks(opened.session,fixture,populate);}finally{await opened.close();}
+    }
+    const after=[];for await(const name of storageRoot.keys())after.push(name);
+    check(same(names.sort(),after.sort()),'memory opens create no OPFS wallet files');
     const abort = new AbortController(); abort.abort();
     try { await openWalletRuntime({ ...options, signal: abort.signal }); throw Error('missing startup abort'); }
     catch (error) { check(error.code === 'ABORTED', 'startup cancellation'); }
@@ -95,7 +107,7 @@ export async function runBrowser() {
       try {cursor=await historyPageChecks(opened.session,fixture.history,reopen?cursor:undefined);}
       finally {await opened.close();}
     }
-    return { prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    return { memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
     for (const entry of [name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {

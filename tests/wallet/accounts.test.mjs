@@ -1,6 +1,7 @@
 // Account method composition/ownership only; native deletion and key matching have native fixtures.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {memorySigner} from '../../dist/src/wallet/memory-signer.js';
 import {walletAccounts} from '../../dist/src/wallet/accounts.js';
 import {defineNetwork,accountFromViewingKey} from '../../dist/src/index.js';
 import {fixture} from '../sdk/viewing-fixture.mjs';
@@ -41,8 +42,9 @@ test('close clears attachments and rejects late custom descriptor publication',a
   const signer={getCapabilities:async()=>{},authorize:async()=>{},getAccount:async()=>new Promise(resolve=>finish=resolve)};
   const attaching=composition.api.attachSigner({accountId:'account',signer});
   while(!finish)await new Promise(resolve=>setImmediate(resolve));
-  await composition.close();finish(descriptor);
-  await assert.rejects(attaching,{code:'CLOSED'});
+  const rejected=assert.rejects(attaching,{code:'CLOSED'});
+  await composition.close();await rejected; // Does not wait for the uncooperative signer.
+  finish(descriptor);await descriptor.viewing.dispose();
   assert.throws(()=>composition.attachedSigner('account'),{code:'CLOSED'});
 });
 test('committed mnemonic account presentation failure retains original error and receipt',async()=>{
@@ -55,4 +57,28 @@ test('committed mnemonic account presentation failure retains original error and
   const {api}=walletAccounts(f.value,network);
   await assert.rejects(api.import({mnemonic:new Uint8Array([1]),accountIndex:0,birthday:'fullScan'}),error=>error===original);
   assert.deepEqual(receipt,{account:{id:'committed-account'}});assert.equal(released,1);assert.equal(leases,0);
+});
+
+test('close rejects all account admissions while native unbind is held',async()=>{
+  const f=wallet();let finish,dispatches=0;
+  for(const [method,call] of Object.entries(f.value.session.accounts))f.value.session.accounts[method]=async(...args)=>{dispatches++;return call(...args);};
+  const authority={check(){},maxPcztBytes:4194304,
+    describe:async()=>({parameters:Buffer.from(fixture.parameters).toString('hex'),genesis:'03'.repeat(32),accountIndex:0,viewingKey:fixture.ufvk}),
+    capabilities:async()=>({parameters:Buffer.from(fixture.parameters).toString('hex'),genesis:'03'.repeat(32),revision:'native-test',authorizations:[],accountDiscovery:'explicit-index',exportableViewing:['ufvk'],maxPcztBytes:4194304}),
+    bind:async()=> 'ready',unbind:async()=>new Promise(resolve=>finish=resolve),dispose:async()=>{},
+  };
+  const signer=await memorySigner(network,authority),composition=walletAccounts(f.value,network);
+  await composition.api.attachSigner({accountId:'account',signer});
+  const closing=composition.close();
+  while(!finish)await new Promise(resolve=>setImmediate(resolve));
+  const before=dispatches;
+  for(const request of [
+    ()=>composition.api.import({viewingKey:fixture.ufvk,birthday:'fullScan'}),
+    ()=>composition.api.list(),()=>composition.api.get({accountId:'account'}),
+    ()=>composition.api.remove({accountId:'account',acknowledge:'deletes-local-history'}),
+    ()=>composition.api.create({mnemonic:new Uint8Array([1])}),
+    ()=>composition.api.import({mnemonic:new Uint8Array([1]),accountIndex:0,birthday:'fullScan'}),
+    ()=>composition.api.attachSigner({accountId:'account',signer}),()=>composition.api.detachSigner({accountId:'account'}),
+  ])await assert.rejects(request(),{code:'CLOSED'});
+  assert.equal(dispatches,before);finish();await closing;await signer.dispose();
 });

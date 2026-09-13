@@ -16,7 +16,7 @@ export function walletAccounts(wallet: Wallet, network: Network) {
   let closing: Promise<void>|undefined;
   const check=()=>{if(closing)throw failure('CLOSED','account','none','Wallet accounts are closed.');wallet.session.check();};
   const bindings = new Map<string, {binding:SignerBinding;signer:Signer}>();
-  const attaching = new Set<string>();
+  const attaching = new Map<string, ReturnType<typeof operation>>();
   const accountId = (value: unknown): string => {
     if(typeof value!=='string'||!value.length||value.length>128)throw invalidArgument();
     return value;
@@ -39,6 +39,7 @@ export function walletAccounts(wallet: Wallet, network: Network) {
   async function importAccount(args:MnemonicImport):Promise<CreatedAccount>;
   async function importAccount(args:ViewingImport):Promise<AccountRecord>;
   async function importAccount(args:MnemonicImport|ViewingImport):Promise<CreatedAccount|AccountRecord> {
+    check();
     const input=snapshot(args,['mnemonic','passphrase','name','enabledPools','accountIndex','birthday','signal','viewingKey','viewOnly']);
     if(Object.hasOwn(input,'mnemonic'))return mnemonic('import',input as MnemonicImport);
     return wallet.session.accounts.import(input as ViewingImport);
@@ -46,20 +47,22 @@ export function walletAccounts(wallet: Wallet, network: Network) {
   const api = Object.freeze({
     create: args=>mnemonic('create',args),
     import:importAccount,
-    async list(args:Op={}) {return (await wallet.session.accounts.list(snapshot(args,['signal']))).map(project);},
-    async get(args) {const record=await wallet.session.accounts.get(snapshot(args,['accountId','signal']));return record?project(record):null;},
+    async list(args:Op={}) {check();return (await wallet.session.accounts.list(snapshot(args,['signal']))).map(project);},
+    async get(args) {check();const record=await wallet.session.accounts.get(snapshot(args,['accountId','signal']));return record?project(record):null;},
     async remove(args) {
+      check();
       const input=snapshot(args,['accountId','acknowledge','signal']),id=accountId(input.accountId);
       if(attaching.has(id))throw failure('STORAGE_BUSY','account','none','Signer attachment is pending.');
       await wallet.session.accounts.remove(input);
       await bindings.get(id)?.binding.dispose();
     },
     async attachSigner(args) {
+      check();
       const input=snapshot(args,['accountId','signer','signal']),id=accountId(input.accountId);
       if(attaching.has(id))throw failure('STORAGE_BUSY','account','none','Signer attachment is pending.');
       const pending=operation(input.signal);let unbind: (()=>Promise<void>)|undefined;let published=false;
       try {
-        pending.check();check();wallet.owner.check();attaching.add(id);
+        pending.check();check();wallet.owner.check();attaching.set(id,pending);
         await bindings.get(id)?.binding.dispose();
         const authority=memorySignerAuthority(input.signer);
         let state:'ready'|'recovery-required';
@@ -84,9 +87,11 @@ export function walletAccounts(wallet: Wallet, network: Network) {
           return disposed??=Promise.resolve().then(async()=>{if(bindings.get(id)?.binding!==binding)return;try {await unbind?.();} catch(error){if(!error||typeof error!=='object'||!['CLOSED','STALE_HANDLE','WORKER_CRASHED'].includes((error as {code:string}).code))throw error;}bindings.delete(id);});
         }});
         bindings.set(id,{binding,signer:input.signer});published=true;return binding;
-      } finally {attaching.delete(id);pending.close();if(!published)await unbind?.().catch(()=>{});}
+      } catch(error) {if(closing)check();throw error;}
+      finally {attaching.delete(id);pending.close();if(!published)await unbind?.().catch(()=>{});}
     },
     async detachSigner(args) {
+      check();
       const input=snapshot(args,['accountId','signal']),id=accountId(input.accountId),pending=operation(input.signal);
       try {pending.check();check();wallet.owner.check();if(attaching.has(id))throw failure('STORAGE_BUSY','account','none','Signer attachment is pending.');await bindings.get(id)?.binding.dispose();pending.check();}
       finally {pending.close();}
@@ -94,9 +99,9 @@ export function walletAccounts(wallet: Wallet, network: Network) {
   } satisfies AccountsApi);
   return Object.freeze({api,
     attachedSigner(id:string){check();return bindings.get(id)?.signer;},
-    close(){return closing??=Promise.resolve().then(async()=>{
+    close(){if(closing)return closing;closing=Promise.resolve().then(async()=>{
       try {for(const {binding} of bindings.values())await binding.dispose();}
       finally {bindings.clear();await wallet.close();}
-    });},
+    });for(const pending of attaching.values())pending.cancel();return closing;},
   });
 }

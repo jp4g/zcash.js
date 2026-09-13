@@ -27,7 +27,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       await wallet.accounts.attachSigner({accountId:data.accountId,signer});
       const destination=mode==='tex'?data.tex:(await wallet.addresses.next({accountId:data.accountId,request:{format:'transparent'}})).address;
       const intent=mode==='shield'?{accountId:data.accountId,toPool:'sapling',threshold:10000n,idempotencyKey:`public-${mode}`}:{accountId:data.accountId,to:destination,amount:10000n,idempotencyKey:`public-${mode}`};
-      const before=submitted().length;
+      const before=(await submitted()).length;
       if(mode==='transfer') {
         const controller=new AbortController(),post=MessagePort.prototype.postMessage;
         MessagePort.prototype.postMessage=function(value,...rest){const result=Reflect.apply(post,this,[value,...rest]);if(value?.command==='fused_send')controller.abort();return result;};
@@ -36,24 +36,24 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
         finally {MessagePort.prototype.postMessage=post;}
         const discovered=await wallet.operations.list();
         check(discovered.items.length===1&&discovered.items[0].steps.every(step=>step.txid!==null),'canceled native send retains complete outbox');
-        check(submitted().length===before,'canceled fused completion does not dispatch');
+        check((await submitted()).length===before,'canceled fused completion does not dispatch');
       }
       const pending=await (mode==='shield'?wallet.shield(intent):wallet.send(intent));
       const first=await pending.snapshot(),expected=mode==='tex'?2:1;
       check(first.steps.length===expected&&first.steps.every(step=>step.txid!==null&&step.exactBytesSha256!==null),'public local execution persists every native transaction');
       check(first.steps.every(step=>step.attempts.length===1&&step.attempts[0].outcome==='acknowledged'),'public initial dispatch accounts for every step');
       if(mode==='tex')check(first.steps[1].dependsOn.length===1&&first.steps[1].dependsOn[0]===0,'real native TEX dependency');
-      const original=submitted().slice(before);
+      const original=(await submitted()).slice(before);
       check(original.length===expected&&original.every((row,index)=>row.txid===first.steps[index].txid),'native transaction bytes dispatched in parent order');
       await signer.dispose();signer=undefined;
       const retry=await (mode==='shield'?wallet.shield(intent):wallet.send(intent));
       check(retry.operationId===pending.operationId,'idempotent send needs no disposed signer or rebuilt transaction');
-      check(submitted().slice(before).every(row=>original.some(saved=>saved.txid===row.txid&&saved.hex===row.hex)),'retries preserve exact native bytes');
+      check((await submitted()).slice(before).every(row=>original.some(saved=>saved.txid===row.txid&&saved.hex===row.hex)),'retries preserve exact native bytes');
       await wallet.close();wallet=undefined;
       // Discover from the authoritative database, without an application-saved ID.
-      const sentBeforeOpen=submitted().length;
+      const sentBeforeOpen=(await submitted()).length;
       const {proving,...withoutProving}=configured;wallet=await createWalletClient({...withoutProving,recovery:{mode:'offline'}});
-      check(submitted().length===sentBeforeOpen,'offline reopen never submits');
+      check((await submitted()).length===sentBeforeOpen,'offline reopen never submits');
       const page=await wallet.operations.list({limit:1});
       check(page.items.length===1&&page.nextCursor===null,'public operation inventory survives new owner');
       const restored=await wallet.operations.resume({operationId:page.items[0].operationId});
@@ -61,9 +61,9 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       check(state.steps.length===expected&&state.steps.every((step,index)=>step.txid===original[index].txid&&step.exactBytesSha256===first.steps[index].exactBytesSha256),'all exact transaction identities survive reopen');
       const controller=new AbortController();controller.abort();
       try {await restored.broadcast({signal:controller.signal});throw Error('missing public broadcast cancellation');}catch(error){check(error.code==='ABORTED','public cancellation preserves typed identity');}
-      check(submitted().length===sentBeforeOpen,'canceled broadcast never dispatches');
+      check((await submitted()).length===sentBeforeOpen,'canceled broadcast never dispatches');
       await restored.broadcast();
-      check(submitted().slice(before).every(row=>original.some(saved=>saved.txid===row.txid&&saved.hex===row.hex)),'resumed dispatch uses original bytes without authority or proving');
+      check((await submitted()).slice(before).every(row=>original.some(saved=>saved.txid===row.txid&&saved.hex===row.hex)),'resumed dispatch uses original bytes without authority or proving');
     }finally{await wallet?.close();await authorityWallet?.close();await signer?.dispose();}
   }
   return {publicWallet:true,localTransfer:true,localShield:true,localTex:true};

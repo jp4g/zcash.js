@@ -81,23 +81,24 @@ export async function publicWalletResponses(fixture,definition) {
   const text=(field,value)=>bytesField(field,new TextEncoder().encode(value));
   const request=(method,input)=>encoded(codec.encodeRequest(method,JSON.stringify(input)));
   const sent=[],known=new Map();
+  for(const row of [fixture.publicWallet,fixture.publicWallet.parent])if(row)known.set(request('GetTransaction',{hash:encoded(hex(row.txid).reverse())}),{raw:hex(row.raw),height:row.minedHeight??target.height});
   return {submitted:()=>sent.map(row=>({...row})),response(method,payload){
     const key=encoded(payload);
     if(method==='GetLightdInfo')return {payload:concat(text(1,'fixture'),text(2,'synthetic'),text(4,'regtest'),scalar(5,20),text(6,branch.toString(16).padStart(8,'0')),scalar(7,target.height),text(18,'v0.5.0'))};
     if(method==='GetLatestBlock')return {payload:concat(scalar(1,target.height),bytesField(2,hex(target.hash).reverse()))};
     if(method==='GetTreeState') {
-      const genesis=key===request(method,{hash:definition.genesisHash});
+      const genesis=key===request(method,{hash:definition.genesisHash})||key===request(method,{height:'0'});
       check(genesis||key===request(method,{height:String(target.height)}),'known public wallet tree request');
       return {payload:concat(text(1,'regtest'),scalar(2,genesis?0:target.height),text(3,genesis?definition.genesisHash:target.hash),text(5,'000000'),text(6,'000000'),text(7,'000000'))};
     }
     if(method==='SendTransaction') {
       const dto=codec.decodeResponse('GetTransaction',payload),raw=hex(dto.data);
       const tx=native.decodeTransaction(raw,branch),row={txid:tx.display,hex:encoded(raw)};
-      sent.push(row);known.set(request('GetTransaction',{hash:encoded(tx.txid)}),raw);
+      sent.push(row);known.set(request('GetTransaction',{hash:encoded(tx.txid)}),{raw,height:0});
       return {payload:text(2,JSON.stringify(tx.display))};
     }
     if(method==='GetTransaction') {
-      const raw=known.get(key);return raw?{payload:concat(bytesField(1,raw),scalar(2,0))}:{status:5};
+      const row=known.get(key);return row?{payload:concat(bytesField(1,row.raw),scalar(2,row.height))}:{status:5};
     }
     throw Error(`unexpected public wallet fixture method ${method}`);
   }};

@@ -40,6 +40,28 @@ export async function pcztBuildChecks(open,fixture,definition) {
       check(inventory.items.length===1,'reopen discovers operation without saved ID');
       const restored=await reopened.session.pczt.get({operationId:inventory.items[0].operationId});
       check(restored.artifactId===artifact.artifactId&&equal(restored.bytes,retained.bytes),'reopen retains exact unsigned artifact without rebuild');
+      const imports=new WalletProposals(reopened.session,network),operationId=inventory.items[0].operationId;
+      if(scope==='external') {
+        const controller=new AbortController(),send=MessagePort.prototype.postMessage;
+        MessagePort.prototype.postMessage=function(value,...rest){const result=Reflect.apply(send,this,[value,...rest]);if(value?.command==='pczt_import')controller.abort();return result;};
+        try {await imports.import({operationId,bytes:authorization.pczt,signal:controller.signal});throw Error('missing dispatched import cancellation');}
+        catch(error){check(error.code==='ABORTED'&&reopened.session.completion(error)?.completion==='committed','dispatched import preserves committed receipt');}
+        finally {MessagePort.prototype.postMessage=send;}
+      }
+      const owned=authorization.pczt.slice(),pending=imports.import({operationId,bytes:owned});owned.fill(0);
+      const imported=await pending;
+      check(imported.artifactId!==artifact.artifactId&&imported.authorizationComplete&&!imported.proofsComplete,'signed artifact retained separately from original');
+      const signed=await reopened.session.pczt.get({operationId,artifactId:imported.artifactId});
+      const importedRevision=(await reopened.session.scan.state()).revision;
+      check((await imports.import({operationId,bytes:authorization.pczt})).artifactId===imported.artifactId,'duplicate signed import reuses artifact identity');
+      check((await reopened.session.scan.state()).revision===importedRevision,'duplicate import leaves native revision unchanged');
+      await reopened.close();reopened=await open(scope);
+      const discovered=await reopened.session.proposals.list({afterSequence:'0',limit:200});
+      check(discovered.items.length===1,'reopen discovers signed operation without saved ID');
+      const latest=await reopened.session.pczt.get({operationId:discovered.items[0].operationId});
+      check(latest.artifactId===imported.artifactId&&latest.authorizationComplete&&equal(latest.bytes,signed.bytes),'signed artifact bytes survive new owner');
+      const original=await reopened.session.pczt.get({operationId:discovered.items[0].operationId,artifactId:artifact.artifactId});
+      check(equal(original.bytes,retained.bytes)&&!original.authorizationComplete,'old artifact identity still resolves original unsigned bytes');
     } finally {await signer?.dispose();await reopened?.close();await accounts.close();await wallet.close();}
   }
 }

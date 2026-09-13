@@ -5,7 +5,7 @@ import type { Completion, InitializedViews, InitializedSigners } from './session
 
 export type WalletCommand = 'account_remove' | 'account_check_key' | 'account_import' | 'account_list' | 'account_get' | 'account_balance'
   | 'account_import_mnemonic_signer' | 'account_create_mnemonic_signer' | 'signer_bind' | 'signer_unbind' | 'signer_describe' | 'signer_release' | 'signer_capabilities' | 'signer_authorize'
-  | 'pczt_build' | 'pczt_get_artifact' | 'proposal_lookup_intent' | 'proposal_create' | 'proposal_get' | 'proposal_list'
+  | 'pczt_import' | 'pczt_build' | 'pczt_get_artifact' | 'proposal_lookup_intent' | 'proposal_create' | 'proposal_get' | 'proposal_list'
   | 'wallet_history' | 'wallet_transaction' | 'wallet_notes' | 'wallet_utxos'
   | 'enhancement_requests' | 'enhancement_apply'
   | 'scan_state' | 'scan_block_hash' | 'scan_rewind' | 'scan_complete' | 'scan_plan' | 'scan_ingest_batch' | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
@@ -15,7 +15,7 @@ export interface WalletReply {
   readonly invalid: boolean;
   readonly outcome: { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: ErrorInfo };
 }
-export const walletWrites = new Set<WalletCommand>(['pczt_build', 'account_remove', 'proposal_create','account_import', 'account_import_mnemonic_signer', 'account_create_mnemonic_signer', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
+export const walletWrites = new Set<WalletCommand>(['pczt_import', 'pczt_build', 'account_remove', 'proposal_create','account_import', 'account_import_mnemonic_signer', 'account_create_mnemonic_signer', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
 export const mnemonicCommand = (command: unknown) => command === 'account_import_mnemonic_signer' || command === 'account_create_mnemonic_signer';
 /** Only SDK-owned plain structured-clone secret buffers reach this cleanup. */
 export function clearMnemonic(args: any): void {
@@ -26,7 +26,7 @@ const nativeCodes: Record<string, ErrorCode> = {
   NOTHING_TO_SHIELD: 'NOTHING_TO_SHIELD', IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
   INSUFFICIENT_FUNDS: 'INSUFFICIENT_FUNDS', FEE_LIMIT_EXCEEDED: 'FEE_LIMIT_EXCEEDED', STALE_PROPOSAL: 'STALE_PROPOSAL', INPUT_LOCKED: 'INPUT_LOCKED',
   PCZT_MULTI_STEP_UNSUPPORTED: 'PCZT_MULTI_STEP_UNSUPPORTED',
-  INVALID_PCZT: 'INVALID_PCZT', ROLE_PRECONDITION: 'ROLE_PRECONDITION',
+  OPERATION_NOT_FOUND: 'OPERATION_NOT_FOUND', INVALID_PCZT: 'INVALID_PCZT', ROLE_PRECONDITION: 'ROLE_PRECONDITION',
   UNSUPPORTED_VERSION: 'UNSUPPORTED_VERSION', UNSUPPORTED_POOL: 'UNSUPPORTED_POOL', PCZT_ASSOCIATION_MISMATCH: 'PCZT_ASSOCIATION_MISMATCH',
   RESOURCE_LIMIT: 'RESOURCE_LIMIT', STALE_REVISION: 'CURSOR_STALE', CURSOR_STALE: 'CURSOR_STALE',
   RECOVERY_REQUIRED: 'RECOVERY_REQUIRED',
@@ -86,7 +86,7 @@ export function installWalletWorker(owner: InitializedViews | undefined, port: M
     wallet_notes: session.listNotes.bind(session), wallet_utxos: session.listUtxos.bind(session),
     wallet_history: session.getHistory.bind(session), wallet_transaction: session.getTransaction.bind(session),
     account_import_mnemonic_signer: session.mnemonic.import, account_create_mnemonic_signer: session.mnemonic.create,
-    pczt_build: session.pczt.build, pczt_get_artifact: session.pczt.get,
+    pczt_import: session.pczt.import, pczt_build: session.pczt.build, pczt_get_artifact: session.pczt.get,
     proposal_lookup_intent: session.proposals.lookup, proposal_create: session.proposals.create, proposal_get: session.proposals.get, proposal_list: session.proposals.list,
     signer_bind: session.signers.bind, signer_unbind: session.signers.unbind,
   } : {

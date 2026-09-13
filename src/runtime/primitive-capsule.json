@@ -1,17 +1,17 @@
 {
   "format": "zcash-js-pure-codec-capsule/1",
   "profile": "primitive",
-  "generatorSha256": "d084395143fba5c1d64d623ca16199d071eb84118190199125d070c4084d5daf",
+  "generatorSha256": "4b7630ce60aa970eaa078b929040bbbb2daceb93ffdac713d8a3a8a0753ca355",
   "lockSha256": "16dab52ae86e372f96139e4c7664a0229dcf4973673ebd8c73fe8745ed037321",
-  "nativeReceipt": "4086f21897f18ec0fb3d340930520f629431e8123084ceff1eb656808f8ca61d",
-  "nativeRevision": "a1592a0774df9005c59aff51056538c1bf9d0b73",
+  "nativeReceipt": "aa8b4d24eb510cf176d4114372691df27637f1dd7fbbdbccddd46e72cbf2184f",
+  "nativeRevision": "180f41f3e994fdfdadd062a1e737fe0c7272e690",
   "inputs": {
-    "bindings.d.ts": "daded697d736811725ea7141a299ead00c0588ad0f4e4556b8744a28b0a49201",
-    "bindings.js": "f9f4fec0d518af454c35215d869491d50ca6ce3811ce1110be418e2a72d44893",
-    "bindings_bg.wasm": "09d937d17ff181ac552dd9c7121c8d1d035acf72d08c110fbe73cdbb6b818195",
-    "bindings_bg.wasm.d.ts": "e0d738d62c3a4361c441e4ff36b218a10fcce1fdac63cba71ba629cb37f8b354",
+    "bindings.d.ts": "5c39d08f5458eaee3612a04222d39e1d732c42cd0c014b17024627ba2783fb7d",
+    "bindings.js": "2c5d4c7c35695614c725f296bd9b56732f245930c555f8ead7bab0137b650f9e",
+    "bindings_bg.wasm": "193f95096c858f15484a9a06c0fa217291192512125df2a25b76dd61b54664a3",
+    "bindings_bg.wasm.d.ts": "7381bbd97f4553ae7c4a32695ce532f1792a7cec95c29e66ac27f073c75982f7",
     "bytes.mjs": "408153ead4462acc2ec6069a27ee611b1ee4e386ff230c89454e42e72be6d7cd",
-    "network.mjs": "22c2de4a7d3770ec4875b704ae2321eda9e47f9cc771349e1a72b1fe1c766013",
+    "network.mjs": "1b2b24c3bc15ecca9da475ce447208b51797aec6fd06ce3de743b1e5ca27fe1c",
     "transaction.mjs": "42408426c99f6984638dc4109e99dea76b45ab21c4ee260ed7f9d87cc9616dbd"
   },
   "modules": [
@@ -20,5 +20,5 @@
     "network.mjs",
     "transaction.mjs"
   ],
-  "sha256": "219c69043bea2c6b753908e0364357ddf905fdf4d6108338a43571563278a13a"
+  "sha256": "c69434348936733625e2e05a5bcfc68ca282818d7a791ffda6144064a693348a"
 }

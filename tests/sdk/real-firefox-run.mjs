@@ -69,7 +69,7 @@ async function request(route, method = 'GET', body, cleanup = false) {
 }
 try {
   const sourceCommit = command('git', ['rev-parse', 'HEAD']);
-  const acceptedCommit = command('git', ['rev-parse', '1a3bebb^{commit}']);
+  const acceptedCommit = command('git', ['rev-parse', '9df8095^{commit}']);
   command('git', ['diff', '--exit-code', 'HEAD', '--', 'src', 'tsconfig.json', 'package-lock.json']);
   command('git', ['merge-base', '--is-ancestor', acceptedCommit, sourceCommit]);
   command('npm', ['run', 'build']);
@@ -95,7 +95,7 @@ try {
     ['/', Buffer.from('<!doctype html><meta charset="utf-8"><title>SDK Firefox qualification</title><link rel="icon" href="data:,">')],
     ['/bundle.mjs', Buffer.from(code)],
     ['/light-vector.json', Buffer.from(JSON.stringify(vector))],
-    ...await Promise.all(['sdk/signer-checks.mjs','sdk/birthday-checks.mjs','sdk/birthday-fixture.mjs','sdk/viewing-checks.mjs','sdk/viewing-fixture.mjs','sdk/public-client-fixture.mjs','clients/public-chain-reads-fixtures.mjs','sdk/light-client-fixture.mjs','clients/light-chain-reads-fixtures.mjs','clients/grpc-web-fixtures.mjs'].map(async name=>['/'+name.replace(/^sdk\//,''),await readFile(new URL('../'+name,import.meta.url))])),
+    ...await Promise.all(['sdk/pczt-checks.mjs','sdk/pczt-fixture.mjs','sdk/signer-checks.mjs','sdk/birthday-checks.mjs','sdk/birthday-fixture.mjs','sdk/viewing-checks.mjs','sdk/viewing-fixture.mjs','sdk/public-client-fixture.mjs','clients/public-chain-reads-fixtures.mjs','sdk/light-client-fixture.mjs','clients/light-chain-reads-fixtures.mjs','clients/grpc-web-fixtures.mjs'].map(async name=>['/'+name.replace(/^sdk\//,''),await readFile(new URL('../'+name,import.meta.url))])),
     ['/probe.mjs', await readFile(new URL('./real-firefox-browser.mjs', import.meta.url))],
     ['/negative-eager.mjs', Buffer.from("new Worker('/forbidden-worker.mjs');")],
     ['/negative-unsupported.mjs', Buffer.from("import { createWalletClient } from '/package/dist/src/index.js'; export { createWalletClient };")],

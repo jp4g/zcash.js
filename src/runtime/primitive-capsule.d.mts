@@ -15,3 +15,12 @@ export function decodeViewingAddress(parameters: Uint8Array, encoded: string): O
 export function selectViewingReceiver(parameters: Uint8Array, encoded: string, pool: string, height: number, branch: number): import('../../docs/api/public-api.js').SelectedReceiver;
 
 export function validateBirthday(parameters: Uint8Array, genesis: Uint8Array, first: number, tree: Uint8Array, recover?: number): void;
+
+export interface StandalonePczt {
+  serialize(): Uint8Array;
+  inspect(): Omit<import('../../docs/api/public-api.js').PcztInspection, 'context'> & {targetHeight:number;branchId:number};
+  combine(other: StandalonePczt): StandalonePczt;
+  redact(profile: string): StandalonePczt;
+  dispose(): void;
+}
+export function parseStandalonePczt(parameters:Uint8Array,genesis:Uint8Array,height:number,branch:number,bytes:Uint8Array,maximum:number):StandalonePczt;

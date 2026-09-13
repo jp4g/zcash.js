@@ -2,7 +2,7 @@
 
 ## Current fingerprint, Ironwood and recovery followthrough
 
-SDK/harness `29aee5560f17c9c36ab3957d5519cb294fc47223` passed the existing Node filesystem and Firefox OPFS matrix. Real native UFVK reimport with no account index exercises fingerprint-based external attachment and signing through the wallet components. The public factory workflow additionally spends native-generated Ironwood funds, replays a same-height empty-block fork, and discovers two finalized operations in one database alongside the existing draft/recovery checks. Funding remains a synthetic native fixture; this is not live-chain qualification.
+SDK/harness `29aee5560f17c9c36ab3957d5519cb294fc47223` passed the existing Node filesystem and Firefox OPFS matrix. Real native UFVK reimport with no account index exercises fingerprint-based external attachment and signing through the wallet components. The public factory workflow additionally spends native-generated Ironwood funds, replays a same-height empty-block fork, and discovers two finalized operations in one database. Prior separately qualified draft/recovery evidence remains retained. Funding remains a synthetic native fixture; this is not live-chain qualification.
 
 The fork exposed an owned-binding bug: completion required a checkpoint at an empty tip even though upstream need not create one. Native `bb74dace75d6f1ca3c43108cf46390db9469b5e4` verifies each tree root at the target block's recorded tree size using the existing upstream root API. Block identity and coverage guards remain enforced. The named native regression and a copied retained-database check passed, including rejection of incorrect frontiers/hashes.
 

@@ -95,9 +95,10 @@ async function handle(data: any) {
     try { if (Object.getOwnPropertyDescriptor(error, 'code')?.value === 'EBUSY') failure = 'STORAGE_BUSY'; } catch { /* Keep the fixed fallback. */ }
     const allowed = ['INVALID_ARGUMENT', 'PROTOCOL_MISMATCH', 'RESOURCE_LIMIT', 'NETWORK_MISMATCH', 'SCHEMA_MISMATCH', 'VIEWING_SCHEMA_REQUIRED'];
     if (typeof tag === 'string' && allowed.includes(tag)) failure = tag;
-    try { if (owner) owner.close(owner.generation, owner.instance); } catch { /* Whole worker is terminal. */ }
-    try { if (backend?.owned) backend.release(); } catch { failure = 'STORAGE_ERROR'; }
-    const fatal = runtime?.invalid === true || nativeOpening && !(typeof tag === 'string' && allowed.includes(tag));
+    let cleanupFailed = false;
+    try { if (owner) owner.close(owner.generation, owner.instance); } catch { cleanupFailed = true; }
+    try { if (backend?.owned) backend.release(); } catch { cleanupFailed = true; failure = 'STORAGE_ERROR'; }
+    const fatal = cleanupFailed || runtime?.invalid === true || nativeOpening && !(typeof tag === 'string' && allowed.includes(tag));
     if (fatal) phase = 'failed';
     control.postMessage({ type: 'failure', code: failure, id: data?.id, fatal });
   }

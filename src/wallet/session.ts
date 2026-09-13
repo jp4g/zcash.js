@@ -1,4 +1,4 @@
-import type { NativeProposalInput, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
+import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
 import { failure } from '../errors.js';
 import type { AccountRecord, AccountsApi, Birthday, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
@@ -106,6 +106,11 @@ export class WalletSession {
     this.tail = result.catch(() => undefined);
     return result;
   }
+
+  readonly pczt = {
+    build: (args: NativePcztBuildInput) => this.invoke<NativePcztArtifact>('pczt_build',args),
+    get: (args: { operationId: string }) => this.invoke<NativePcztArtifact | null>('pczt_get_artifact',args),
+  };
 
   readonly proposals = {
     create: (args: NativeProposalInput) => this.invoke<NativeProposalReview>('proposal_create',args),

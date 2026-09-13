@@ -4,7 +4,7 @@ import test from 'node:test';
 import {MessageChannel,MessagePort} from 'node:worker_threads';
 import {attachWalletWorker} from '../../dist/src/wallet/host.js';
 import {installWalletWorker} from '../../dist/src/wallet/worker.js';
-import {WalletProposals,proposalBinding} from '../../dist/src/wallet/proposals.js';
+import {WalletProposals,proposalBinding,pcztArtifactBinding} from '../../dist/src/wallet/proposals.js';
 import {defineNetwork} from '../../dist/src/network.js';
 const parameters=new TextEncoder().encode('{"encoding":"regtest","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}');
 const network=await defineNetwork({identity:'proposal-fixture',genesisHash:'03'.repeat(32),parametersFormat:'zcash-js-network/1',parameters});
@@ -60,4 +60,37 @@ test('postcommit projection failure retains native operation receipt',async t=>{
   const value={...review(),branchId:0};
   const {session,api}=setup(t,()=>value);
   await assert.rejects(api.create(args()),error=>error.code==='PROTOCOL_MISMATCH'&&session.completion(error).completion==='committed'&&session.completion(error).value.operationId===value.operationId);
+});
+
+const built=()=>({operationId:'01'.repeat(32),artifactId:'06'.repeat(32),accountId:'account',bytes:new Uint8Array([1,2]),
+  outputs:[{accountId:'account',pool:'sapling',address:'native-change',amount:10000n,memo:new Uint8Array([0,255]),kind:'change'}],proofsComplete:false,authorizationComplete:false});
+test('native PCZT build routes retained IDs, owns review outputs, and binds artifact identity',async t=>{
+  const calls=[];const one=setup(t,(op,input)=>{calls.push({op,input});return op==='proposal_create'?review():built();});
+  const proposal=await one.api.create(args()),artifact=await one.api.build({proposal});
+  assert.deepEqual(calls[1],{op:'pczt_build',input:proposalBinding(proposal,one.session)});
+  assert.equal(artifact.outputs[0].address,'native-change');assert.equal('bytes' in artifact,false);
+  artifact.outputs[0].memo.bytes.fill(99);assert.deepEqual([...artifact.outputs[0].memo.bytes],[0,255]);
+  assert.deepEqual(pcztArtifactBinding(artifact,one.session),{operationId:artifact.operationId,artifactId:artifact.artifactId});
+  assert.throws(()=>pcztArtifactBinding({...artifact},one.session),{code:'INVALID_ARGUMENT'});
+  const other=setup(t,()=>review());assert.throws(()=>pcztArtifactBinding(artifact,other.session),{code:'WRONG_INSTANCE'});
+  const before=calls.length;await assert.rejects(one.api.build({proposal:{...proposal}}),{code:'INVALID_ARGUMENT'});
+  await assert.rejects(other.api.build({proposal}),{code:'WRONG_INSTANCE'});assert.equal(calls.length,before);
+  assert.deepEqual(await one.session.pczt.get({operationId:artifact.operationId}),built());
+});
+test('PCZT build preserves native rejection and postdispatch committed cancellation',async t=>{
+  let rejects=false,calls=0;const {session,api}=setup(t,(op)=>{calls++;if(op==='proposal_create')return review();if(rejects)throw Object.assign(Error('PCZT_MULTI_STEP_UNSUPPORTED'),{commit:'none'});return built();});
+  const proposal=await api.create(args());rejects=true;
+  await assert.rejects(api.build({proposal}),e=>e.code==='PCZT_MULTI_STEP_UNSUPPORTED'&&e.stage==='proposal'&&session.completion(e).completion==='none');
+  rejects=false;const before=calls;
+  await assert.rejects(api.build({proposal,signal:AbortSignal.abort()}),e=>e.code==='ABORTED'&&session.completion(e).completion==='none');assert.equal(calls,before);
+  const controller=new AbortController(),send=MessagePort.prototype.postMessage;
+  MessagePort.prototype.postMessage=function(value,...rest){const result=Reflect.apply(send,this,[value,...rest]);if(value?.command==='pczt_build')controller.abort();return result;};
+  try{await assert.rejects(api.build({proposal,signal:controller.signal}),e=>e.code==='ABORTED'&&session.completion(e).completion==='committed'&&session.completion(e).value.artifactId==='06'.repeat(32));}
+  finally{MessagePort.prototype.postMessage=send;}
+  assert.equal(calls,before+1);assert.equal((await session.pczt.get({operationId:proposal.operationId})).artifactId,'06'.repeat(32));
+});
+test('PCZT projection rejection preserves committed native artifact receipt',async t=>{
+  const {session,api}=setup(t,op=>op==='proposal_create'?review():{...built(),outputs:[{...built().outputs[0],address:null}]});
+  const proposal=await api.create(args());
+  await assert.rejects(api.build({proposal}),e=>e.code==='PROTOCOL_MISMATCH'&&session.completion(e).completion==='committed'&&session.completion(e).value.artifactId==='06'.repeat(32));
 });

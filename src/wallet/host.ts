@@ -1,4 +1,4 @@
-import type { NativeProposalInput, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
+import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance, ZcashError } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
@@ -231,6 +231,10 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
   return {
     committed(error: object, value: unknown) { receipts.set(error,{completion:'committed',value}); },
     check() { if(stopped || closing) throw closedError(); },
+    pczt: {
+      build: (args: NativePcztBuildInput & Op) => call<NativePcztArtifact>('pczt_build',args),
+      get: (args: { operationId: string } & Op) => call<NativePcztArtifact | null>('pczt_get_artifact',args),
+    },
     proposals: {
       create: (args: NativeProposalInput & Op) => call<NativeProposalReview>('proposal_create',args),
       get: (args: { operationId: string } & Op) => call<NativeProposalReview | null>('proposal_get',args),

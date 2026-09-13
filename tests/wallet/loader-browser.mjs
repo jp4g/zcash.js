@@ -42,10 +42,10 @@ export async function runBrowser() {
       } finally { await runtime.close(); }
     }
     let emptyRevision;
-    const emptyOptions={...options,storage:{kind:'browser-opfs',name:`${name}-empty`}};
+    const emptyOptions={...options,network:{...options.network,genesisHash:Array.from({length:32},(_,i)=>i.toString(16).padStart(2,'0')).join('')},storage:{kind:'browser-opfs',name:`${name}-empty`}};
     for(const reopen of [false,true]) {
       const opened=await openWalletRuntime(emptyOptions);
-      try {const revision=await emptyCompletionChecks(opened.session,fixture.scan,options.network,reopen);if(reopen)check(revision!==emptyRevision,'empty reopen epoch');else emptyRevision=revision;}
+      try {const revision=await emptyCompletionChecks(opened.session,fixture.scan,emptyOptions.network,reopen);if(reopen)check(revision!==emptyRevision,'empty reopen epoch');else emptyRevision=revision;}
       finally{await opened.close();}
     }
     const scanOptions = { ...options, storage: { kind: 'browser-opfs', name: `${name}-scan` } };

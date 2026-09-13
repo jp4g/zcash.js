@@ -15,7 +15,9 @@ export async function emptyCompletionChecks(session,fixture,definition,reopened=
     check(state.tipHeight===null&&state.maxScannedHeight===null&&state.fullyScannedHeight===null&&state.scanComplete===null,'empty sync state survives native reopen');
     return state.revision;
   }
-  const network=await defineNetwork(definition),tree=hex(fixture.batches[0].priorTreeState);
+  const network=await defineNetwork(definition),codec=wireCodec();
+  const state=codec.decodeResponse('GetTreeState',hex(fixture.batches[0].priorTreeState));
+  const tree=codec.encodeTreeState(JSON.stringify({...state,hash:definition.genesisHash}));
   const text=(field,value)=>bytesField(field,new TextEncoder().encode(value));
   initializePrimitive();
   const light=createLightClient({network,transport:{kind:'custom-lightwallet',sourceId:'empty-native-fixture',protocolRevision:revision,

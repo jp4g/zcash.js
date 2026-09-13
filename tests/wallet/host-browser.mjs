@@ -145,7 +145,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       await modules(`${build}/src`,'/dist/src');
       assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
     }
-    assets.set('/fixture.json', JSON.stringify({ signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
+    assets.set('/fixture.json', JSON.stringify({ pczt:nativeFixture.pczt, signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;

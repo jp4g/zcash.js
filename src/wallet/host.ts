@@ -2,6 +2,7 @@ import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, Nat
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance, ZcashError } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
+import {saplingAssets} from './proving-assets.js';
 import { ownBytes, snapshot as fields } from '../clients/owned-plumbing.js';
 import { networkBinding } from '../network.js';
 import { operation } from '../clients/light-chain-reads.js';
@@ -81,7 +82,7 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
           catch { throw invalidArgument(); }
         }
       } else Object.defineProperty(result, key, { value: command === 'signer_authorize' && depth === 0 && key === 'maximum' ? pcztMaximum : copy(property.value, depth + 1,
-        (command === 'signer_authorize' || command === 'pczt_import') && depth === 0 && key === 'bytes' ? Math.min(pcztMaximum,4 * 1024 * 1024) : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined), enumerable: true });
+        command === 'pczt_prove' && depth === 0 && (key === 'spend'||key === 'output') ? Math.min(saplingAssets[key==='spend'?0:1].byteLength,Math.floor((maximum-size)/2)) : (command === 'signer_authorize' || command === 'pczt_import') && depth === 0 && key === 'bytes' ? Math.min(pcztMaximum,4 * 1024 * 1024) : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined), enumerable: true });
     }
     return result;
   };
@@ -100,6 +101,10 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
         args = { ...input, birthday: { ...checkpoint, parameters: definition.parameters.bytes,
           genesis: Uint8Array.from(definition.genesisHash.match(/../g)!.reverse(), byte => parseInt(byte, 16)) } };
       } else args = input;
+    }
+    if (command === 'pczt_prove') {
+      const input=fields(args as any,['operationId','artifactId','spend','output','signal']);
+      args={...input,maximum:Math.min(pcztMaximum,4 * 1024 * 1024)};
     }
     if (command === 'pczt_import') {
       const input=fields(args as {operationId:string;bytes:Uint8Array} & Op,['operationId','bytes','signal'],Math.min(pcztMaximum,4 * 1024 * 1024));
@@ -128,6 +133,7 @@ export interface WalletQueueBudget {
   jobs: number; bytes: number; active: boolean; wake: Set<() => void>; crash?: () => void;
   /** Native tokens never recycle; this owner issues at most 1024 over its lifetime. */
   signers?: Map<number, { release?: Promise<void> }>;
+  proving?: {capacity:number;bytes:number;active:boolean};
 }
 
 /** Packaging supplies an initialized private port, worker destruction, and calls crashed() on worker loss. */
@@ -137,10 +143,12 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
   if (![maxQueuedJobs, maxQueuedBytes, maxPcztBytes].every(n => Number.isSafeInteger(n) && n > 0)) throw invalidArgument();
   type Job = { id: number; command: WalletCommand; args: object; size: number; ready: boolean; cancelled: boolean;
     cleanup: () => void; resolve: (value: unknown) => void; reject: (error: unknown) => void };
+  const proving=shared?.proving??{capacity:0,bytes:0,active:false};
+  const provingCleanup=new Set<()=>Promise<void>>();
   const queue: Job[] = [], receipts = new WeakMap<object, WalletCompletion>();
   let active: Job | undefined, bytes = 0, nextId = 0, stopped = false;
   let closing: Promise<void> | undefined, destroyed: Promise<void> | undefined;
-  const dispose = () => destroyed ??= Promise.resolve().then(destroy).finally(() => { shared?.wake.delete(pump); port.onmessage = null; port.onmessageerror = null; port.close(); });
+  const dispose = () => destroyed ??= Promise.resolve().then(destroy).finally(async () => { await Promise.all([...provingCleanup].map(cleanup=>cleanup()));provingCleanup.clear();shared?.wake.delete(pump); port.onmessage = null; port.onmessageerror = null; port.close(); });
   const reject = (job: Job, error: ZcashError, receipt: WalletCompletion) => {
     receipts.set(error, Object.freeze(receipt)); job.reject(error);
   };
@@ -211,7 +219,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     if (!data.outcome.ok) {
       const e = data.outcome.error;
       if (!e || !walletErrorCodes.has(e.code) || e.retryable !== false || typeof e.message !== 'string'
-        || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync', 'authorization', 'proposal'].includes(e.stage)
+        || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync', 'authorization', 'proposal', 'proving'].includes(e.stage)
         || !['reopen', 'sync', 'none', 'correct-input', 'configure', 'review-new-proposal'].includes(e.recovery)) { crashed(); return; }
     } else if (data.invalid) { crashed(); return; }
     if (data.outcome.ok && mnemonicCommand(job.command) && shared?.signers) {
@@ -236,6 +244,19 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     committed(error: object, value: unknown) { receipts.set(error,{completion:'committed',value}); },
     check() { if(stopped || closing) throw closedError(); },
     pczt: {
+      checkProvingAssets() { if(maxQueuedBytes<2*saplingAssets.reduce((sum,value)=>sum+value.byteLength,0)+1024)throw limitError(); },
+      reserveProving(bytes:number,cleanup:()=>Promise<void>) {
+        if(stopped||closing)throw closedError();
+        if(!Number.isSafeInteger(bytes)||bytes<0||proving.bytes+bytes>proving.capacity)throw limitError();
+        proving.bytes+=bytes;let released=false;
+        const release=()=>{if(!released){released=true;proving.bytes-=bytes;provingCleanup.delete(close);}};
+        const close=async()=>{try{await cleanup();}finally{release();}};provingCleanup.add(close);return release;
+      },
+      startProof() {
+        if(stopped||closing)throw closedError();if(proving.active)throw limitError();proving.active=true;
+        let released=false;return()=>{if(!released){released=true;proving.active=false;}};
+      },
+      prove: (args: {operationId:string;artifactId:string;spend:Uint8Array;output:Uint8Array} & Op) => call<NativePcztArtifact>('pczt_prove',args),
       get maximum() { return Math.min(maxPcztBytes,4 * 1024 * 1024); },
       import: (args: { operationId: string; bytes: Uint8Array } & Op) => call<NativePcztArtifact>('pczt_import',args),
       build: (args: NativePcztBuildInput & Op) => call<NativePcztArtifact>('pczt_build',args),

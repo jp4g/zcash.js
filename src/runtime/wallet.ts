@@ -103,7 +103,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     const controller = new AbortController();
     entry = { refs: 0, wallets: 0, controller, ready: undefined! };
     const created = entry;
-    entry.ready = createOwner(baseline as WasmArtifact, runtime, controller.signal, () => {
+    entry.ready = createOwner(baseline as WasmArtifact, runtime, runtime.maxMemoryBytes-reserved, controller.signal, () => {
       if (owners.get(key) === created) owners.delete(key);
     });
     owners.set(key, entry);
@@ -172,10 +172,10 @@ type OpenedWallet = { session: ReturnType<typeof attachWalletWorker>; close(): P
 type Owner = Awaited<ReturnType<typeof createOwner>>;
 const owners = new Map<string, { refs: number; wallets: number; controller: AbortController; ready: Promise<Owner> }>();
 
-async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>, signal: AbortSignal, forget: () => void) {
+async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>, provingCapacity: number, signal: AbortSignal, forget: () => void) {
   let worker: { postMessage(value: unknown, transfer: any[]): void; terminate(): unknown } | undefined;
   const sessions = new Set<ReturnType<typeof attachWalletWorker>>();
-  const budget: WalletQueueBudget = { jobs: 0, bytes: 0, active: false, wake: new Set(), signers: new Map() };
+  const budget: WalletQueueBudget = { jobs: 0, bytes: 0, active: false, wake: new Set(), signers: new Map(), proving: {capacity:provingCapacity,bytes:0,active:false} };
   let removeAssets = () => {}, removeEvents = () => {};
   let destroying: Promise<void> | undefined, stopped: ZcashError | undefined;
   let nextId = 0;

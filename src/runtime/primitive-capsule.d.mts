@@ -13,3 +13,5 @@ export interface ViewingAuthority {
 export function openViewingAuthority(parameters: Uint8Array, format: string, encoded: string, pools: string): ViewingAuthority;
 export function decodeViewingAddress(parameters: Uint8Array, encoded: string): Omit<import('../../docs/api/public-api.js').DecodedAddress, 'network'>;
 export function selectViewingReceiver(parameters: Uint8Array, encoded: string, pool: string, height: number, branch: number): import('../../docs/api/public-api.js').SelectedReceiver;
+
+export function validateBirthday(parameters: Uint8Array, genesis: Uint8Array, first: number, tree: Uint8Array, recover?: number): void;

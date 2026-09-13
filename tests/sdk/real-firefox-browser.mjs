@@ -121,7 +121,7 @@ export async function run() {
   const pczts=[]; for(const api of [sdk,bundled.sdk]) pczts.push(await pcztChecks(api));
   const birthdays=[]; for(const api of [sdk,bundled.sdk]) birthdays.push(await birthdayChecks(api));
   const viewing=[]; for(const api of [sdk,bundled.sdk]) viewing.push(await viewingChecks(api));
-  return { ok: true, claims, network, light, publicClients, viewing, birthdays, signers, eager, importResources, negativeEager, precision: good.value.text, utf8: good.text, errors,
+  return { ok: true, claims, network, light, publicClients, viewing, birthdays, pczts, signers, eager, importResources, negativeEager, precision: good.value.text, utf8: good.text, errors,
     userAgent: navigator.userAgent, secureContext: isSecureContext, crossOriginIsolated };
 }
 

@@ -1,5 +1,21 @@
 # Initial WASM-independent implementation
 
+## Current standalone viewing and birthdays
+
+The root exports `accountFromViewingKey`, `viewing.export`, `viewing.toIncoming`,
+and `addresses.derive`, `find`, `decode`, and `selectReceiver`. Caller-owned native
+UFVK/UIVK handles dispose independently; Rust performs key reduction, derivation,
+address parsing and receiver selection. `resolveBirthday` reads the prior block's
+TreeState through a LightClient and validates its canonical frontiers and network
+with the same Rust validator used by wallet import. It returns owned bytes and
+preserves the caller's recovery boundary.
+
+Shared packed Node and real Firefox ESM/bundle checks exercise these public
+operations with synthetic fixtures, independent disposal, bounded search, receiver
+routing, nonpalindromic genesis, malformed responses and cancellation. This
+qualifies standalone operations; the public WalletClient remains unfinished.
+Historical implementation checkpoints below describe their original scope.
+
 ## Current public light client
 
 The root now exports `defineNetwork`, `grpc` and the complete `createLightClient`.

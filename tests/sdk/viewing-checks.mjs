@@ -6,6 +6,9 @@ export async function viewingChecks(api) {
   const network=await api.defineNetwork(definition('regtest'));
   const args={network,format:'ufvk',encoded:fixture.ufvk,enabledPools:['transparent','sapling','ironwood']};
   await reject(api.accountFromViewingKey({...args,signal:AbortSignal.abort()}),'ABORTED');
+  const shadow=new AbortController();let reads=0;
+  Object.defineProperty(shadow.signal,'aborted',{get(){reads++;return true;}});
+  await reject(api.accountFromViewingKey({...args,signal:shadow.signal}),'INVALID_ARGUMENT');check(reads===0,'viewing signal accessor not invoked');
   const full=await api.accountFromViewingKey(args);let incoming,imported;
   try {
     check(await api.viewing.export({account:full,format:'ufvk',acknowledge:'discloses-viewing-authority'})===fixture.ufvk,'UFVK roundtrip');

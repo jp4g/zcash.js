@@ -1,4 +1,5 @@
 import {accountsChecks} from './accounts-checks.mjs';
+import {pcztBuildChecks} from './pczt-build-checks.mjs';
 import { memorySignerChecks, mnemonicWalletChecks, sharedWalletChecks, memoryWalletChecks, offlineSyncChecks, scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
 // Real HTTPS acquisition -> verified Blob worker -> native OPFS persistence.
 export async function runBrowser() {
@@ -40,6 +41,8 @@ export async function runBrowser() {
     await memorySignerChecks(()=>openWalletRuntime({...options,storage:{kind:'browser-opfs',name:`${name}-complete-signer`}}),fixture.signer,options.network);
     mark('accounts-api');
     await accountsChecks(suffix=>openWalletRuntime({...options,storage:{kind:'browser-opfs',name:`${name}-accounts-${suffix}`}}),fixture,options.network);
+    mark('pczt-build');
+    await pcztBuildChecks(suffix=>openWalletRuntime({...options,storage:{kind:'browser-opfs',name:`${name}-pczt-${suffix}`}}),fixture.pczt,options.network);
     mark('persistent-reopen');
     const abort = new AbortController(); abort.abort();
     try { await openWalletRuntime({ ...options, signal: abort.signal }); throw Error('missing startup abort'); }

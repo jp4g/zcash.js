@@ -1,4 +1,5 @@
 import {accountsChecks} from './accounts-checks.mjs';
+import {pcztBuildChecks} from './pczt-build-checks.mjs';
 // Real TLS acquisition, reviewed executable bytes, actual worker/Rust filesystem wallet.
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, readdir, mkdir, writeFile } from 'node:fs/promises';
@@ -123,6 +124,7 @@ try {
   await mnemonicWalletChecks(name=>openWalletRuntime(options(`mnemonic-${name}`)));
   await memorySignerChecks(()=>openWalletRuntime(options('complete-signer')),signerFixture,network);
   await accountsChecks(suffix=>openWalletRuntime(options(`accounts-${suffix}`)),{...fixture,signer:signerFixture},network);
+  await pcztBuildChecks(suffix=>openWalletRuntime(options(`pczt-${suffix}`)),fixture.pczt,network);
   let account, addresses, previousScan;
   for (const reopen of [false, true]) {
     const input = options('wallet'), diagnostics = [];
@@ -196,6 +198,6 @@ try {
   }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 102, 'six pinned assets per owner, including complete signer; no execution refetch');
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 126, 'six pinned assets per owner, including PCZT close/reopen; no execution refetch');
   console.log(JSON.stringify({ pass: true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

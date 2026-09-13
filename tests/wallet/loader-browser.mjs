@@ -43,7 +43,7 @@ export async function runBrowser() {
     mark('accounts-api');
     await accountsChecks(suffix=>openWalletRuntime({...options,storage:{kind:'browser-opfs',name:`${name}-accounts-${suffix}`}}),fixture,options.network);
     mark('pczt-build');
-    await pcztBuildChecks(suffix=>openWalletRuntime({...options,storage:{kind:'browser-opfs',name:`${name}-pczt-${suffix}`}}),fixture.pczt,options.network);
+    await pcztBuildChecks((suffix,limits)=>openWalletRuntime({...options,runtime:{...options.runtime,...limits},storage:{kind:'browser-opfs',name:`${name}-pczt-${suffix}`}}),fixture.pczt,options.network,fixture.proving?location.origin:undefined);
     mark('persistent-reopen');
     const abort = new AbortController(); abort.abort();
     try { await openWalletRuntime({ ...options, signal: abort.signal }); throw Error('missing startup abort'); }
@@ -139,7 +139,7 @@ export async function runBrowser() {
       finally {await opened.close();}
     }
     mark('complete');
-    return { phases,shielding:true,idempotency:true,accountsApi:true,memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    return { phases,proving:!!fixture.proving,shielding:true,idempotency:true,accountsApi:true,memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
     for (const entry of [`${name}-pczt-external`,`${name}-pczt-internal`,`${name}-accounts-a`,`${name}-accounts-b`,`${name}-complete-signer`,`${name}-mnemonic-a`, `${name}-mnemonic-b`, `${name}-shared-a`, `${name}-shared-b`, `${name}-shared-cancel`, name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`,`${name}-shielding`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {

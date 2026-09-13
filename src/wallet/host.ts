@@ -81,7 +81,7 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
           catch { throw invalidArgument(); }
         }
       } else Object.defineProperty(result, key, { value: command === 'signer_authorize' && depth === 0 && key === 'maximum' ? pcztMaximum : copy(property.value, depth + 1,
-        command === 'signer_authorize' && depth === 0 && key === 'bytes' ? pcztMaximum : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined), enumerable: true });
+        (command === 'signer_authorize' || command === 'pczt_import') && depth === 0 && key === 'bytes' ? Math.min(pcztMaximum,4 * 1024 * 1024) : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined), enumerable: true });
     }
     return result;
   };
@@ -100,6 +100,10 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
         args = { ...input, birthday: { ...checkpoint, parameters: definition.parameters.bytes,
           genesis: Uint8Array.from(definition.genesisHash.match(/../g)!.reverse(), byte => parseInt(byte, 16)) } };
       } else args = input;
+    }
+    if (command === 'pczt_import') {
+      const input=fields(args as {operationId:string;bytes:Uint8Array} & Op,['operationId','bytes','signal']);
+      args={...input,maximum:Math.min(pcztMaximum,4 * 1024 * 1024)};
     }
     if (command === 'signer_authorize') {
       const field = Object.getOwnPropertyDescriptor(args, 'maximum');
@@ -232,8 +236,9 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     committed(error: object, value: unknown) { receipts.set(error,{completion:'committed',value}); },
     check() { if(stopped || closing) throw closedError(); },
     pczt: {
+      import: (args: { operationId: string; bytes: Uint8Array } & Op) => call<NativePcztArtifact>('pczt_import',args),
       build: (args: NativePcztBuildInput & Op) => call<NativePcztArtifact>('pczt_build',args),
-      get: (args: { operationId: string } & Op) => call<NativePcztArtifact | null>('pczt_get_artifact',args),
+      get: (args: { operationId: string; artifactId?: string } & Op) => call<NativePcztArtifact | null>('pczt_get_artifact',args),
     },
     proposals: {
       lookup: (args: NativeProposalIntent & {idempotencyKey:string} & Op) => call<NativeProposalReview|null>('proposal_lookup_intent',args),

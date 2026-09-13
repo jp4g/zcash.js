@@ -1,4 +1,4 @@
-import type { AccountId, Network, Op, Pool, Proposal, ProposedOutput, PcztArtifact, ReviewedOutput, TransactionPolicy } from '../../docs/api/public-api.js';
+import type { AccountId, Network, Op, Pool, Proposal, ProposedOutput, PcztArtifact, ReviewedOutput, TransactionPolicy, WalletPcztApi } from '../../docs/api/public-api.js';
 import type { openWalletRuntime } from '../runtime/wallet.js';
 import { networkBinding } from '../network.js';
 import { failure, invalidArgument } from '../errors.js';
@@ -73,9 +73,17 @@ export class WalletProposals {
   async build(args: { proposal: Proposal } & Op): Promise<PcztArtifact> {
     const input=snapshot(args,['proposal','signal']),binding=proposalBinding(input.proposal,this.session);
     const value=await this.session.pczt.build({...binding,...(input.signal===undefined?{}:{signal:input.signal})});
+    return this.projectArtifact(value,binding.operationId,input.proposal.accountIds[0]);
+  }
+  async import(args: Parameters<WalletPcztApi['import']>[0]): Promise<PcztArtifact> {
+    const input=snapshot(args,['operationId','bytes','signal']);
+    const value=await this.session.pczt.import(input);
+    return this.projectArtifact(value,input.operationId);
+  }
+  private projectArtifact(value: NativePcztArtifact, operationId: string, accountId?: AccountId): PcztArtifact {
     try {
-      if(value.operationId!==binding.operationId||!/^[0-9a-f]{64}$/.test(value.artifactId)
-        ||value.accountId!==input.proposal.accountIds[0]||typeof value.proofsComplete!=='boolean'||typeof value.authorizationComplete!=='boolean'
+      if(value.operationId!==operationId||!/^[0-9a-f]{64}$/.test(value.artifactId)
+        ||typeof value.accountId!=='string'||!value.accountId||(accountId!==undefined&&value.accountId!==accountId)||typeof value.proofsComplete!=='boolean'||typeof value.authorizationComplete!=='boolean'
         ||!Array.isArray(value.outputs)||value.outputs.length>256)throw protocol();
       const outputs=value.outputs.map(output=>{
         if(typeof output.address!=='string'||!output.address||typeof output.amount!=='bigint'||output.amount<0n

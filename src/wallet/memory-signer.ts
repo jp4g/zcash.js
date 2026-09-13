@@ -9,6 +9,8 @@ import { failure, invalidArgument } from '../errors.js';
 import { pczt } from '../pczt.js';
 import type { createMnemonicAccount } from './mnemonic.js';
 
+const authorities = new WeakMap<Signer, Authority>();
+export function memorySignerAuthority(signer: Signer) { return authorities.get(signer); }
 type Authority = Awaited<ReturnType<typeof createMnemonicAccount>>['authority'];
 const maximum = 4 * 1024 * 1024;
 const mismatch = () => failure('SIGNER_CAPABILITY_MISMATCH','authorization','reattach-signer','Signer cannot satisfy the request.');
@@ -43,7 +45,7 @@ export async function memorySigner(network: Network, authority: Authority): Prom
   const sameNetwork = (value: Network) => {
     if (networkBinding(value).definition.binding !== bound.definition.binding) throw failure('NETWORK_MISMATCH','authorization','correct-input','Signer network does not match.');
   };
-  return Object.freeze({
+  const signer = Object.freeze({
     async getCapabilities(args: Op = {}) {
       const input = snapshot(args,['signal']), pending = operation(input.signal);
       try { pending.check(); check(); return signerCapabilities(capabilities); }
@@ -90,4 +92,6 @@ export async function memorySigner(network: Network, authority: Authority): Prom
     },
     dispose() { return disposing ??= authority.dispose(); },
   }) as MemorySigner;
+  authorities.set(signer,authority);
+  return signer;
 }

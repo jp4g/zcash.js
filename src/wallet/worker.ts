@@ -3,8 +3,9 @@ import { failure, isZcashError } from '../errors.js';
 import { WalletSession } from './session.js';
 import type { Completion, InitializedViews, InitializedSigners } from './session.js';
 
-export type WalletCommand = 'account_import' | 'account_list' | 'account_get' | 'account_balance'
+export type WalletCommand = 'account_remove' | 'account_check_key' | 'account_import' | 'account_list' | 'account_get' | 'account_balance'
   | 'account_import_mnemonic_signer' | 'account_create_mnemonic_signer' | 'signer_bind' | 'signer_unbind' | 'signer_describe' | 'signer_release' | 'signer_capabilities' | 'signer_authorize'
+  | 'pczt_build' | 'pczt_get_artifact' | 'proposal_lookup_intent' | 'proposal_create' | 'proposal_get' | 'proposal_list'
   | 'wallet_history' | 'wallet_transaction' | 'wallet_notes' | 'wallet_utxos'
   | 'enhancement_requests' | 'enhancement_apply'
   | 'scan_state' | 'scan_block_hash' | 'scan_rewind' | 'scan_complete' | 'scan_plan' | 'scan_ingest_batch' | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
@@ -14,7 +15,7 @@ export interface WalletReply {
   readonly invalid: boolean;
   readonly outcome: { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: ErrorInfo };
 }
-export const walletWrites = new Set<WalletCommand>(['account_import', 'account_import_mnemonic_signer', 'account_create_mnemonic_signer', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
+export const walletWrites = new Set<WalletCommand>(['pczt_build', 'account_remove', 'proposal_create','account_import', 'account_import_mnemonic_signer', 'account_create_mnemonic_signer', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
 export const mnemonicCommand = (command: unknown) => command === 'account_import_mnemonic_signer' || command === 'account_create_mnemonic_signer';
 /** Only SDK-owned plain structured-clone secret buffers reach this cleanup. */
 export function clearMnemonic(args: any): void {
@@ -22,6 +23,9 @@ export function clearMnemonic(args: any): void {
 }
 
 const nativeCodes: Record<string, ErrorCode> = {
+  NOTHING_TO_SHIELD: 'NOTHING_TO_SHIELD', IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
+  INSUFFICIENT_FUNDS: 'INSUFFICIENT_FUNDS', FEE_LIMIT_EXCEEDED: 'FEE_LIMIT_EXCEEDED', STALE_PROPOSAL: 'STALE_PROPOSAL', INPUT_LOCKED: 'INPUT_LOCKED',
+  PCZT_MULTI_STEP_UNSUPPORTED: 'PCZT_MULTI_STEP_UNSUPPORTED',
   INVALID_PCZT: 'INVALID_PCZT', ROLE_PRECONDITION: 'ROLE_PRECONDITION',
   UNSUPPORTED_VERSION: 'UNSUPPORTED_VERSION', UNSUPPORTED_POOL: 'UNSUPPORTED_POOL', PCZT_ASSOCIATION_MISMATCH: 'PCZT_ASSOCIATION_MISMATCH',
   RESOURCE_LIMIT: 'RESOURCE_LIMIT', STALE_REVISION: 'CURSOR_STALE', CURSOR_STALE: 'CURSOR_STALE',
@@ -54,14 +58,15 @@ function errorInfo(error: unknown, command: WalletCommand): { error: ErrorInfo; 
     catch { /* Foreign access failures reveal no text. */ }
     if (typeof name === 'string' && Object.hasOwn(nativeCodes, name)) code = nativeCodes[name];
   }
+  if(command.startsWith('proposal_') && code==='CURSOR_STALE')code='STALE_PROPOSAL';
   const invalid = code === undefined || code === 'STALE_HANDLE' && !command.startsWith('signer_');
   code ??= 'RUNTIME_UNAVAILABLE';
   const storage = ['STORAGE_ERROR', 'STORAGE_BUSY', 'MIGRATION_REQUIRED'].includes(code);
   const sync = command.startsWith('scan_') || command.startsWith('enhancement_');
   const stage: ErrorInfo['stage'] = invalid ? 'runtime' : storage ? 'storage' : code === 'INVALID_ARGUMENT' ? 'validation'
-    : command === 'signer_authorize' ? 'authorization' : sync ? 'sync' : command === 'account_balance' || command.startsWith('wallet_') ? 'query' : command.startsWith('address_') ? 'address' : command === 'close' ? 'runtime' : 'account';
+    : (command.startsWith('proposal_')||command.startsWith('pczt_')) ? 'proposal' : command === 'signer_authorize' ? 'authorization' : sync ? 'sync' : command === 'account_balance' || command.startsWith('wallet_') ? 'query' : command.startsWith('address_') ? 'address' : command === 'close' ? 'runtime' : 'account';
   const recovery: ErrorInfo['recovery'] = code === 'RESOURCE_LIMIT' ? 'configure' : invalid || storage ? 'reopen' : code === 'SYNC_REQUIRED' || sync && ['CURSOR_STALE', 'PROTOCOL_MISMATCH'].includes(code) ? 'sync'
-    : code === 'ABORTED' || code === 'CLOSED' ? 'none' : 'correct-input';
+    : code === 'STALE_PROPOSAL' ? 'review-new-proposal' : code === 'ABORTED' || code === 'CLOSED' ? 'none' : 'correct-input';
   return { error: { code, stage, recovery, retryable: false, message: 'Wallet operation failed.' }, invalid };
 }
 
@@ -69,6 +74,7 @@ function errorInfo(error: unknown, command: WalletCommand): { error: ErrorInfo; 
 export function installWalletWorker(owner: InitializedViews | undefined, port: MessagePort, ownerInvalid: () => boolean = () => false, signers?: InitializedSigners): void {
   const session = owner ? new WalletSession(owner) : undefined;
   const calls: Partial<Record<WalletCommand, (args: any) => unknown>> = session ? {
+    account_remove: session.accounts.remove, account_check_key: session.accounts.checkKey,
     account_import: session.accounts.import, account_list: session.accounts.list, account_get: session.accounts.get,
     address_current: session.addresses.current, address_next: session.addresses.next,
     address_list: session.addresses.list, address_at: session.addresses.at,
@@ -80,6 +86,8 @@ export function installWalletWorker(owner: InitializedViews | undefined, port: M
     wallet_notes: session.listNotes.bind(session), wallet_utxos: session.listUtxos.bind(session),
     wallet_history: session.getHistory.bind(session), wallet_transaction: session.getTransaction.bind(session),
     account_import_mnemonic_signer: session.mnemonic.import, account_create_mnemonic_signer: session.mnemonic.create,
+    pczt_build: session.pczt.build, pczt_get_artifact: session.pczt.get,
+    proposal_lookup_intent: session.proposals.lookup, proposal_create: session.proposals.create, proposal_get: session.proposals.get, proposal_list: session.proposals.list,
     signer_bind: session.signers.bind, signer_unbind: session.signers.unbind,
   } : {
     signer_capabilities: args => signers!.capabilities(args.token),

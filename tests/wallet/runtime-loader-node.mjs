@@ -1,3 +1,6 @@
+import {shieldingChecks} from './shielding-checks.mjs';
+import {accountsChecks} from './accounts-checks.mjs';
+import {pcztBuildChecks} from './pczt-build-checks.mjs';
 // Real TLS acquisition, reviewed executable bytes, actual worker/Rust filesystem wallet.
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, readdir, mkdir, writeFile } from 'node:fs/promises';
@@ -121,6 +124,8 @@ try {
   await sharedWalletChecks((name,signal)=>openWalletRuntime({...options(`shared-${name}`),signal}),fixture);
   await mnemonicWalletChecks(name=>openWalletRuntime(options(`mnemonic-${name}`)));
   await memorySignerChecks(()=>openWalletRuntime(options('complete-signer')),signerFixture,network);
+  await accountsChecks(suffix=>openWalletRuntime(options(`accounts-${suffix}`)),{...fixture,signer:signerFixture},network);
+  await pcztBuildChecks(suffix=>openWalletRuntime(options(`pczt-${suffix}`)),fixture.pczt,network);
   let account, addresses, previousScan;
   for (const reopen of [false, true]) {
     const input = options('wallet'), diagnostics = [];
@@ -192,8 +197,18 @@ try {
     try {cursor=await historyPageChecks(opened.session,fixture.history,reopen?cursor:undefined);}
     finally {await opened.close();}
   }
+  assert.ok(fixture.shielding,'source-bound native shielding database');
+  const shieldingOptions=options('shielding');
+  await mkdir(shieldingOptions.storage.path,{mode:0o700});
+  await writeFile(shieldingOptions.storage.path+'/wallet.db',Buffer.from(fixture.shielding.database,'hex'),{mode:0o600,flag:'wx'});
+  let shielding;
+  for(const reopen of [false,true]) {
+    const opened=await openWalletRuntime(shieldingOptions);
+    try {shielding=await shieldingChecks(opened.session,fixture.shielding,shieldingOptions.network,reopen?shielding:undefined);}
+    finally {await opened.close();}
+  }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 96, 'six pinned assets per owner, including complete signer; no execution refetch');
-  console.log(JSON.stringify({ pass: true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 138, 'six pinned assets per owner, including PCZT close/reopen; no execution refetch');
+  console.log(JSON.stringify({ pass: true, shielding:true, idempotency:true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

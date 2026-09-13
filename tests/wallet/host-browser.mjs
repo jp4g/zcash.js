@@ -62,7 +62,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
   const report = { status: 'failed', runRoot, build, sandbox: 'unchanged', started: new Date().toISOString() };
   const stop = new AbortController();
-  const deadline = setTimeout(() => stop.abort(), 90000);
+  const deadline = setTimeout(() => stop.abort(), process.env.WALLET_LOADER ? 150000 : 90000);
   const onSignal = signal => { report.interruptedBy = signal; stop.abort(); };
   process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -128,6 +128,9 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       }
     }
     if (process.env.WALLET_LOADER) {
+      assets.set('/tests/wallet/accounts-checks.mjs', await readFile(new URL('./accounts-checks.mjs', import.meta.url)));
+      assets.set('/tests/wallet/pczt-build-checks.mjs', await readFile(new URL('./pczt-build-checks.mjs', import.meta.url)));
+      assets.set('/tests/wallet/shielding-checks.mjs', await readFile(new URL('./shielding-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/scan-checks.mjs', await readFile(new URL('./scan-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/loader-browser.mjs', await readFile(new URL('./loader-browser.mjs', import.meta.url)));
       for (const name of ['runtime/wallet', 'runtime/artifacts', 'runtime/wallet-profile', 'network-parameters', 'primitives']) {
@@ -143,7 +146,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       await modules(`${build}/src`,'/dist/src');
       assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
     }
-    assets.set('/fixture.json', JSON.stringify({ signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
+    assets.set('/fixture.json', JSON.stringify({ shielding:nativeFixture.shielding, pczt:nativeFixture.pczt, signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
@@ -180,9 +183,9 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     await request(`/session/${session}/timeouts`, 'POST', { script: 20000, pageLoad: 15000, implicit: 0 });
     await request(`/session/${session}/url`, 'POST', { url: server.origin });
     let answer;
-    // The expanded loader adds a native owner and ten V5/V6 signing cases.
-    // Keep a finite page budget below the unchanged 90s overall cleanup deadline.
-    const resultDeadline = Date.now() + (process.env.WALLET_LOADER ? 60000 : 45000);
+    // Account, PCZT and shielding workflows add seven owners to the original suite.
+    // Allow their actual native work, leaving 30s for startup and cleanup.
+    const resultDeadline = Date.now() + (process.env.WALLET_LOADER ? 120000 : 45000);
     while (!answer) {
       stop.signal.throwIfAborted(); assert.ok(Date.now() < resultDeadline, 'page result deadline');
       answer = await request(`/session/${session}/execute/sync`, 'POST', { script: 'return window.walletResult || null;', args: [] });
@@ -192,7 +195,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 15 : 2);
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 22 : 2);
     report.status = 'passed';
   } catch (error) {
     if (report.interruptedBy) report.status = 'interrupted';

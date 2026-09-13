@@ -1,3 +1,4 @@
+import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalIntent, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
 import { failure } from '../errors.js';
 import type { AccountRecord, AccountsApi, Birthday, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
@@ -106,6 +107,18 @@ export class WalletSession {
     return result;
   }
 
+  readonly pczt = {
+    build: (args: NativePcztBuildInput) => this.invoke<NativePcztArtifact>('pczt_build',args),
+    get: (args: { operationId: string }) => this.invoke<NativePcztArtifact | null>('pczt_get_artifact',args),
+  };
+
+  readonly proposals = {
+    lookup: (args: NativeProposalIntent & {idempotencyKey:string}) => this.invoke<NativeProposalReview|null>('proposal_lookup_intent',args),
+    create: (args: NativeProposalInput) => this.invoke<NativeProposalReview>('proposal_create',args),
+    get: (args: { operationId: string }) => this.invoke<NativeProposalReview | null>('proposal_get',args),
+    list: (args: ProposalInventoryInput) => this.invoke<ProposalInventory>('proposal_list',args),
+  };
+
   readonly mnemonic = {
     create: (args: MnemonicAccountInput) => this.invoke<NativeCreatedAccount>('account_create_mnemonic_signer', args),
     import: (args: MnemonicAccountInput) => this.invoke<NativeCreatedAccount>('account_import_mnemonic_signer', args),
@@ -115,9 +128,12 @@ export class WalletSession {
     unbind: (args: { token: number; accountId: string }) => this.invoke<void>('signer_unbind', args),
   };
 
-  readonly accounts: Pick<AccountsApi, 'list' | 'get'> & {
+  readonly accounts: Pick<AccountsApi, 'list' | 'get' | 'remove'> & {
+    checkKey(args: {accountId: string; viewingKey: string}): Promise<'ready' | 'recovery-required'>;
     import(args: Omit<ViewingImport, 'birthday'> & { readonly birthday: 'fullScan' | Omit<Birthday, 'network'> & { readonly parameters: Uint8Array; readonly genesis: Uint8Array } }): Promise<AccountRecord>;
   } = {
+    remove: args => this.invoke('account_remove', args),
+    checkKey: args => this.invoke('account_check_key', args),
     import: args => this.invoke('account_import', args),
     list: args => this.invoke('account_list', args),
     get: args => this.invoke('account_get', args),

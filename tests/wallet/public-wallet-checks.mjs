@@ -1,4 +1,6 @@
 import {createWalletClient,defineNetwork} from '../../dist/src/index.js';
+import {initialize as wireCodec} from '../../dist/src/runtime/lightwire-capsule.mjs';
+import {blockBytes,bytesField,concat,scalar} from '../clients/light-chain-reads-fixtures.mjs';
 const hex=value=>Uint8Array.from(value.match(/../g)??[],byte=>parseInt(byte,16));
 const check=(ok,label)=>{if(!ok)throw Error(label);};
 
@@ -30,6 +32,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       const balance=await wallet.getBalance({accountId:data.accountId});
       check(balance.amounts?.transparent.regular.spendable===40000n&&balance.amounts.sapling.spendable===40000n,'public balance matches native funded amounts');
       check((await wallet.getHistory({accountId:data.accountId})).items.length>0,'public history retains native funding');
+      if(mode==='transfer')await publicEmptyForkChecks(withoutProving,seed,name+'-fork',data);
       const destination=mode==='tex'?data.tex:(await wallet.addresses.next({accountId:data.accountId,request:{format:'transparent'}})).address;
       const intent=mode==='shield'?{accountId:data.accountId,toPool:'sapling',threshold:10000n,idempotencyKey:`public-${mode}`}:{accountId:data.accountId,to:destination,amount:10000n,idempotencyKey:`public-${mode}`};
       const operationCount=mode==='transfer'?2:1;
@@ -107,7 +110,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       }
     }finally{await wallet?.close();await authorityWallet?.close();await signer?.dispose();}
   }
-  return {publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,allOperationsRecovery:true,retryBudget:true};
+  return {publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,allOperationsRecovery:true,publicForkReplay:true,retryBudget:true};
 }
 
 // Payload handler for the existing native gRPC / gRPC-Web test servers. Framing,
@@ -147,4 +150,52 @@ export async function publicWalletResponses(fixture,definition) {
     }
     throw Error(`unexpected public wallet fixture method ${method}`);
   }};
+}
+
+
+// Empty competing suffixes preserve the native funding commitments and full-tx evidence.
+// This checks public sync rewind/replay, not removal or re-mining of a funded note.
+async function publicEmptyForkChecks(options,seed,name,data){
+  const codec=wireCodec(),base=options.light,height=data.target.height;
+  const nativeTree=codec.decodeResponse('GetTreeState',hex(data.treeState));
+  const metadata=codec.decodeItem('GetBlockRange',hex(data.block)).chain_metadata;
+  const treeSizes=bytesField(8,concat(scalar(1,metadata.sapling_commitment_tree_size),scalar(2,metadata.orchard_commitment_tree_size),scalar(3,metadata.ironwood_commitment_tree_size)));
+  let branch=0,active=false,sourceId;const reads=[],delivered=[];
+  const hash=(h)=>h===height?data.target.hash:(branch===0?'31':'42').repeat(31)+(h-height).toString(16).padStart(2,'0');
+  const source={...base,
+    async getTip(args){if(!active)return base.getTip(args);const tip=await base.getTip(args);return {...tip,height:height+2,hash:hash(height+2)};},
+    async getTreeState(args){
+      if(!active||args.height===undefined||args.height<=height)return base.getTreeState(args);
+      check(args.height<=height+2,'bounded empty fork tree request');reads.push(args.height);
+      const original=await base.getTreeState({height,...(args.signal?{signal:args.signal}:{})});sourceId=original.sourceId;
+      return {...original,point:{height:args.height,hash:hash(args.height)},encoded:codec.encodeTreeState(JSON.stringify({...nativeTree,height:String(args.height),hash:hash(args.height)}))};
+    },
+    async *streamCompactBlocks(args){
+      if(!active){yield*base.streamCompactBlocks(args);return;}
+      check(args.fromHeight>height&&args.toHeight<=height+2,'only empty successors replay');
+      for(let h=args.fromHeight;h<=args.toHeight;h++){
+        args.signal?.throwIfAborted();delivered.push({branch,height:h});
+        const reverse=value=>hex(value).reverse();
+        yield {point:{height:h,hash:hash(h)},previousHash:hash(h-1),sourceId,observedAt:new Date().toISOString(),encoded:blockBytes(h,reverse(hash(h)),reverse(hash(h-1)),treeSizes)};
+      }
+    }
+  };
+  await seed(name,hex(data.database));
+  const configured={...options,light:source,storage:{...options.storage,...(options.storage.kind==='browser-opfs'?{name:options.storage.name+'-fork'}:{path:options.storage.path+'-fork'})},recovery:{mode:'offline'}};
+  let wallet;
+  try{
+    wallet=await createWalletClient(configured);await wallet.sync({target:data.target});active=true;
+    const first=await wallet.sync({target:{height:height+2,hash:hash(height+2)}});
+    check(first.targetReached&&delivered.length===2,'public sync scans initial empty suffix');
+    branch=1;reads.length=0;delivered.length=0;
+    const replacement=await wallet.sync({target:{height:height+2,hash:hash(height+2)}});
+    check(replacement.targetReached&&replacement.scan.scanComplete&&replacement.scan.revision!==first.scan.revision,'public fork completes native state transition');
+    check(reads.includes(height+1)&&delivered.length===2&&delivered.every((row,index)=>row.branch===1&&row.height===height+index+1),'public fork finds ancestor and replays both replacement blocks');
+    await wallet.close();wallet=undefined;wallet=await createWalletClient(configured);
+    const reopened=await wallet.getSyncStatus();check(reopened.scan.maxScannedHeight===height+2&&reopened.scan.scanComplete,'fork scan state survives public reopen');
+    delivered.length=0;const checked=await wallet.sync({target:{height:height+2,hash:hash(height+2)}});
+    check(checked.targetReached&&delivered.length===0,'reopened native hashes match replacement without replay');
+    const balance=await wallet.getBalance({accountId:data.accountId});
+    check(balance.amounts.transparent.regular.spendable===40000n&&balance.amounts.sapling.spendable===40000n,'empty fork preserves known native funding');
+  }finally{await wallet?.close();}
 }

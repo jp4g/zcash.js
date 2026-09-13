@@ -12,7 +12,14 @@ export interface InitializedViews {
   close(generation: number, instance: string): void;
 }
 export interface NativeSignerDescription { readonly parameters: string; readonly genesis: string; readonly accountIndex: number; readonly viewingKey: string }
-export interface InitializedSigners { describe(token: number): NativeSignerDescription; release(token: number): void }
+export interface NativeSignerCapabilities extends Omit<import('../../docs/api/public-api.js').SignerCapabilities, 'networks'> { readonly parameters: string; readonly genesis: string }
+export interface NativeSignerAuthorization { readonly token: number; readonly format: string; readonly parameters: Uint8Array; readonly genesis: Uint8Array; readonly height: number; readonly branch: number; readonly bytes: Uint8Array; readonly maximum: number }
+export interface InitializedSigners {
+  describe(token: number): NativeSignerDescription;
+  release(token: number): void;
+  capabilities(token: number): NativeSignerCapabilities;
+  authorize(token: number, format: string, parameters: Uint8Array, genesis: Uint8Array, height: number, branch: number, bytes: Uint8Array, maximum: number): Uint8Array;
+}
 export interface MnemonicAccountInput {
   readonly mnemonic: Uint8Array; readonly passphrase?: Uint8Array;
   readonly accountIndex?: number; readonly birthday?: unknown; readonly name?: string;

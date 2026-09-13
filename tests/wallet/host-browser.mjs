@@ -87,6 +87,12 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     const fixtureBytes = await readFile(`${packet}/bundle/tests/views-fixture.json`);
     assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'), packetBuild.artifacts['tests/views-fixture.json']);
     const nativeFixture = JSON.parse(fixtureBytes);
+    let signerFixture;
+    if(process.env.WALLET_LOADER) {
+      const signerBytes=await readFile(`${packetBuild.work}/source/tests/signer-fixture.json`);
+      assert.equal(createHash('sha256').update(signerBytes).digest('hex'),packetBuild.sources['tests/signer-fixture.json']);
+      signerFixture=JSON.parse(signerBytes);
+    }
     const runtimePacket = process.env.WALLET_RUNTIME_PACKAGE;
     const browserTest = process.env.WALLET_LOADER ? 'loader-browser' : runtimePacket ? 'runtime-browser' : 'host-browser';
     const assets = new Map([
@@ -137,7 +143,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       await modules(`${build}/src`,'/dist/src');
       assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
     }
-    assets.set('/fixture.json', JSON.stringify({ import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
+    assets.set('/fixture.json', JSON.stringify({ signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
@@ -174,7 +180,9 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     await request(`/session/${session}/timeouts`, 'POST', { script: 20000, pageLoad: 15000, implicit: 0 });
     await request(`/session/${session}/url`, 'POST', { url: server.origin });
     let answer;
-    const resultDeadline = Date.now() + 45000;
+    // The expanded loader adds a native owner and ten V5/V6 signing cases.
+    // Keep a finite page budget below the unchanged 90s overall cleanup deadline.
+    const resultDeadline = Date.now() + (process.env.WALLET_LOADER ? 60000 : 45000);
     while (!answer) {
       stop.signal.throwIfAborted(); assert.ok(Date.now() < resultDeadline, 'page result deadline');
       answer = await request(`/session/${session}/execute/sync`, 'POST', { script: 'return window.walletResult || null;', args: [] });
@@ -184,9 +192,14 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 14 : 2);
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 15 : 2);
     report.status = 'passed';
-  } catch (error) { if (report.interruptedBy) report.status = 'interrupted'; report.error = { code: error.code, message: String(error), stack: error.stack }; }
+  } catch (error) {
+    if (report.interruptedBy) report.status = 'interrupted';
+    report.error = { code: error.code, message: String(error), stack: error.stack };
+    if(session) try { report.pageDiagnostic=await request(`/session/${session}/execute/sync`,'POST',{script:'return {url:location.href,title:document.title,text:document.body?.innerText?.slice(0,2000),phase:window.walletPhase,phases:window.walletPhases,result:window.walletResult};',args:[]},true); }
+    catch(diagnosticError){report.pageDiagnostic={error:String(diagnosticError)};}
+  }
   finally {
     clearTimeout(deadline);
     const errors = []; let sessionDeleted = !session, groupGone = !driverIdentity;

@@ -286,3 +286,55 @@ export async function mnemonicWalletChecks(open) {
     check(new TextDecoder().decode(phrase).endsWith('about'),'caller mnemonic bytes remain owned');
   } finally {await authority?.dispose();await first.close();await second?.close();await reopened?.close();}
 }
+
+export async function memorySignerChecks(open, fixture, definition) {
+  globalThis.walletPhase='memory-signer-start';
+  const {createMnemonicAccount}=await import('../../dist/src/wallet/mnemonic.js');
+  const {memorySigner}=await import('../../dist/src/wallet/memory-signer.js');
+  const {pczt,viewing}=await import('../../dist/src/index.js');
+  const network=await defineNetwork(definition),wallet=await open();
+  let signer,account,first;
+  const bytes=hex=>Uint8Array.from(hex.match(/../g),v=>parseInt(v,16));
+  try {
+    const created=await createMnemonicAccount(wallet,'import',{mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:0,birthday:'fullScan'});
+    signer=await memorySigner(network,created.authority);
+    const caps=await signer.getCapabilities();
+    check(caps.maxPcztBytes===4194304&&caps.authorizations.length===5,'native signer capability matrix');
+    check(caps.authorizations.every(role=>role.requiredFields.includes('zakura-native-role-input/1')),'native signing prerequisites');
+    first=await signer.getAccount({network,selector:{kind:'derived',accountIndex:0}});
+    account=await signer.getAccount({network,selector:{kind:'derived',accountIndex:0}});
+    await first.viewing.dispose();await wallet.close();
+    const request=(vector,field='bytes')=>({requestId:`native-${vector.height}-${field}`,pczt:bytes(vector[field]),context:{network,targetHeight:vector.height,branchId:vector.branch},accountIds:[created.account.id],capabilityRevision:caps.revision,reviewCommitment:'synthetic-role-check-not-payment-approval'});
+    const vector=fixture.vectors.at(-1),input=request(vector);
+    const handle=await pczt.parse({bytes:input.pczt,context:input.context,maxBytes:65536});
+    let redacted;
+    try {redacted=await pczt.redact({pczt:handle,profile:'zakura-signer-full/1'});
+      const insufficient=await pczt.serialize({pczt:redacted});
+      try {await signer.authorize({...input,pczt:insufficient});throw Error('missing role rejection');}
+      catch(error){check(error.code==='INVALID_PCZT','native prerequisite rejection remains nonfatal');}
+    } finally {await redacted?.dispose();await handle.dispose();}
+    let count=0;
+    for(const vector of fixture.vectors)for(const field of ['bytes','wire2']) {
+      const input=request(vector,field),original=input.pczt.slice(),output=await signer.authorize(input);
+      check(output.requestId===input.requestId,'signing request identity');
+      check(input.pczt.every((byte,i)=>byte===original[i]),'caller PCZT remains owned');
+      check(output.pczt.some((byte,i)=>byte!==original[i]),'native authorization contributes signatures');
+      const parsed=await pczt.parse({bytes:output.pczt,context:input.context,maxBytes:65536});
+      try {const info=await pczt.inspect({pczt:parsed});check(info.authorizationComplete&&!info.proofsComplete,'authorization material without proof claim');}
+      finally {await parsed.dispose();}count++;globalThis.walletPhase=`memory-signer-vector-${count}`;
+    }
+    check(count===10,'all native V5/V6 source vectors');
+    const controller=new AbortController(),send=MessagePort.prototype.postMessage;
+    MessagePort.prototype.postMessage=function(value,...rest){const answer=Reflect.apply(send,this,[value,...rest]);if(value?.command==='signer_authorize')controller.abort();return answer;};
+    try {await signer.authorize({...input,signal:controller.signal});throw Error('missing dispatched cancellation');}
+    catch(error){check(error.code==='ABORTED','native authorization dispatched cancellation');}
+    finally {MessagePort.prototype.postMessage=send;}
+    check((await signer.authorize(input)).requestId===input.requestId,'signer remains usable after cancellation');
+    globalThis.walletPhase='memory-signer-dispose';
+    const closing=signer.dispose();check(signer.dispose()===closing,'idempotent native signer disposal');await closing;
+    try {await signer.getCapabilities();throw Error('disposed signer remained usable');}
+    catch(error){check(error.code==='CLOSED','disposed signer admission');}
+    check(typeof await viewing.export({account,format:'ufvk',acknowledge:'discloses-viewing-authority'})==='string','viewing authority survives signer disposal');
+    globalThis.walletPhase='memory-signer-complete';
+  } finally {await first?.viewing.dispose();await account?.viewing.dispose();await signer?.dispose();await wallet.close();}
+}

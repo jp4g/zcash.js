@@ -1,6 +1,6 @@
 # Private delivery status
 
-This is a private implementation checkpoint at SDK `8f57675`, not v1 acceptance or a publication announcement. The owner authorized local distribution qualification for [#8](https://github.com/jp4g/zcash.js/issues/8) and [#9](https://github.com/jp4g/zcash.js/issues/9); `private: true` remains intentional. Publication, deployment and license selection are not authorized by these results.
+This is a private implementation checkpoint at qualified SDK source `29aee5560f17c9c36ab3957d5519cb294fc47223` (PR #114 integration pending remote confirmation), not v1 acceptance or a publication announcement. The owner authorized local distribution qualification for [#8](https://github.com/jp4g/zcash.js/issues/8) and [#9](https://github.com/jp4g/zcash.js/issues/9); `private: true` remains intentional. Publication, deployment and license selection are not authorized by these results.
 
 ## Qualified scope
 
@@ -8,10 +8,18 @@ The [payment qualification record](wallet-payments-qualification.md) binds the a
 
 [Installation](../api/installation.md) records local tarball installation, Node ESM, browser imports, declarations, query-only tree-shaking, and the tested Vite/Webpack paths. The Webpack browser check opens, reads and closes an OPFS wallet using unchanged verified external assets; it does not run proving through that bundle. No CommonJS `require` entry is provided or claimed.
 
+## Final workflow followthrough
+
+Both original E2E05 processes exited zero using native `bb74dace75d6f1ca3c43108cf46390db9469b5e4`, build receipt `635f8a8163fbd94c4c7ff0a2d6a47b5b3971b070b18475f7bfbe7f4428e4cdb7`, and runtime manifest `8388ccc38b861ef5da60eaa7ced46809afaea826dd8821769a117bc780a7f677` (packaging source `e786711`). Native PR #28 and SDK PR #114 merge status is not asserted here.
+
+The shared workflow additionally qualifies an Ironwood-funded public local send, empty-fork replacement/replay/reopen, and two finalized operations discovered in one database without replenishing the older retry budget. The separate supplemental native funding fixture retains its own `9813235` source and hash receipt; it is not relabeled as output of the final producer. Two-operation recovery is not a large-inventory fairness claim. Existing #116 fault-coverage limits remain.
+
+Node log: `/tmp/final-wallet-gaps-node-05.log`, SHA-256 `731d191116fa8eff4e3d01090c2f019497655aa201b7d67c28b9d2100a7ad61a`. Firefox receipt: `/home/jack/zcash-final-wallet-gaps-firefox-05-logs/firefox-3EjUSL.json`, SHA-256 `1539a37abc3c6bc70f864780d2d433782ac2b75059765ca96adb9421fc1a6295`: 45 workers destroyed, 301,589 ms, no unexpected requests, complete cleanup. Independent evidence review checked 82 saved assets. Earlier failed attempts remain retained; neither those failures nor older receipts were rebound to this result.
+
 ## Known limitations and dispositions
 
 - [#98](https://github.com/jp4g/zcash.js/issues/98) is resolved: mnemonic account creation/import no longer accepts `enabledPools`; native HD allocation retains the full supported key set. Viewing imports and spend/address policy remain separate.
-- [#97](https://github.com/jp4g/zcash.js/issues/97) remains pending at this checkpoint. The generic UFVK-account signer lookup correction and expanded host checks in [PR #114](https://github.com/jp4g/zcash.js/pull/114) are not included in this acceptance record. Neither a passing final matrix nor merge is claimed here.
+- [#97](https://github.com/jp4g/zcash.js/issues/97) now has passing actual Node/Firefox evidence for canonical UFVK-fingerprint lookup through a custom adapter and native key correspondence. [PR #114](https://github.com/jp4g/zcash.js/pull/114) remains pending remote merge confirmation in these notes; source qualification is not a merge claim.
 - [#102](https://github.com/jp4g/zcash.js/issues/102) is explicitly deferred. Native import can retain verified finalized transparent scripts, but wallet finalization rejects already-finalized transparent inputs with `METHOD_NOT_SUPPORTED`. External signing that returns partial signatures and ordinary local sending remain in scope.
 - [#107](https://github.com/jp4g/zcash.js/issues/107) tracks the current healthy-threaded wallet artifact/build boundary. Qualified baseline execution and missing-prerequisite fallback do not establish healthy-threaded wallet support.
 

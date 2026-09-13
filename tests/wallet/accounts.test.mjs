@@ -82,3 +82,13 @@ test('close rejects all account admissions while native unbind is held',async()=
   ])await assert.rejects(request(),{code:'CLOSED'});
   assert.equal(dispatches,before);finish();await closing;await signer.dispose();
 });
+
+
+test('mnemonic onboarding rejects removed pool selection before authority or dispatch',async()=>{
+  const accounts=walletAccounts(wallet().value,network).api;
+  for(const enabledPools of [['sapling'],['transparent','sapling','ironwood']]){
+    await assert.rejects(accounts.create({mnemonic:new Uint8Array([1]),enabledPools}),{code:'INVALID_ARGUMENT'});
+    await assert.rejects(accounts.import({mnemonic:new Uint8Array([1]),accountIndex:0,birthday:'fullScan',enabledPools}),{code:'INVALID_ARGUMENT'});
+  }
+  await accounts.import({viewingKey:fixture.ufvk,birthday:'fullScan',enabledPools:['sapling']});
+});

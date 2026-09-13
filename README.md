@@ -2,7 +2,7 @@
 
 **Private TypeScript SDK with qualified synthetic Node/browser wallet workflows.** The package exposes independent public, light and wallet clients, plus optional composition. Baseline wallet storage, account/query/sync, signing/proving and payment recovery paths have actual Node filesystem and Firefox OPFS evidence. This is not complete v1 acceptance or a published npm package.
 
-See [local installation and runtime assets](docs/api/installation.md) for installing a local tarball and configuring the separately verified wallet runtime. The [API book](docs/api/README.md) describes the frozen contract; its compile-only examples are not evidence that every contract case is implemented. Known gaps include generic signer selection for UFVK attachment (#97), HD enabledPools subsets (#98), already-finalized transparent PCZT inputs (#102), and healthy threaded runtime integration.
+See [local installation and runtime assets](docs/api/installation.md) for installing a local tarball and configuring the separately verified wallet runtime. The [API book](docs/api/README.md) describes the frozen contract; its compile-only examples are not evidence that every contract case is implemented. Known gaps include generic signer selection for UFVK attachment (#97), already-finalized transparent PCZT inputs (#102), and healthy threaded runtime integration.
 
 ## Local review site
 

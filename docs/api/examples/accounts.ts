@@ -7,6 +7,7 @@ declare const birthday: Birthday;
 declare const recoveredIndex: number;
 declare const ufvk: string; // synthetic test fixture, never a real key
 
+// Mnemonic create/import uses all supported pools; spend/address policy is separate.
 // Alternative onboarding paths for distinct fixture accounts, not duplicate imports.
 export async function recoverMnemonic() {
   return wallet.accounts.import({

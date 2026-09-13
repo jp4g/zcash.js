@@ -47,7 +47,7 @@ try { await wallet.getSyncStatus(); } finally { await wallet.close(); }
 
 In a browser, use `{ kind: 'browser-opfs', name: 'my-wallet' }` storage in a supported secure context and serve the same verified assets with your application. Browser gRPC requires a permitted gRPC-Web endpoint. Applications supply network identity, endpoints and any proving assets; the offline example performs no sync or submission. Proving needs larger configured memory/queue limits and canonical assets, as described in [signing](signing.md). Caller-owned signers and clients remain caller-owned after wallet close.
 
-The accepted baseline does not establish healthy threaded support, every browser, or complete v1 acceptance. Account/signer/finalization gaps #97, #98 and #102 remain explicit. Never use synthetic fixture network definitions with real funds.
+The accepted baseline does not establish healthy threaded support, every browser, or complete v1 acceptance. Account/signer/finalization gaps #97 and #102 remain explicit. Never use synthetic fixture network definitions with real funds.
 
 ## Reproduce the installed-wallet check
 

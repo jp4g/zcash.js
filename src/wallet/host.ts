@@ -99,8 +99,8 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
     if (command === 'account_import' || mnemonicCommand(command)) {
       const input = fields(args as any, command === 'account_import'
         ? ['viewingKey', 'birthday', 'name', 'viewOnly', 'enabledPools', 'signal']
-        : command === 'account_create_mnemonic_signer' ? ['mnemonic', 'passphrase', 'name', 'enabledPools', 'signal']
-          : ['mnemonic', 'passphrase', 'accountIndex', 'birthday', 'name', 'enabledPools', 'signal']);
+        : command === 'account_create_mnemonic_signer' ? ['mnemonic', 'passphrase', 'name', 'signal']
+          : ['mnemonic', 'passphrase', 'accountIndex', 'birthday', 'name', 'signal']);
       if (mnemonicCommand(command) && (!(input.mnemonic instanceof Uint8Array) || input.passphrase !== undefined && !(input.passphrase instanceof Uint8Array))) throw invalidArgument();
       if (command !== 'account_create_mnemonic_signer' && input.birthday !== 'fullScan') {
         const birthday = fields(input.birthday, ['network', 'firstScanHeight', 'priorTreeState', 'recoverUntilExclusive', 'source']);

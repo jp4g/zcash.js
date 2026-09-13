@@ -6,9 +6,19 @@ import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction }
 export interface InitializedViews {
   readonly generation: number;
   readonly instance: string;
-  call(generation: number, instance: string, operation: string, args: object): unknown;
+  call(generation: number, instance: string, operation: string, args: object, seed?: Uint8Array, mnemonic?: Uint8Array, passphrase?: Uint8Array): unknown;
+  bindSigner?(token: number, accountId: string): 'ready' | 'recovery-required';
+  unbindSigner?(token: number, accountId: string): void;
   close(generation: number, instance: string): void;
 }
+export interface NativeSignerDescription { readonly parameters: string; readonly genesis: string; readonly accountIndex: number; readonly viewingKey: string }
+export interface InitializedSigners { describe(token: number): NativeSignerDescription; release(token: number): void }
+export interface MnemonicAccountInput {
+  readonly mnemonic: Uint8Array; readonly passphrase?: Uint8Array;
+  readonly accountIndex?: number; readonly birthday?: unknown; readonly name?: string;
+  readonly enabledPools?: readonly string[];
+}
+export interface NativeCreatedAccount { readonly account: AccountRecord; readonly signerToken: number }
 
 /** Private scanner points use protocol-order hash hex; public points use display order. */
 export interface ScanTarget { readonly height: number; readonly hash: string }
@@ -65,6 +75,16 @@ export class WalletSession {
     const result = this.tail.then(() => {
       try {
         // The accepted owner supplies the frozen API DTOs, including bigint indices.
+        if (operation === 'signer_bind' || operation === 'signer_unbind') {
+          const input = args as { token: number; accountId: string };
+          const method = operation === 'signer_bind' ? this.owner.bindSigner : this.owner.unbindSigner;
+          if (!method) throw failure('METHOD_NOT_SUPPORTED', 'account', 'configure', 'Native signer binding unavailable.');
+          return Reflect.apply(method, this.owner, [input.token, input.accountId]) as T;
+        }
+        if (operation === 'account_import_mnemonic_signer' || operation === 'account_create_mnemonic_signer') {
+          const { mnemonic, passphrase, ...input } = args as MnemonicAccountInput;
+          return this.owner.call(this.generation, this.instance, operation, input, undefined, mnemonic, passphrase) as T;
+        }
         return this.owner.call(this.generation, this.instance, operation, args) as T;
       } catch (error) {
         if (typeof error === 'object' && error !== null && !this.completions.has(error)) {
@@ -78,6 +98,15 @@ export class WalletSession {
     this.tail = result.catch(() => undefined);
     return result;
   }
+
+  readonly mnemonic = {
+    create: (args: MnemonicAccountInput) => this.invoke<NativeCreatedAccount>('account_create_mnemonic_signer', args),
+    import: (args: MnemonicAccountInput) => this.invoke<NativeCreatedAccount>('account_import_mnemonic_signer', args),
+  };
+  readonly signers = {
+    bind: (args: { token: number; accountId: string }) => this.invoke<'ready' | 'recovery-required'>('signer_bind', args),
+    unbind: (args: { token: number; accountId: string }) => this.invoke<void>('signer_unbind', args),
+  };
 
   readonly accounts: Pick<AccountsApi, 'list' | 'get'> & {
     import(args: Omit<ViewingImport, 'birthday'> & { readonly birthday: 'fullScan' | Omit<Birthday, 'network'> & { readonly parameters: Uint8Array; readonly genesis: Uint8Array } }): Promise<AccountRecord>;

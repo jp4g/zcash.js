@@ -3,15 +3,16 @@ import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction }
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { ownBytes, snapshot as fields } from '../clients/owned-plumbing.js';
 import { networkBinding } from '../network.js';
+import { operation } from '../clients/light-chain-reads.js';
 import type { ScanTarget, ScanPlan, ScanBatch, ScanReceipt, ScanBlock, ScanRewind, ScanCompletion, Completion } from './session.js';
 import type { EnhancementRequests, EnhancementApply } from './session.js';
 import type { WalletCommand, WalletReply } from './worker.js';
-import { walletErrorCodes } from './worker.js';
+import { walletErrorCodes, mnemonicCommand, clearMnemonic } from './worker.js';
+import type { MnemonicAccountInput, NativeCreatedAccount, NativeSignerDescription } from './session.js';
 
 const aborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
 const add = EventTarget.prototype.addEventListener, remove = EventTarget.prototype.removeEventListener;
 const signalOf = Object.getOwnPropertyDescriptor(AbortController.prototype, 'signal')!.get!;
-const any = AbortSignal.any.bind(AbortSignal);
 const node = typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string';
 const abortError = () => failure('ABORTED', 'runtime', 'none', 'Wallet operation aborted.');
 const closedError = () => failure('CLOSED', 'runtime', 'none', 'Wallet is closed.');
@@ -36,19 +37,21 @@ async function watch(signal: AbortSignal | undefined, cancel: () => void): Promi
     if (aborted.call(signal)) cancel();
     return () => subscription[(Symbol as SymbolConstructor & { readonly dispose: symbol }).dispose]();
   }
-  const dependent = any([signal]);
+  const pending = operation(signal);
+  const dependent = pending.signal;
   add.call(dependent, 'abort', cancel);
-  if (aborted.call(dependent)) cancel();
-  return () => remove.call(dependent, 'abort', cancel);
+  if (aborted.call(signal)) cancel();
+  return () => { remove.call(dependent, 'abort', cancel); pending.close(); };
 }
 
 /** Copy supported control values without invoking caller getters or cloning unbounded inputs. */
 function snapshot(args: object, maximum: number, command: WalletCommand) {
   let size = 0;
+  const copied: Uint8Array[] = [];
   let signal: AbortSignal | undefined;
   // Reserve both the queued owned input and its structured-clone transfer copy.
   const charge = (n: number) => { size += 2 * n; if (size > maximum) throw limitError(); };
-  const copy = (value: unknown, depth: number): unknown => {
+  const copy = (value: unknown, depth: number, byteMaximum?: number): unknown => {
     charge(8);
     if (depth > 5) throw invalidArgument();
     if (value === null || typeof value === 'boolean') return value;
@@ -57,7 +60,8 @@ function snapshot(args: object, maximum: number, command: WalletCommand) {
     if (typeof value === 'string') { charge(value.length * 2); return value; }
     if (typeof value !== 'object' || value === null) throw invalidArgument();
     if (ArrayBuffer.isView(value)) {
-      const owned = ownBytes(value as Uint8Array, invalidArgument, limitError);
+      const owned = ownBytes(value as Uint8Array, invalidArgument, limitError, byteMaximum);
+      copied.push(owned);
       charge(owned.byteLength); return owned;
     }
     if (![Object.prototype, Array.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
@@ -75,15 +79,20 @@ function snapshot(args: object, maximum: number, command: WalletCommand) {
           try { if (typeof aborted.call(signal) !== 'boolean') throw invalidArgument(); }
           catch { throw invalidArgument(); }
         }
-      } else Object.defineProperty(result, key, { value: copy(property.value, depth + 1), enumerable: true });
+      } else Object.defineProperty(result, key, { value: copy(property.value, depth + 1,
+        mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined), enumerable: true });
     }
     return result;
   };
   let value: unknown;
   try {
-    if (command === 'account_import') {
-      const input = fields(args as ViewingImport, ['viewingKey', 'birthday', 'name', 'viewOnly', 'enabledPools', 'signal']);
-      if (input.birthday !== 'fullScan') {
+    if (command === 'account_import' || mnemonicCommand(command)) {
+      const input = fields(args as any, command === 'account_import'
+        ? ['viewingKey', 'birthday', 'name', 'viewOnly', 'enabledPools', 'signal']
+        : command === 'account_create_mnemonic_signer' ? ['mnemonic', 'passphrase', 'name', 'enabledPools', 'signal']
+          : ['mnemonic', 'passphrase', 'accountIndex', 'birthday', 'name', 'enabledPools', 'signal']);
+      if (mnemonicCommand(command) && (!(input.mnemonic instanceof Uint8Array) || input.passphrase !== undefined && !(input.passphrase instanceof Uint8Array))) throw invalidArgument();
+      if (command !== 'account_create_mnemonic_signer' && input.birthday !== 'fullScan') {
         const birthday = fields(input.birthday, ['network', 'firstScanHeight', 'priorTreeState', 'recoverUntilExclusive', 'source']);
         const { definition } = networkBinding(birthday.network);
         const { network: _network, ...checkpoint } = birthday;
@@ -93,7 +102,7 @@ function snapshot(args: object, maximum: number, command: WalletCommand) {
     }
     value = copy(args, 0);
   }
-  catch (error) { if (isZcashError(error)) throw error; throw invalidArgument(); }
+  catch (error) { for (const bytes of copied) bytes.fill(0); if (isZcashError(error)) throw error; throw invalidArgument(); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidArgument();
   return { args: value, size, signal };
 }
@@ -107,6 +116,8 @@ export interface WalletCompletion {
 /** One admitted queue budget shared by every wallet port in a native owner. */
 export interface WalletQueueBudget {
   jobs: number; bytes: number; active: boolean; wake: Set<() => void>; crash?: () => void;
+  /** Native tokens never recycle; this owner issues at most 1024 over its lifetime. */
+  signers?: Map<number, { release?: Promise<void> }>;
 }
 
 /** Packaging supplies an initialized private port, worker destruction, and calls crashed() on worker loss. */
@@ -124,6 +135,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     receipts.set(error, Object.freeze(receipt)); job.reject(error);
   };
   const release = (job: Job) => { bytes -= job.size;
+    if (mnemonicCommand(job.command)) clearMnemonic(job.args);
     if (shared) {
       if (job.command !== 'close') { shared.jobs--; shared.bytes -= job.size; }
       if (active === job) shared.active = false;
@@ -145,28 +157,30 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     try { port.postMessage({ id: job.id, command: job.command, args: job.args }); }
     catch { crashed(); }
   };
-  const call = <T>(command: WalletCommand, args: object = {}, close = false): Promise<T> => {
+  const call = <T>(command: WalletCommand, args: object = {}, close = false, cleanup = false): Promise<T> => {
     if (stopped || (closing && !close)) {
       const error = closedError(); receipts.set(error, { completion: 'none' }); return Promise.reject(error);
     }
-    let input: ReturnType<typeof snapshot>;
+    let input: ReturnType<typeof snapshot> | undefined;
     try {
       // One fixed close control is reserved even when the work queue is full.
       input = close ? { args: {}, size: 0, signal: undefined } : snapshot(args, maxQueuedBytes, command);
       if (input.signal && aborted.call(input.signal)) throw abortError();
-      if (!close && (queue.length + (active ? 1 : 0) >= maxQueuedJobs || input.size > maxQueuedBytes - bytes)) throw limitError();
-      if (!close && shared && (shared.jobs >= maxQueuedJobs || input.size > maxQueuedBytes - shared.bytes)) throw limitError();
+      if (!close && !cleanup && (queue.length + (active ? 1 : 0) >= maxQueuedJobs || input.size > maxQueuedBytes - bytes)) throw limitError();
+      if (!close && !cleanup && shared && (shared.jobs >= maxQueuedJobs || input.size > maxQueuedBytes - shared.bytes)) throw limitError();
       if (nextId >= Number.MAX_SAFE_INTEGER) throw limitError();
     } catch (error) {
+      if (mnemonicCommand(command)) clearMnemonic(input?.args);
       if (error && typeof error === 'object') receipts.set(error, { completion: 'none' });
       return Promise.reject(error);
     }
+    const admitted = input;
     return new Promise<T>((resolve, rejectPromise) => {
-      const job: Job = { id: ++nextId, command, args: input.args, size: input.size, ready: false, cancelled: false,
+      const job: Job = { id: ++nextId, command, args: admitted.args, size: admitted.size, ready: false, cancelled: false,
         cleanup: () => {}, resolve: value => resolve(value as T), reject: rejectPromise };
       queue.push(job); bytes += job.size;
       if (shared && !close) { shared.jobs++; shared.bytes += job.size; }
-      void watch(input.signal, () => {
+      void watch(admitted.signal, () => {
         job.cancelled = true;
         const index = queue.indexOf(job);
         if (index >= 0) { queue.splice(index, 1); release(job); reject(job, abortError(), { completion: 'none' }); pump(); }
@@ -190,6 +204,11 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
         || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync'].includes(e.stage)
         || !['reopen', 'sync', 'none', 'correct-input', 'configure'].includes(e.recovery)) { crashed(); return; }
     } else if (data.invalid) { crashed(); return; }
+    if (data.outcome.ok && mnemonicCommand(job.command) && shared?.signers) {
+      const token = (data.outcome.value as NativeCreatedAccount)?.signerToken;
+      if (!Number.isInteger(token) || token <= 0 || token > 0xffff_ffff || shared.signers.has(token) || shared.signers.size >= 1024) { crashed(); return; }
+      shared.signers.set(token, {});
+    }
     release(job); active = undefined;
     if (job.cancelled && data.outcome.ok) {
       reject(job, abortError(), { completion: data.completion, value: data.outcome.value });
@@ -204,6 +223,22 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
   shared?.wake.add(pump);
   port.start();
   return {
+    mnemonic: {
+      create: (args: MnemonicAccountInput & Op) => call<NativeCreatedAccount>('account_create_mnemonic_signer', args),
+      import: (args: MnemonicAccountInput & Op) => call<NativeCreatedAccount>('account_import_mnemonic_signer', args),
+    },
+    signers: {
+      describe: (args: { token: number } & Op) => call<NativeSignerDescription>('signer_describe', args),
+      release: (args: { token: number }) => {
+        const input = fields(args, ['token']);
+        const issued = shared?.signers?.get(input.token);
+        if (!issued) return Promise.reject(failure('STALE_HANDLE','account','none','Unknown signer authority.'));
+        // One bounded cleanup control per genuinely issued token, even when work is full.
+        return issued.release ??= call<void>('signer_release', input, false, true);
+      },
+      bind: (args: { token: number; accountId: string } & Op) => call<'ready' | 'recovery-required'>('signer_bind', args),
+      unbind: (args: { token: number; accountId: string }) => call<void>('signer_unbind', args),
+    },
     accounts: {
       import: (args: ViewingImport) => call<AccountRecord>('account_import', args),
       list: (args?: Op) => call<readonly AccountRecord[]>('account_list', args),

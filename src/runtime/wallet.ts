@@ -18,8 +18,8 @@ const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wa
 // Reviewed private producer + actual SDK bootstrap, not arbitrary same-profile JavaScript.
 // Updating this immutable executable closure requires reviewing the corresponding package.
 const reviewedAssets: Record<keyof typeof layout, string> = {
-  'wallet.mjs': '02155e267bba36a8395fe607aa438dbd85e50ade081a837b2494a453c3ac446e',
-  'worker.mjs': 'c83cdeef899da3a03da3da88ace369af11cfbb2427174f3d47770b8ebb5069db',
+  'wallet.mjs': '2fdf986467a7997ce6bf96d545d5af495f2b775d35ca392a8ca623a4f190be56',
+  'worker.mjs': '447e1ee1b40b897219b0a05d6564cdc7a923508ffc5d2a6524ce758fd4f49879',
   'bindings_bg.wasm': 'e6c2d90bfc47b7c3303a6f876a732d98ab2b83db87b2647aa35e1ffd73cfce82',
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
@@ -75,7 +75,8 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
   // JSON, including parsed/projected records, <=2 MiB raw bytes and reply copies.
   const nativeScratchBytes = 64 * 1024 * 1024;
   const reserved = nativeScratchBytes + 4096 * 65536 + 2 * policy.maxTotalAssetBytes + policy.maxAssetBytes
-    + 4 * policy.maxManifestBytes + runtime.maxQueuedBytes + 8192 * runtime.maxQueuedJobs;
+    + 4 * policy.maxManifestBytes + runtime.maxQueuedBytes + 8192 * runtime.maxQueuedJobs
+    + 8192 * 1024; // Native lifetime signer ceiling: one retained token/cleanup control each.
   if (!Number.isSafeInteger(reserved) || runtime.maxMemoryBytes < reserved) throw resource();
   if (runtime.onDiagnostic !== undefined && typeof runtime.onDiagnostic !== 'function') throw invalidArgument();
   const storage = record(input.storage, ['kind', 'path', 'name']);
@@ -138,6 +139,8 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
       // Internal signer composition retains this owner independently of its creating wallet.
       owner: Object.freeze({
         identity: owner.token,
+        signers: owner.signers,
+        invalidate: owner.invalidate,
         retain() {
           owner.check(); selected.refs++; let done = false;
           return async () => {
@@ -170,7 +173,7 @@ const owners = new Map<string, { refs: number; wallets: number; controller: Abor
 async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>, signal: AbortSignal, forget: () => void) {
   let worker: { postMessage(value: unknown, transfer: any[]): void; terminate(): unknown } | undefined;
   const sessions = new Set<ReturnType<typeof attachWalletWorker>>();
-  const budget: WalletQueueBudget = { jobs: 0, bytes: 0, active: false, wake: new Set() };
+  const budget: WalletQueueBudget = { jobs: 0, bytes: 0, active: false, wake: new Set(), signers: new Map() };
   let removeAssets = () => {}, removeEvents = () => {};
   let destroying: Promise<void> | undefined, stopped: ZcashError | undefined;
   let nextId = 0;
@@ -261,8 +264,18 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
         contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
       }) || !sameRecord(identity.memory, { initialPages: 307, maximumPages: 4096, shared: false })) throw mismatch();
+      const authorityChannel = channels();
+      let authority: ReturnType<typeof attachWalletWorker>;
+      try {
+        const reply = await request({type:'signers',port:authorityChannel.port2},[authorityChannel.port2]);
+        if (reply?.type !== 'signers-ready') throw mismatch();
+        authority = attachWalletWorker(authorityChannel.port1, async () => {},
+          {maxQueuedJobs:runtime.maxQueuedJobs,maxQueuedBytes:runtime.maxQueuedBytes},budget);
+        sessions.add(authority);
+      } catch (error) { authorityChannel.port1.close(); authorityChannel.port2.close(); throw error; }
       return {
-        token: Object.freeze({}), identity: Object.freeze(identity), check, destroy,
+        token: Object.freeze({}), identity: Object.freeze(identity), check, destroy, signers: authority.signers,
+        invalidate: () => { stop(failure('WORKER_CRASHED','runtime','reopen','Native authority cleanup failed.')); return destroy(); },
         async open(storage: WalletStorage, parametersFormat: string, parameters: Uint8Array, genesis: Uint8Array, release: () => Promise<void>): Promise<OpenedWallet> {
           check();
           const channel = channels();

@@ -1,5 +1,5 @@
 import type { WalletStorage } from '../../docs/api/public-api.js';
-import type { InitializedViews } from '../wallet/session.js';
+import type { InitializedViews, InitializedSigners } from '../wallet/session.js';
 import { installWalletWorker } from '../wallet/worker.js';
 import { sameRecord, walletProfile } from './wallet-profile.js';
 import type { WalletRuntimeIdentity } from './wallet-profile.js';
@@ -14,6 +14,7 @@ let api: {
   runtimeIdentity: WalletRuntimeIdentity;
   initializeWalletRuntime(wasm: Uint8Array): {
     readonly invalid: boolean;
+    readonly signers: InitializedSigners;
     open(backend: unknown, format: string, parameters: Uint8Array, genesis: Uint8Array): unknown;
     openMemory(format: string, parameters: Uint8Array, genesis: Uint8Array): unknown;
   };
@@ -21,6 +22,7 @@ let api: {
   consensusContext(format: string, parameters: Uint8Array, height: number): unknown;
 }
 let runtime: ReturnType<typeof api.initializeWalletRuntime>;
+let signerPort = false;
 
 function executableUrl(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith(node ? 'file:' : 'blob:');
@@ -55,6 +57,13 @@ async function handle(data: any) {
       data.wasm.fill(0);
       phase = 'ready';
       control.postMessage({ type: 'ready', identity, id: data.id });
+      return;
+    }
+    if (phase === 'ready' && data?.type === 'signers' && !signerPort) {
+      if (!(data.port instanceof (node ? threads.MessagePort : MessagePort))) failed('PROTOCOL_MISMATCH');
+      installWalletWorker(undefined, data.port, () => runtime.invalid, runtime.signers);
+      signerPort = true;
+      control.postMessage({ type: 'signers-ready', id: data.id });
       return;
     }
     if (phase !== 'ready' || data?.type !== 'open') failed('PROTOCOL_MISMATCH');

@@ -96,7 +96,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       ['/tests/clients/public-chain-reads-fixtures.mjs', await readFile(new URL('../clients/public-chain-reads-fixtures.mjs', import.meta.url))],
     ]);
     assets.set('/tests/wallet/host-native-worker.mjs', await readFile(new URL('./host-native-worker.mjs', import.meta.url)));
-    for (const name of ['errors', 'clients/owned-plumbing', 'wallet/host', 'wallet/worker', 'wallet/session']) {
+    for (const name of ['errors', 'clients/owned-plumbing', 'wallet/host', 'wallet/worker', 'wallet/session', 'wallet/mnemonic']) {
       assets.set(`/dist/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
     }
     for (const name of ['bindings.js', 'bindings_bg.wasm', 'views.mjs', 'wallet.mjs', 'bytes.mjs',
@@ -184,7 +184,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 13 : 2);
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 14 : 2);
     report.status = 'passed';
   } catch (error) { if (report.interruptedBy) report.status = 'interrupted'; report.error = { code: error.code, message: String(error), stack: error.stack }; }
   finally {

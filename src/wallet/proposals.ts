@@ -47,7 +47,14 @@ export class WalletProposals {
     proposals.set(result,Object.freeze({session:this.session,operationId:value.operationId,proposalId:value.proposalId,reviewCommitment:value.reviewCommitment}));
     return result;
   }
-  async create(args: NativeProposalInput & Op): Promise<Proposal> { return this.project(await this.session.proposals.create(args)); }
+  async create(args: NativeProposalInput & Op): Promise<Proposal> {
+    const value=await this.session.proposals.create(args);
+    try { return this.project(value); }
+    catch(error) {
+      const rejected=typeof error==='object'&&error!==null?error:protocol();
+      this.session.committed(rejected,value);throw rejected;
+    }
+  }
   async restore(args: { operationId: string } & Op): Promise<Proposal | null> {
     const value=await this.session.proposals.get(args);return value===null?null:this.project(value);
   }
@@ -59,5 +66,6 @@ export function proposalBinding(proposal: Proposal, session: Session) {
   const value=proposals.get(proposal);
   if(!value)throw invalidArgument();
   if(value.session!==session)throw failure('WRONG_INSTANCE','proposal','none','Proposal belongs to another wallet instance.');
+  session.check();
   return Object.freeze({operationId:value.operationId,proposalId:value.proposalId,reviewCommitment:value.reviewCommitment});
 }

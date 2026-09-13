@@ -229,6 +229,8 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
   shared?.wake.add(pump);
   port.start();
   return {
+    committed(error: object, value: unknown) { receipts.set(error,{completion:'committed',value}); },
+    check() { if(stopped || closing) throw closedError(); },
     proposals: {
       create: (args: NativeProposalInput & Op) => call<NativeProposalReview>('proposal_create',args),
       get: (args: { operationId: string } & Op) => call<NativeProposalReview | null>('proposal_get',args),

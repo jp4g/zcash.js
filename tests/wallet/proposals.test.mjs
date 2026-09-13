@@ -55,3 +55,9 @@ test('proposal native rejection and cancellation retain exact completion without
   finally {MessagePort.prototype.postMessage=send;}
   assert.equal(calls,before+1);assert.equal((await api.restore({operationId:'01'.repeat(32)})).proposalId,'02'.repeat(32));
 });
+
+test('postcommit projection failure retains native operation receipt',async t=>{
+  const value={...review(),branchId:0};
+  const {session,api}=setup(t,()=>value);
+  await assert.rejects(api.create(args()),error=>error.code==='PROTOCOL_MISMATCH'&&session.completion(error).completion==='committed'&&session.completion(error).value.operationId===value.operationId);
+});

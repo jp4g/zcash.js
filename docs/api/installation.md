@@ -12,7 +12,9 @@ npm pack --ignore-scripts --pack-destination /absolute/local/output
 npm install /absolute/local/output/zcash.js-0.0.0.tgz
 ```
 
-Use named ESM imports from `zcash.js`. Node native gRPC is available through the explicit `zcash.js/grpc-node` entry. Current package exports do not provide a CommonJS `require` entry. No CJS or Webpack compatibility claim follows from the existing Node ESM/Vite checks.
+Use named ESM imports from `zcash.js`. Node native gRPC is available through the explicit `zcash.js/grpc-node` entry. Current package exports do not provide a CommonJS `require` entry. No CommonJS compatibility is claimed. The installed-tarball consumer check also uses pinned Webpack 5.110.3 through its Node API (no loaders or plugins), targeting web/ES2022. It executes the emitted full-export and public-query-only bundles without Node globals, network requests or WASM initialization, and checks that query-only imports remove wallet/storage/proving code. This VM check does not yet qualify Webpack browser worker execution or external runtime asset loading.
+
+Webpack emits four known dynamic-import warnings for guarded Node-only imports in `grpc.js`, `runtime/wallet.js` and `wallet/host.js` when bundling all exports. The consumer test checks this exact warning set; public-query-only imports have no warnings. These Node paths are not exercised by a browser target. Bundle size advisories are outside this compatibility check; no performance claim is made.
 
 ## Supply the verified wallet runtime
 

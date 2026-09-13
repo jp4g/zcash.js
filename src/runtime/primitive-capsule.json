@@ -2,7 +2,7 @@
   "format": "zcash-js-pure-codec-capsule/1",
   "profile": "primitive",
   "generatorSha256": "4b7630ce60aa970eaa078b929040bbbb2daceb93ffdac713d8a3a8a0753ca355",
-  "lockSha256": "16dab52ae86e372f96139e4c7664a0229dcf4973673ebd8c73fe8745ed037321",
+  "lockSha256": "ff9ff85bbb4d31cbda95066586192cb855a20ab8ef1173483f18123880468440",
   "nativeReceipt": "aa8b4d24eb510cf176d4114372691df27637f1dd7fbbdbccddd46e72cbf2184f",
   "nativeRevision": "180f41f3e994fdfdadd062a1e737fe0c7272e690",
   "inputs": {

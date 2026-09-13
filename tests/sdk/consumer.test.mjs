@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import vm from 'node:vm';
+import webpack from 'webpack';
 import { createServer } from 'node:https';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
@@ -61,6 +62,35 @@ test('packed private package imports and typechecks in an isolated Node consumer
     console.log(JSON.stringify(Object.keys(sdk).sort()));
   `], { cwd: consumer });
   assert.deepEqual(JSON.parse(runtime.stdout), implemented);
+  // Resolve the actual installed exports, without aliases into the repository.
+  await writeFile(join(consumer,'webpack-entry.mjs'), `
+    import * as sdk from 'zcash.js';
+    export const names=Object.keys(sdk).sort();
+    export const wallet=sdk.createWalletClient;
+    export const amount=sdk.formatZec(sdk.parseZec('1.00000001'));
+    export const transport=sdk.http('https://synthetic.invalid',{sourceId:'webpack',timeoutMs:1000,maxResponseBytes:4096,readRetry:{attempts:1,delayMs:0}});
+  `);
+  for(const queryOnly of [false,true]){
+    if(queryOnly)await writeFile(join(consumer,'webpack-entry.mjs'),"import {parseZec,formatZec,createPublicClient,http} from 'zcash.js'; export {createPublicClient,http}; export const amount=formatZec(parseZec('1.00000001'));\n");
+    const compiler=webpack({mode:'production',context:consumer,target:['web','es2022'],entry:'./webpack-entry.mjs',devtool:false,
+      performance:{hints:false},module:{parser:{javascript:{dynamicImportMode:'eager'}}},optimization:{minimize:false},output:{path:join(consumer,'webpack'),filename:'bundle.js',library:{name:'SDKProbe',type:'var'},globalObject:'globalThis',publicPath:''}});
+    let stats;try{stats=await new Promise((resolve,reject)=>compiler.run((error,result)=>error?reject(error):resolve(result)));}finally{await new Promise((resolve,reject)=>compiler.close(error=>error?reject(error):resolve()));}
+    assert.equal(stats.hasErrors(),false,stats.toString({all:false,errors:true}));
+    const details=stats.toJson({all:false,warnings:true,modules:true});
+    // Variable imports are confined to Node-only branches; never execute in this web target.
+    assert.deepEqual(details.warnings.map(warning=>({module:warning.moduleName,message:warning.message})),queryOnly?[]:[
+      'grpc.js','runtime/wallet.js','wallet/host.js','wallet/host.js'
+    ].map(name=>({module:'./node_modules/zcash.js/dist/src/'+name,message:'Critical dependency: the request of a dependency is an expression'})));
+    const code=await readFile(join(consumer,'webpack/bundle.js'),'utf8');
+    const globals={URL,Headers,TextEncoder,TextDecoder,AbortController,AbortSignal,EventTarget,setTimeout,clearTimeout,performance};
+    Object.defineProperty(globals,'WebAssembly',{get(){throw Error('native initialization forbidden');}});
+    globals.fetch=()=>{throw Error('unexpected asset or endpoint request');};
+    const context=vm.createContext(globals,{codeGeneration:{strings:false,wasm:false}});vm.runInContext(code,context);
+    assert.equal(context.SDKProbe.amount,'1.00000001');
+    if(queryOnly){assert.doesNotMatch(code,/wallet-worker|SQLite|sapling-spend|openWalletRuntime/);assert.equal(typeof context.SDKProbe.createPublicClient,'function');assert.equal(typeof context.SDKProbe.http,'function');}
+    else{assert.deepEqual([...context.SDKProbe.names],implemented);assert.equal(typeof context.SDKProbe.wallet,'function');}
+  }
+
   if(process.env.WALLET_RUNTIME_PACKAGE){
     const packet=process.env.WALLET_RUNTIME_PACKAGE,manifestBytes=await readFile(join(packet,'manifest.json')),manifest=JSON.parse(manifestBytes);
     const sha=bytes=>createHash('sha256').update(bytes).digest('hex'),assets=new Map([['manifest.json',{bytes:manifestBytes,type:'application/json'}]]);

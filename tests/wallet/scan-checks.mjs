@@ -250,3 +250,39 @@ export async function sharedWalletChecks(open, fixture) {
     check((await reopened.session.addresses.list({accountId:account.id})).some(row=>row.address===address.address),'wallet survives authority lease release');
   } finally {await release?.();await first.close();await second?.close();await reopened?.close();}
 }
+
+export async function mnemonicWalletChecks(open) {
+  const {createMnemonicAccount}=await import('../../dist/src/wallet/mnemonic.js');
+  // Existing native wallet-signer.mjs/BIP39 synthetic vector, never production authority.
+  const phrase=new TextEncoder().encode('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+  const first=await open('a');let second,reopened,authority;
+  try {
+    second=await open('b');
+    const created=await createMnemonicAccount(first,'import',{mnemonic:phrase,accountIndex:0,birthday:'fullScan'});
+    authority=created.authority;
+    const descriptor=await authority.describe();
+    check(descriptor.accountIndex===0&&typeof descriptor.viewingKey==='string','actual mnemonic native description');
+    const imported=await second.session.accounts.import({viewingKey:descriptor.viewingKey,birthday:'fullScan'});
+    check(await authority.bind(second,imported.id)==='ready','native signer/account correspondence across DBs');
+    await first.close();
+    check((await authority.describe()).viewingKey===descriptor.viewingKey,'native USK owner survives first wallet close');
+    reopened=await open('a');
+    check((await reopened.session.accounts.get({accountId:created.account.id})).id===created.account.id,'mnemonic account persists after reopen');
+    await authority.unbind(second,imported.id);await authority.dispose();authority=undefined;
+    const controller=new AbortController(),send=MessagePort.prototype.postMessage;let canceled;
+    // Abort after actual dispatch, before the worker's native completion response.
+    MessagePort.prototype.postMessage=function(value,...rest){const answer=Reflect.apply(send,this,[value,...rest]);if(value?.command==='account_import_mnemonic_signer')controller.abort();return answer;};
+    try {
+      await createMnemonicAccount(reopened,'import',{mnemonic:phrase,accountIndex:1,birthday:'fullScan',signal:controller.signal});
+      throw Error('missing canceled mnemonic result');
+    } catch(error){canceled=error;check(error.code==='ABORTED','dispatched mnemonic cancellation');}
+    finally {MessagePort.prototype.postMessage=send;}
+    const receipt=reopened.session.completion(canceled);
+    check(receipt?.completion==='committed'&&typeof receipt.value?.account?.id==='string','canceled committed account retained');
+    const token=receipt.value.signerToken;
+    try {await reopened.owner.signers.describe({token});throw Error('undelivered token remains live');}
+    catch(error){check(error.code==='STALE_HANDLE','undelivered native token released');}
+    check((await reopened.session.accounts.list()).length===2,'canceled account mutation persists without leaked signer');
+    check(new TextDecoder().decode(phrase).endsWith('about'),'caller mnemonic bytes remain owned');
+  } finally {await authority?.dispose();await first.close();await second?.close();await reopened?.close();}
+}

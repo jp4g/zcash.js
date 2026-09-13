@@ -54,9 +54,9 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
   let signal: AbortSignal | undefined;
   // Reserve both the queued owned input and its structured-clone transfer copy.
   const charge = (n: number) => { size += 2 * n; if (size > maximum) throw limitError(); };
-  const copy = (value: unknown, depth: number, byteMaximum?: number): unknown => {
+  const copy = (value: unknown, depth: number, byteMaximum?: number, arrayMaximum=16): unknown => {
     charge(8);
-    if (depth > 5) throw invalidArgument();
+    if (depth > (command==='enhancement_apply'?6:5)) throw invalidArgument();
     if (value === null || typeof value === 'boolean') return value;
     if (typeof value === 'bigint') { if (value < 0n || value >= (1n << 88n)) throw invalidArgument(); charge(16); return value; }
     if (typeof value === 'number' && Number.isSafeInteger(value)) return value;
@@ -68,7 +68,7 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
       charge(owned.byteLength); return owned;
     }
     if (![Object.prototype, Array.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
-    if (Array.isArray(value) && value.length > 16) throw invalidArgument();
+    if (Array.isArray(value) && value.length > arrayMaximum) throw invalidArgument();
     const result: Record<string, unknown> | unknown[] = Array.isArray(value) ? [] : {};
     for (const key of Reflect.ownKeys(value)) {
       if (Array.isArray(value) && key === 'length') continue;
@@ -83,7 +83,7 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
           catch { throw invalidArgument(); }
         }
       } else Object.defineProperty(result, key, { value: command === 'signer_authorize' && depth === 0 && key === 'maximum' ? pcztMaximum : copy(property.value, depth + 1,
-        (command === 'pczt_prove'||command==='pczt_finalize'||command==='fused_send') && depth === 0 && (key === 'spend'||key === 'output') ? Math.min(saplingAssets[key==='spend'?0:1].byteLength,Math.floor((maximum-size)/2)) : (command === 'signer_authorize' || command === 'pczt_import') && depth === 0 && key === 'bytes' ? Math.min(pcztMaximum,4 * 1024 * 1024) : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined), enumerable: true });
+        (command === 'pczt_prove'||command==='pczt_finalize'||command==='fused_send') && depth === 0 && (key === 'spend'||key === 'output') ? Math.min(saplingAssets[key==='spend'?0:1].byteLength,Math.floor((maximum-size)/2)) : (command === 'signer_authorize' || command === 'pczt_import') && depth === 0 && key === 'bytes' ? Math.min(pcztMaximum,4 * 1024 * 1024) : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined, command==='enhancement_apply'&&depth===3&&key==='unspentOutputs'?1000:16), enumerable: true });
     }
     return result;
   };

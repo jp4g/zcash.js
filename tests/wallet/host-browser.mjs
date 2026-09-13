@@ -62,7 +62,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
   const report = { status: 'failed', runRoot, build, sandbox: 'unchanged', started: new Date().toISOString() };
   const stop = new AbortController();
-  const deadline = setTimeout(() => stop.abort(), 90000);
+  const deadline = setTimeout(() => stop.abort(), process.env.WALLET_LOADER ? 150000 : 90000);
   const onSignal = signal => { report.interruptedBy = signal; stop.abort(); };
   process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -183,9 +183,9 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     await request(`/session/${session}/timeouts`, 'POST', { script: 20000, pageLoad: 15000, implicit: 0 });
     await request(`/session/${session}/url`, 'POST', { url: server.origin });
     let answer;
-    // The expanded loader adds a native owner and ten V5/V6 signing cases.
-    // Keep a finite page budget below the unchanged 90s overall cleanup deadline.
-    const resultDeadline = Date.now() + (process.env.WALLET_LOADER ? 60000 : 45000);
+    // Account, PCZT and shielding workflows add seven owners to the original suite.
+    // Allow their actual native work, leaving 30s for startup and cleanup.
+    const resultDeadline = Date.now() + (process.env.WALLET_LOADER ? 120000 : 45000);
     while (!answer) {
       stop.signal.throwIfAborted(); assert.ok(Date.now() < resultDeadline, 'page result deadline');
       answer = await request(`/session/${session}/execute/sync`, 'POST', { script: 'return window.walletResult || null;', args: [] });

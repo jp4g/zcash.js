@@ -92,7 +92,8 @@ async function handle(data: any) {
     // Only fixed known tags cross the control channel; never filesystem or native text.
     let tag: unknown;
     try { tag = typeof error === 'string' ? error : Object.getOwnPropertyDescriptor(error, 'message')?.value; } catch { /* Unknown failure remains sanitized. */ }
-    try { if (Object.getOwnPropertyDescriptor(error, 'code')?.value === 'EBUSY') failure = 'STORAGE_BUSY'; } catch { /* Keep the fixed fallback. */ }
+    try { if (Object.getOwnPropertyDescriptor(error, 'code')?.value === 'EBUSY'
+      || error instanceof DOMException && error.name === 'NoModificationAllowedError') failure = 'STORAGE_BUSY'; } catch { /* Keep the fixed fallback. */ }
     const allowed = ['INVALID_ARGUMENT', 'PROTOCOL_MISMATCH', 'RESOURCE_LIMIT', 'NETWORK_MISMATCH', 'SCHEMA_MISMATCH', 'VIEWING_SCHEMA_REQUIRED'];
     if (typeof tag === 'string' && allowed.includes(tag)) failure = tag;
     let cleanupFailed = false;

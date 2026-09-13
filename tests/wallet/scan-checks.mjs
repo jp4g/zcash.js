@@ -232,7 +232,7 @@ export async function sharedWalletChecks(open, fixture) {
   try {
     const abort=new AbortController(),cancelled=open('cancel',abort.signal);abort.abort();
     try {await cancelled;throw Error('unexpected shared open');}catch(error){check(error.code==='ABORTED','shared open cancellation');}
-    try {await open('a');throw Error('unexpected shared lease');}catch(error){check(error.code==='STORAGE_BUSY','duplicate DB lease remains exclusive');}
+    try {await open('a');throw Error('unexpected shared lease');}catch(error){check(error.code==='STORAGE_BUSY',`duplicate DB lease remains exclusive: ${error.code}`);}
     second=await open('b');
     check(first.owner.identity===second.owner.identity,'already-open wallets share native owner');
     check((await second.session.accounts.list()).length===0,'second DB starts empty');

@@ -19,6 +19,10 @@ export function httpSourceId(transport: HttpTransport): string {
   if (!state) throw invalidArgument();
   return state.options.sourceId;
 }
+/** Private route identity; credentials supplied by headers are never part of this value. */
+export function httpEndpoint(transport: HttpTransport): string {
+  const state=transports.get(transport);if(!state)throw invalidArgument();return state.url;
+}
 const readMethods = new Set(['getblockchaininfo', 'getblockhash', 'getblock', 'getblockheader',
   'getrawtransaction', 'getrawmempool', 'getaddressutxos', 'z_gettreestate', 'z_getsubtreesbyindex']);
 

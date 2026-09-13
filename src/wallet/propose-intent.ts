@@ -16,7 +16,7 @@ function list<T>(value:readonly T[],maximum:number,read:(value:T)=>T,minimum=1):
   return Array.from({length},(_,i)=>{const field=Object.getOwnPropertyDescriptor(value,String(i));if(!field||!Object.hasOwn(field,'value'))throw invalidArgument();return read(field.value);});
   } catch(error){throw isZcashError(error)?error:invalidArgument();}
 }
-function policyCopy(value:TransactionPolicy):TransactionPolicy {
+export function policyCopy(value:TransactionPolicy):TransactionPolicy {
   const input=snapshot(value,['spendPools','transparent','changePool','feeRule','confirmations','expiry','lockExpiryBlocks','shieldingThreshold','freshness']);
   const pools=list(input.spendPools,3,pool=>{if(!['transparent','sapling','ironwood'].includes(pool))throw invalidArgument();return pool;});
   if(new Set(pools).size!==pools.length||!['disallow','allow-owned'].includes(input.transparent)||!['sapling','ironwood'].includes(input.changePool)||input.feeRule!=='zip317-standard')throw invalidArgument();

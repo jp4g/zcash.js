@@ -1,6 +1,6 @@
 import type { PublicClient, Network, HttpTransport, ObservationOptions, Op, BlockSelector, TxId, TransactionObservation, Inclusion, ConfirmedTransaction } from '../docs/api/public-api.js';
 import { networkBinding } from './network.js';
-import { httpSourceId, readRpc, sendRawTransaction, rpcErrorCode } from './http.js';
+import { httpSourceId, httpEndpoint, readRpc, sendRawTransaction, rpcErrorCode } from './http.js';
 import { snapshot } from './clients/owned-plumbing.js';
 import { operation } from './clients/light-chain-reads.js';
 import * as chain from './clients/public-chain-reads.js';
@@ -9,6 +9,9 @@ import * as transactions from './clients/public-transaction-reads.js';
 import { blockHash, txId } from './primitives.js';
 import { JsonNumber, protocolError } from './json.js';
 import { failure, invalidArgument } from './errors.js';
+
+const clients=new WeakMap<PublicClient,Readonly<{network:Network;endpoint:string}>>();
+export const publicClientBinding=(client:PublicClient)=>clients.get(client);
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value) || value instanceof JsonNumber) throw protocolError();
@@ -251,7 +254,7 @@ export function createPublicClient(args: { network: Network; transport: HttpTran
       async return() { finished = true; queue.length = 0; pending?.cancel(); wake?.(); await running; return { done: true, value: undefined }; },
     };
   }
-  return Object.freeze(client);
+  clients.set(client,Object.freeze({network,endpoint:httpEndpoint(transport)}));return Object.freeze(client);
 }
 function pause(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {

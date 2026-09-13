@@ -1,3 +1,6 @@
+import {publicWalletChecks} from './public-wallet-checks.mjs';
+import {createLightClient,defineNetwork,grpc} from '../../dist/src/index.js';
+import {saplingAssets} from '../../dist/src/wallet/proving-assets.js';
 import {shieldingChecks} from './shielding-checks.mjs';
 import {accountsChecks} from './accounts-checks.mjs';
 import {pcztBuildChecks} from './pczt-build-checks.mjs';
@@ -18,7 +21,7 @@ export async function runBrowser() {
     network: { identity: 'synthetic-regtest', genesisHash: '03'.repeat(32), parametersFormat: 'zcash-js-network/1', parameters } };
   const check = (value, label) => { if (!value) throw Error(label); };
   const same = (a, b) => JSON.stringify(a, (_, v) => typeof v === 'bigint' ? String(v) : v) === JSON.stringify(b, (_, v) => typeof v === 'bigint' ? String(v) : v);
-  let account, addresses, previousScan, workerDestructions = 0;
+  let account, addresses, previousScan, workerDestructions = 0,publicWalletResult={publicWallet:false};
   const NativeWorker = globalThis.Worker;
   globalThis.Worker = class extends NativeWorker {
     terminate() { workerDestructions++; return super.terminate(); }
@@ -138,11 +141,22 @@ export async function runBrowser() {
       try {shielding=await shieldingChecks(opened.session,fixture.shielding,options.network,reopen?shielding:undefined);}
       finally {await opened.close();}
     }
+    if(fixture.proving){
+      mark('public-wallet');check(fixture.pczt.publicWallet,'native public wallet fixture');
+      const light=createLightClient({network:await defineNetwork(options.network),transport:grpc(location.origin,{sourceId:'public-wallet-grpc-web',timeoutMs:5000,maxResponseBytes:4*1024*1024,readRetry:{attempts:1,delayMs:0}})});
+      const proving={kind:'local',maxConcurrentProofs:1,cache:{kind:'memory',maxBytes:saplingAssets.reduce((n,asset)=>n+asset.byteLength,0)},
+        assets:saplingAssets.map(({sha256,blake2b512,...asset})=>({...asset,digest:{algorithm:'sha256',hex:sha256}})),
+        async loadAsset({requirement,signal}){const response=await fetch(`/proving/${requirement.assetId}`,{signal,credentials:'omit'});check(response.ok,'public proving asset response');return new Uint8Array(await response.arrayBuffer());}};
+      publicWalletResult=await publicWalletChecks(suffix=>({...options,storage:{kind:'browser-opfs',name:`${name}-${suffix}`},
+        runtime:{...options.runtime,maxMemoryBytes:1024**3,maxQueuedBytes:104*1024*1024,maxPcztBytes:4*1024*1024},proving,light,broadcaster:light}),
+        async(suffix,bytes)=>{const directory=await storageRoot.getDirectoryHandle(`${name}-${suffix}`,{create:true}),file=await directory.getFileHandle('wallet.db',{create:true}),writer=await file.createWritable();try{await writer.write(bytes);}finally{await writer.close();}},
+        fixture.pczt,options.network,async()=>{const response=await fetch('/public-wallet-submitted',{cache:'no-store'});check(response.ok,'public dispatch inventory');return response.json();});
+    }
     mark('complete');
-    return { phases,proving:!!fixture.proving,shielding:true,idempotency:true,accountsApi:true,memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    return { phases,...publicWalletResult,proving:!!fixture.proving,shielding:true,idempotency:true,accountsApi:true,memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
-    for (const entry of [`${name}-pczt-external`,`${name}-pczt-internal`,`${name}-accounts-a`,`${name}-accounts-b`,`${name}-complete-signer`,`${name}-mnemonic-a`, `${name}-mnemonic-b`, `${name}-shared-a`, `${name}-shared-b`, `${name}-shared-cancel`, name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`,`${name}-shielding`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
+    for (const entry of [...['transfer','shield','tex'].map(mode=>`${name}-public-${mode}`),`${name}-pczt-external`,`${name}-pczt-internal`,`${name}-accounts-a`,`${name}-accounts-b`,`${name}-complete-signer`,`${name}-mnemonic-a`, `${name}-mnemonic-b`, `${name}-shared-a`, `${name}-shared-b`, `${name}-shared-cancel`, name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`,`${name}-shielding`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
       if (error.name !== 'NotFoundError') throw error;
     });
   }

@@ -18,9 +18,9 @@ const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wa
 // Reviewed private producer + actual SDK bootstrap, not arbitrary same-profile JavaScript.
 // Updating this immutable executable closure requires reviewing the corresponding package.
 const reviewedAssets: Record<keyof typeof layout, string> = {
-  'wallet.mjs': 'b63dd978eba2af99f4c40d5a57a18bfc1f31058d8c4d9ac6a49e87de57f6cc3a',
-  'worker.mjs': 'e7012d85d1dcea131bae53acc4cc23ea4ad550dbdc852dafb2b4c32d97c77233',
-  'bindings_bg.wasm': 'b08ebf0a7456a62a4ab320a9c5716b7bed9acf281c80a4e0cd5c90301660e001',
+  'wallet.mjs': 'cb384ab43fc1b7c39c172a9f8c6bc65b018203c56d7ee07753b1a678101d9d7f',
+  'worker.mjs': 'e395af0c50d5041fe068936c2aedd0beb06317a4f5812b5575ed7f18cc663fbd',
+  'bindings_bg.wasm': '940d807cc35ecefffbc9c3db8130e51c6e758e28b7b44ed52468fd25539a13eb',
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
 };
@@ -265,7 +265,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
       if (ready?.type !== 'ready' || !identity || !sameRecord(expected, {
         contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
-      }) || !sameRecord(identity.memory, { initialPages: 319, maximumPages: 4096, shared: false })) throw mismatch();
+      }) || !sameRecord(identity.memory, { initialPages: 321, maximumPages: 4096, shared: false })) throw mismatch();
       const authorityChannel = channels();
       let authority: ReturnType<typeof attachWalletWorker>;
       try {

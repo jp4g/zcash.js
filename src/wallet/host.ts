@@ -1,4 +1,5 @@
 import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalIntent, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
+import type {NativePayment,PaymentInventory,PaymentInventoryInput,PaymentObserve,PaymentAttempt,PaymentAttemptInput,PaymentAttemptFinish,NativeFinalized,NativeFusedInput,NativeFused,PaymentReconcile} from './payments.js';
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance, ZcashError } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
@@ -51,11 +52,12 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
   let size = 0;
   const copied: Uint8Array[] = [];
   let signal: AbortSignal | undefined;
+  let unspentInventory=false;
   // Reserve both the queued owned input and its structured-clone transfer copy.
   const charge = (n: number) => { size += 2 * n; if (size > maximum) throw limitError(); };
-  const copy = (value: unknown, depth: number, byteMaximum?: number): unknown => {
+  const copy = (value: unknown, depth: number, byteMaximum?: number, arrayMaximum=16): unknown => {
     charge(8);
-    if (depth > 5) throw invalidArgument();
+    if (depth > (unspentInventory?6:5)) throw invalidArgument();
     if (value === null || typeof value === 'boolean') return value;
     if (typeof value === 'bigint') { if (value < 0n || value >= (1n << 88n)) throw invalidArgument(); charge(16); return value; }
     if (typeof value === 'number' && Number.isSafeInteger(value)) return value;
@@ -67,7 +69,7 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
       charge(owned.byteLength); return owned;
     }
     if (![Object.prototype, Array.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
-    if (Array.isArray(value) && value.length > 16) throw invalidArgument();
+    if (Array.isArray(value) && value.length > arrayMaximum) throw invalidArgument();
     const result: Record<string, unknown> | unknown[] = Array.isArray(value) ? [] : {};
     for (const key of Reflect.ownKeys(value)) {
       if (Array.isArray(value) && key === 'length') continue;
@@ -82,12 +84,18 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
           catch { throw invalidArgument(); }
         }
       } else Object.defineProperty(result, key, { value: command === 'signer_authorize' && depth === 0 && key === 'maximum' ? pcztMaximum : copy(property.value, depth + 1,
-        command === 'pczt_prove' && depth === 0 && (key === 'spend'||key === 'output') ? Math.min(saplingAssets[key==='spend'?0:1].byteLength,Math.floor((maximum-size)/2)) : (command === 'signer_authorize' || command === 'pczt_import') && depth === 0 && key === 'bytes' ? Math.min(pcztMaximum,4 * 1024 * 1024) : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined), enumerable: true });
+        (command === 'pczt_prove'||command==='pczt_finalize'||command==='fused_send') && depth === 0 && (key === 'spend'||key === 'output') ? Math.min(saplingAssets[key==='spend'?0:1].byteLength,Math.floor((maximum-size)/2)) : (command === 'signer_authorize' || command === 'pczt_import') && depth === 0 && key === 'bytes' ? Math.min(pcztMaximum,4 * 1024 * 1024) : mnemonicCommand(command) && depth === 0 ? key === 'mnemonic' ? 4096 : key === 'passphrase' ? 65536 : undefined : undefined, unspentInventory&&((depth===1&&key==='transactions')||(depth===3&&key==='unspentOutputs'))?1000:16), enumerable: true });
     }
     return result;
   };
   let value: unknown;
   try {
+    if(command==='enhancement_apply'){
+      const input=fields(args as any,['revision','request','result','signal']);
+      const request=fields(input.request,['kind','txid','address','start','endExclusive','requestAt','txStatus','outputStatus']);
+      unspentInventory=request.kind==='address'&&request.txStatus==='all'&&request.outputStatus==='unspent'&&request.endExclusive===null;
+      args={...input,request};
+    }
     if (command === 'account_import' || mnemonicCommand(command)) {
       const input = fields(args as any, command === 'account_import'
         ? ['viewingKey', 'birthday', 'name', 'viewOnly', 'enabledPools', 'signal']
@@ -102,13 +110,21 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
           genesis: Uint8Array.from(definition.genesisHash.match(/../g)!.reverse(), byte => parseInt(byte, 16)) } };
       } else args = input;
     }
-    if (command === 'pczt_prove') {
+    if (command === 'pczt_prove'||command==='pczt_finalize') {
       const input=fields(args as any,['operationId','artifactId','spend','output','signal']);
       args={...input,maximum:Math.min(pcztMaximum,4 * 1024 * 1024)};
+    }
+    if(command==='fused_send'){
+      const input=fields(args as any,['operationId','proposalId','reviewCommitment','token','spend','output','signal']);
+      args={...input,maximum:Math.min(pcztMaximum,4*1024*1024)};
     }
     if (command === 'pczt_import') {
       const input=fields(args as {operationId:string;bytes:Uint8Array} & Op,['operationId','bytes','signal'],Math.min(pcztMaximum,4 * 1024 * 1024));
       args={...input,maximum:Math.min(pcztMaximum,4 * 1024 * 1024)};
+    }
+    if(command==='payment_attempt_begin'){
+      const input=fields(args as any,['operationId','stepIndex','sourceId','routeBinding','mode','origin','wallTimeMs','monotonicElapsedMs','observationSequence','policy','signal']);
+      args={...input,maximum:Math.min(pcztMaximum,2*1024*1024)};
     }
     if (command === 'signer_authorize') {
       const field = Object.getOwnPropertyDescriptor(args, 'maximum');
@@ -219,8 +235,8 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     if (!data.outcome.ok) {
       const e = data.outcome.error;
       if (!e || !walletErrorCodes.has(e.code) || e.retryable !== false || typeof e.message !== 'string'
-        || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync', 'authorization', 'proposal', 'proving'].includes(e.stage)
-        || !['reopen', 'sync', 'none', 'correct-input', 'configure', 'review-new-proposal'].includes(e.recovery)) { crashed(); return; }
+        || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync', 'authorization', 'proposal', 'proving','finalization','submission','observation'].includes(e.stage)
+        || !['reopen', 'sync', 'none', 'correct-input', 'configure', 'review-new-proposal','resume-operation','reconcile-exact-bytes'].includes(e.recovery)) { crashed(); return; }
     } else if (data.invalid) { crashed(); return; }
     if (data.outcome.ok && mnemonicCommand(job.command) && shared?.signers) {
       const token = (data.outcome.value as NativeCreatedAccount)?.signerToken;
@@ -240,18 +256,34 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
   port.onmessageerror = crashed;
   shared?.wake.add(pump);
   port.start();
+  const submissions=new Set<string>();
+  const reserveWorking=(bytes:number,cleanup:()=>Promise<void>)=>{
+    if(stopped||closing)throw closedError();
+    if(!Number.isSafeInteger(bytes)||bytes<0||proving.bytes+bytes>proving.capacity)throw limitError();
+    proving.bytes+=bytes;let released=false;
+    const release=()=>{if(!released){released=true;proving.bytes-=bytes;provingCleanup.delete(close);}};
+    const close=async()=>{try{await cleanup();}finally{release();}};provingCleanup.add(close);return release;
+  };
   return {
+    reserveWorking,
     committed(error: object, value: unknown) { receipts.set(error,{completion:'committed',value}); },
     check() { if(stopped || closing) throw closedError(); },
+    fused:{send:(args:NativeFusedInput&Op)=>call<NativeFused>('fused_send',args)},
+    payments: {
+      start(operationId:string){if(stopped||closing)throw closedError();if(submissions.has(operationId))throw failure('STORAGE_BUSY','submission','none','Submission is already active.');if(submissions.size>=maxQueuedJobs)throw limitError();submissions.add(operationId);return()=>{submissions.delete(operationId);};},
+      get:(args:{operationId:string}&Op)=>call<NativePayment|null>('payment_get',args),
+      list:(args:PaymentInventoryInput&Op)=>call<PaymentInventory>('payment_list',args),
+      reconcile:(args:PaymentReconcile&Op)=>call<NativePayment>('payment_reconcile',args),
+      observe:(args:PaymentObserve&Op)=>call<NativePayment>('payment_observe',args),
+      begin:(args:PaymentAttemptInput&Op)=>call<PaymentAttempt|null>('payment_attempt_begin',args),
+      finish:(args:PaymentAttemptFinish)=>call<NativePayment>('payment_attempt_finish',args),
+      position:(args:{afterSequence:string}&Op)=>call<void>('payment_recovery_position',args),
+    },
     pczt: {
+      finalize:(args:{operationId:string;artifactId:string;spend:Uint8Array;output:Uint8Array}&Op)=>call<NativeFinalized>('pczt_finalize',args),
+      finalized:(args:{operationId:string}&Op)=>call<NativeFused>('finalized_get',args),
       checkProvingAssets() { if(maxQueuedBytes<2*saplingAssets.reduce((sum,value)=>sum+value.byteLength,0)+1024)throw limitError(); },
-      reserveProving(bytes:number,cleanup:()=>Promise<void>) {
-        if(stopped||closing)throw closedError();
-        if(!Number.isSafeInteger(bytes)||bytes<0||proving.bytes+bytes>proving.capacity)throw limitError();
-        proving.bytes+=bytes;let released=false;
-        const release=()=>{if(!released){released=true;proving.bytes-=bytes;provingCleanup.delete(close);}};
-        const close=async()=>{try{await cleanup();}finally{release();}};provingCleanup.add(close);return release;
-      },
+      reserveProving:reserveWorking,
       startProof() {
         if(stopped||closing)throw closedError();if(proving.active)throw limitError();proving.active=true;
         let released=false;return()=>{if(!released){released=true;proving.active=false;}};

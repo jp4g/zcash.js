@@ -9,13 +9,17 @@ import * as transactions from './clients/light-transaction-reads.js';
 import * as transparent from './clients/light-transparent-reads.js';
 import { readLightdInfo } from './clients/light-server-observation.js';
 
+const clients=new WeakMap<LightClient,Readonly<{network:Network;endpoint:string|null}>>();
+/** Unknown custom transports have no qualified durable route identity. */
+export const lightClientBinding=(client:LightClient)=>clients.get(client);
+
 /** Complete light-client composition; no connection or native initialization at construction. */
 export function createLightClient(args: { network: Network; transport: GrpcTransport | CustomLightTransport }): LightClient {
   const input = snapshot(args, ['network', 'transport']);
   const { network } = input;
   const { definition, codec } = networkBinding(network);
-  let selected: CustomLightTransport;
-  try { grpcBinding(input.transport as GrpcTransport); selected = grpcAdapter(input.transport as GrpcTransport); }
+  let selected: CustomLightTransport,endpoint:string|null=null;
+  try { endpoint=new URL(grpcBinding(input.transport as GrpcTransport).url).href; selected = grpcAdapter(input.transport as GrpcTransport); }
   catch { selected = input.transport as CustomLightTransport; }
   const transport = ownCustomLightTransport(selected);
   const family = definition.parameters.encoding;
@@ -101,7 +105,7 @@ export function createLightClient(args: { network: Network; transport: GrpcTrans
       async return() { finished = true; pending?.cancel(); return { done: true, value: undefined }; },
     };
   }
-  return Object.freeze({
+  const client=Object.freeze({
     network,
     getTip: (args = {}) => unary(args, [], (v, a) => chain.getTip(v.wire, transport, a)),
     getServerInfo: (args = {}) => unary(args, [], async (v, a) => {
@@ -119,4 +123,5 @@ export function createLightClient(args: { network: Network; transport: GrpcTrans
     streamMempool: (args = {}) => stream(args, [], (v, a) => transactions.streamMempool(source(v), a)),
     broadcastTransaction: args => unary(args, ['bytes'], (v, a) => transactions.broadcastTransaction(source(v), a), true),
   } satisfies LightClient);
+  clients.set(client,Object.freeze({network,endpoint}));return client;
 }

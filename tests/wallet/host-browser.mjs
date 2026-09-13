@@ -130,6 +130,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       }
     }
     if (process.env.WALLET_LOADER) {
+      assets.set('/tests/wallet/public-wallet-checks.mjs', await readFile(new URL('./public-wallet-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/accounts-checks.mjs', await readFile(new URL('./accounts-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/pczt-build-checks.mjs', await readFile(new URL('./pczt-build-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/shielding-checks.mjs', await readFile(new URL('./shielding-checks.mjs', import.meta.url)));
@@ -156,7 +157,35 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       await mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true }); await writeFile(path, bytes);
     }
     const tls = process.env.WALLET_TLS_CERT ? { cert: await readFile(process.env.WALLET_TLS_CERT), key: await readFile(process.env.WALLET_TLS_KEY) } : undefined;
-    server = await fixture(() => { throw Error('No RPC in local wallet test'); }, assets, tls);
+    if(process.env.WALLET_LOADER&&provingAssets.size){
+      assert.ok(nativeFixture.pczt.publicWallet,'native public wallet fixture');
+      const {publicWalletResponses}=await import('./public-wallet-checks.mjs');
+      const {frame,concat,trailer,base64,media,service}=await import('../clients/grpc-web-fixtures.mjs');
+      const definition={identity:'synthetic-regtest',genesisHash:'03'.repeat(32),parametersFormat:'zcash-js-network/1',
+        parameters:new TextEncoder().encode('{"encoding":"regtest","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}')};
+      const responses=await publicWalletResponses(nativeFixture.pczt,definition),calls=[],unexpected=[];
+      const {createServer}=await import(tls?'node:https':'node:http');
+      const transport=createServer(tls??{},async(req,res)=>{try{
+        if(req.method==='GET'&&req.url==='/public-wallet-submitted'){
+          res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(responses.submitted()));return;
+        }
+        if(req.method==='POST'&&req.url.startsWith(service)){
+          assert.equal(req.headers['content-type'],media);
+          let body='';for await(const chunk of req){body+=chunk;assert.ok(body.length<=4*1024*1024);}
+          const bytes=Buffer.from(body,'base64');assert.ok(bytes.length>=5);assert.equal(bytes[0],0);assert.equal(bytes.readUInt32BE(1),bytes.length-5);
+          const method=req.url.slice(service.length),record={method,byteLength:bytes.length,closed:false};calls.push(record);res.once('close',()=>{record.closed=true;});
+          const reply=responses.response(method,bytes.subarray(5));res.writeHead(200,{'content-type':media,'cache-control':'no-store'});
+          res.end(base64(concat(...(reply.payload?[frame(reply.payload)]:[]),trailer(`grpc-status: ${reply.status??0}\r\n`))));return;
+        }
+        if(req.method==='GET'&&assets.has(req.url)){
+          res.writeHead(200,{'content-type':req.url==='/'?'text/html':req.url.endsWith('.wasm')?'application/wasm':req.url.endsWith('.json')?'application/json':req.url.startsWith('/proving/')?'application/octet-stream':'text/javascript'});res.end(assets.get(req.url));return;
+        }
+        unexpected.push(req.url);res.writeHead(404).end();
+      }catch(error){unexpected.push(String(error));res.destroy();}});
+      await new Promise((resolve,reject)=>{transport.once('error',reject);transport.listen(0,'127.0.0.1',resolve);});
+      server={origin:`${tls?'https':'http'}://127.0.0.1:${transport.address().port}`,calls,unexpected,
+        async close(){transport.closeAllConnections();await new Promise(resolve=>transport.close(resolve));}};
+    }else server = await fixture(() => { throw Error('No RPC in local wallet test'); }, assets, tls);
     report.origin = server.origin;
     const args = ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', runRoot];
     driver = spawn('/snap/bin/geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -197,8 +226,9 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     assert.ok(!answer.error, JSON.stringify(answer));
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
+    if(process.env.WALLET_LOADER&&provingAssets.size){for(const key of ['publicWallet','localTransfer','localShield','localTex'])assert.equal(answer.value[key],true);assert.ok(server.calls.length>0&&server.calls.every(call=>call.closed),'all native gRPC-Web responses closed');}
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? provingAssets.size?25:24 : 2);
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? provingAssets.size?31:24 : 2);
     report.status = 'passed';
   } catch (error) {
     if (report.interruptedBy) report.status = 'interrupted';

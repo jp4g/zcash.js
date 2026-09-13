@@ -1,3 +1,4 @@
+export { createWalletClient, createZcashClient } from './wallet.js';
 export { createCustomSigner } from './signer.js';
 export { pczt } from './pczt.js';
 export { resolveBirthday } from './birthday.js';
@@ -11,6 +12,9 @@ export { accountIndex, diversifierIndex, txId, blockHash } from './primitives.js
 export { isZcashError } from './errors.js';
 export { http } from './http.js';
 export type {
+  WalletClient, WalletOptions, ZcashClient, WalletStorage, RuntimeOptions, WasmArtifact, LocalProvingOptions, AssetRequirement, ConfirmationsPolicy, TransactionPolicy, RecoveryPolicy, RecoveryReport, RuntimeDiagnostic,
+  MemoInput, Payment, ReviewedInput, ReviewedOutput, ProposedOutput, SubmissionAttempt, OperationPage, ScanState, BalanceBuckets, Memo, HistoryEntry, ObservedPool, TransactionOutput, SpendState, InventoryFilter, InventoryState, WalletNote, WalletUtxo, PageArgs,
+  AccountsApi, AccountRecord, AccountCreate, CreatedAccount, MnemonicImport, ViewingImport, MemorySigner, SignerBinding, WalletAddressesApi, AccountAddressArgs, WalletPcztApi, OperationsApi, PendingPayment, PaymentState, PaymentConfirmation, Proposal, PcztArtifact, PcztExchange, SendIntent, ShieldIntent, ExecuteOptions, WalletBalance, HistoryPage, WalletTransaction, NotePage, UtxoPage, SyncStatus,
   Signer, SignerCapabilities, SignerSelector, SigningRequest, SigningResult,
   PcztApi, PcztHandle, PcztInspection, Birthday, AccountDescriptor, ViewKeyHandle, ViewingApi, AddressApi, AddressRecord, AddressRequest, DecodedAddress, SelectedReceiver, ConsensusContext, Pool, NonEmpty, ReceiverType,
   Network, NetworkDefinition, Op, AccountIndex, DiversifierIndex, TxId, BlockHash, ErrorCode, ErrorInfo, ZcashError,

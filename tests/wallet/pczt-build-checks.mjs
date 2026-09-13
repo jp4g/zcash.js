@@ -3,6 +3,7 @@ import {walletAccounts} from '../../dist/src/wallet/accounts.js';
 import {WalletProposals} from '../../dist/src/wallet/proposals.js';
 import {walletSign} from '../../dist/src/wallet/sign.js';
 import {saplingAssets} from '../../dist/src/wallet/proving-assets.js';
+import {networkBinding} from '../../dist/src/network.js';
 const hex=value=>Uint8Array.from(value.match(/../g)??[],byte=>parseInt(byte,16));
 const check=(ok,label)=>{if(!ok)throw Error(label);};
 const equal=(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index]);
@@ -21,7 +22,7 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
     globalThis.walletPhase=`pczt-${scope}`;
     if(globalThis.process?.versions?.node)console.error(JSON.stringify({pcztPhase:globalThis.walletPhase}));
     const data=fixture[scope],wallet=await open(scope),accounts=walletAccounts(wallet,network);
-    let signer,reopened,signerAccount;
+    let signer,reopened,signerAccount,failed=false,accountsClosed=false;
     try {
       const birthday={network,source:'checkpoint',firstScanHeight:data.import.birthday.firstScanHeight,priorTreeState:hex(data.import.birthday.priorTreeState)};
       const created=await accounts.api.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:fixture.accountIndex,birthday});
@@ -60,7 +61,7 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
         check(signed.authorizationComplete&&!signed.proofsComplete,'wallet sign persists native authorization');
         authorization={pczt:(await wallet.session.pczt.get({operationId:signed.operationId,artifactId:signed.artifactId})).bytes};
       }
-      await accounts.close();
+      accountsClosed=true;await accounts.close();
       const capability=await signer.getCapabilities();
       if(scope==='external')signerAccount=await signer.getAccount({network,selector:{kind:'derived',accountIndex:fixture.accountIndex}});
       authorization??=await signer.authorize({requestId:`built-${scope}`,pczt:retained.bytes,context:proposal.context,accountIds:proposal.accountIds,capabilityRevision:capability.revision,reviewCommitment:proposal.reviewCommitment});
@@ -107,7 +108,7 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
         const signed=await walletSign(imports,reopened.session,{attachedSigner(){return adapter;}})({pczt:unsigned});
         check(authorizations===1&&signed.artifactId===imported.artifactId,'captured custom signer contribution is checked and retained');
       }
-      let proved;
+      let proved,finalized;
       if(provingOrigin){
         const cancelled=new AbortController();
         const cancelledApi=new WalletProposals(reopened.session,network,{...proving,cache:{...proving.cache,namespace:namespace+'-cancel'},
@@ -126,17 +127,38 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
         const count=loads;
         check((await proofApi.prove({pczt:proved})).artifactId===proved.artifactId&&loads===count,'already proven artifact loads no assets');
         check(loads===2,'persistent parameter cache reused across independent owners');
+        globalThis.walletPhase=`native-finalize-${scope}`;
+        finalized=await proofApi.finalize({pczt:proved});
+        const decoded=networkBinding(network).codec.decodeTransaction(finalized.bytes,proposal.context.branchId);
+        check(decoded.display===finalized.txid,'native finalized bytes match transaction identity');
+        const stored=finalized.bytes.slice(),beforeFinalizeLoads=loads;
+        const repeated=await new WalletProposals(reopened.session,network).finalize({pczt:proved});
+        check(repeated.txid===finalized.txid&&equal(repeated.bytes,stored)&&loads===beforeFinalizeLoads,'finalization retry returns exact bytes without proving assets');
+        repeated.bytes.fill(0);
+        check(equal((await reopened.session.pczt.finalized({operationId})).transactions[0].bytes,stored),'caller bytes cannot mutate finalized outbox');
         proved={artifact:proved,bytes:proof.bytes};
       }
-      await reopened.close();reopened=await open(scope,provingOrigin?proofLimits:undefined);
+      const closing=reopened;reopened=undefined;await closing.close();reopened=await open(scope,provingOrigin?proofLimits:undefined);
       const discovered=await reopened.session.proposals.list({afterSequence:'0',limit:200});
       check(discovered.items.length===1,'reopen discovers signed operation without saved ID');
       const latest=await reopened.session.pczt.get({operationId:discovered.items[0].operationId});
       check(latest.artifactId===(proved?.artifact.artifactId??imported.artifactId)&&latest.authorizationComplete&&equal(latest.bytes,proved?.bytes??signed.bytes),'latest artifact bytes survive new owner');
       if(proved){const previous=await reopened.session.pczt.get({operationId,artifactId:imported.artifactId});check(equal(previous.bytes,signed.bytes)&&!previous.proofsComplete,'proving preserves preceding signed version');}
+      if(finalized){
+        const stored=(await reopened.session.pczt.finalized({operationId:discovered.items[0].operationId})).transactions[0];
+        check(stored.txid===finalized.txid&&stored.exactBytesSha256===finalized.exactBytesSha256&&equal(stored.bytes,finalized.bytes),'ID-free reopen finds exact finalized bytes');
+      }
       const original=await reopened.session.pczt.get({operationId:discovered.items[0].operationId,artifactId:artifact.artifactId});
       check(equal(original.bytes,retained.bytes)&&!original.authorizationComplete,'old artifact identity still resolves original unsigned bytes');
-    } finally {await signerAccount?.viewing.dispose();await signer?.dispose();await reopened?.close();await accounts.close();await wallet.close();}
+    } catch(error) {
+      failed=true;console.error('PCZT workflow failed',globalThis.walletPhase,error);throw error;
+    } finally {
+      let cleanupError;
+      for(const close of [()=>signerAccount?.viewing.dispose(),()=>signer?.dispose(),()=>reopened?.close(),()=>accountsClosed?undefined:accounts.close()]){
+        try{await close();}catch(error){console.error('PCZT cleanup failed',globalThis.walletPhase,error);cleanupError??=error;}
+      }
+      if(!failed&&cleanupError)throw cleanupError;
+    }
   }
   }finally{
     if(provingOrigin){

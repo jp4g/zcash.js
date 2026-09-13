@@ -1,4 +1,5 @@
 import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalIntent, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
+import type {NativePayment,PaymentInventory,PaymentInventoryInput,PaymentObserve,PaymentAttempt,PaymentAttemptInput,PaymentAttemptFinish,NativeFinalized,NativeFusedInput,NativeFused,PaymentReconcile} from './payments.js';
 import { failure } from '../errors.js';
 import type { AccountRecord, AccountsApi, Birthday, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
@@ -47,7 +48,7 @@ export type EnhancementRequest = { readonly kind: 'enhancement' | 'status'; read
   | { readonly kind: 'address'; readonly address: string; readonly start: number; readonly endExclusive: number | null;
     readonly requestAt: number | null; readonly txStatus: 'mined' | 'mempool' | 'all'; readonly outputStatus: 'unspent' | 'all' };
 export interface EnhancementRequests { readonly revision: string; readonly requests: readonly EnhancementRequest[] }
-export type EnhancementResult = { readonly transactions: readonly { readonly bytes: Uint8Array; readonly minedHeight: number | null }[]; readonly asOfHeight?: number; readonly complete?: boolean }
+export type EnhancementResult = { readonly transactions: readonly { readonly bytes: Uint8Array; readonly minedHeight: number | null; readonly txid?: string; readonly unspentOutputs?: readonly { readonly outputIndex:number; readonly script:Uint8Array; readonly value:bigint }[] }[]; readonly asOfHeight?: number; readonly asOfHash?: string; readonly complete?: boolean }
   | { readonly status: 'notRecognized' | 'notInMainChain' }
   | { readonly status: 'mined'; readonly height: number };
 export interface EnhancementApply { readonly revision: string; readonly request: EnhancementRequest; readonly result: EnhancementResult }
@@ -107,7 +108,19 @@ export class WalletSession {
     return result;
   }
 
+  readonly payments = {
+    get:(args:{operationId:string})=>this.invoke<NativePayment|null>('payment_get',args),
+    list:(args:PaymentInventoryInput)=>this.invoke<PaymentInventory>('payment_list',args),
+    reconcile:(args:PaymentReconcile)=>this.invoke<NativePayment>('payment_reconcile',args),
+    observe:(args:PaymentObserve)=>this.invoke<NativePayment>('payment_observe',args),
+    begin:(args:PaymentAttemptInput)=>this.invoke<PaymentAttempt|null>('payment_attempt_begin',args),
+    finish:(args:PaymentAttemptFinish)=>this.invoke<NativePayment>('payment_attempt_finish',args),
+    position:(args:{afterSequence:string})=>this.invoke<void>('payment_recovery_position',args),
+  };
+  readonly fused={send:(args:NativeFusedInput)=>this.invoke<NativeFused>('fused_send',args)};
   readonly pczt = {
+    finalize:(args:{operationId:string;artifactId:string;spend:Uint8Array;output:Uint8Array})=>this.invoke<NativeFinalized>('pczt_finalize',args),
+    finalized:(args:{operationId:string})=>this.invoke<NativeFused>('finalized_get',args),
     prove: (args: {operationId:string;artifactId:string;spend:Uint8Array;output:Uint8Array;maximum:number}) => this.invoke<NativePcztArtifact>('pczt_prove',args),
     import: (args: { operationId: string; bytes: Uint8Array; maximum: number }) => this.invoke<NativePcztArtifact>('pczt_import',args),
     build: (args: NativePcztBuildInput) => this.invoke<NativePcztArtifact>('pczt_build',args),

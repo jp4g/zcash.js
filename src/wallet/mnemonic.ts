@@ -42,12 +42,17 @@ export async function createMnemonicAccount(wallet: Wallet, kind: 'create' | 'im
   };
   const authority = Object.freeze({
     check,
+    checkWallet: sameOwner,
     maxPcztBytes: wallet.owner.maxPcztBytes,
     capabilities(args: Op = {}) { check(); return wallet.owner.signers.capabilities({...snapshot(args,['signal']),token}); },
     authorize(args: Omit<NativeSignerAuthorization, 'token'> & Op) { check(); return wallet.owner.signers.authorize({...snapshot(args,['format','parameters','genesis','height','branch','bytes','maximum','signal'],wallet.owner.maxPcztBytes),token}); },
     describe(args: Op = {}) { check(); return wallet.owner.signers.describe({...snapshot(args,['signal']),token}); },
     bind(other: Wallet, accountId: string, args: Op = {}) { sameOwner(other); return other.session.signers.bind({...snapshot(args,['signal']),token,accountId}); },
     unbind(other: Wallet, accountId: string) { sameOwner(other); return other.session.signers.unbind({token,accountId}); },
+    execute(other: Wallet, args: Omit<Parameters<Wallet['session']['fused']['send']>[0], 'token'>) {
+      sameOwner(other);
+      return other.session.fused.send({...snapshot(args,['operationId','proposalId','reviewCommitment','spend','output','signal']),token});
+    },
     dispose() { return disposing ??= releaseToken(token).finally(releaseOwner); },
   });
   return Object.freeze({account:created.account,authority});

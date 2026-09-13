@@ -1,5 +1,19 @@
 # Initial WASM-independent implementation
 
+## Standalone PCZT candidate
+
+`pczt.parse`, `serialize`, `inspect`, `combine` and `redact` compose native
+PCZT roles through independently disposable handles. Parsing uses the caller’s
+byte bound and explicit network/height/branch context. Inspection reports material
+completeness, not verified proofs, signatures, or spending approval. The qualified
+`zakura-signer-full/1` profile applies upstream Full redaction; it preserves fields
+needed by that signer route. Wallet PCZT association and authorization acceptance
+remain separate unfinished work.
+
+Shared packed Node and Firefox ESM/bundle fixtures cover V5/V6 material, exact
+redaction, bounds, context mismatch, cancellation and independent disposal. This
+candidate still awaits its corrected native artifact and actual host qualification.
+
 ## Current custom signer adapter
 
 `createCustomSigner` captures an application's three signer callbacks, preserves

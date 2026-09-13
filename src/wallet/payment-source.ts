@@ -84,7 +84,13 @@ export class PaymentSource {
       }
       const value=snapshot(evidence,['txid','state','inclusion','tip','priorInclusion','sourceId','observedAt']);
       if(value.txid!==id||sourceId(value.sourceId)!==source||!['notSeen','mempool','mined','offMainChain','unknown'].includes(value.state))throw protocol();
-      let inclusion:TransactionObservation['inclusion']=null;
+      let inclusion:TransactionObservation['inclusion']=null,priorInclusion:TransactionObservation['priorInclusion']=null;
+      if(value.priorInclusion!==null){
+        const prior=snapshot(value.priorInclusion,['height','blockHash','confirmations']);
+        if(!Number.isInteger(prior.height)||prior.height<0||prior.height>0xffffffff)throw protocol();
+        if(prior.confirmations!==null&&(!Number.isSafeInteger(prior.confirmations)||prior.confirmations<0))throw protocol();
+        priorInclusion={height:prior.height,blockHash:prior.blockHash===null?null:blockHash(prior.blockHash),confirmations:null};
+      }
       if(value.state==='mined'){
         const claimed=snapshot(value.inclusion!,['height','blockHash','confirmations']),p=await pending.wait(this.tree(claimed.height,pending.signal));
         if(p.sourceId!==source||p.height>tip.height||(p.height===tip.height&&p.hash!==tip.hash)||(claimed.blockHash!==null&&claimed.blockHash!==p.hash))throw protocol();
@@ -92,7 +98,7 @@ export class PaymentSource {
       }else if(value.inclusion!==null)throw protocol();
       const after=snapshot(await pending.wait(this.call<any>('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);
       if(after.sourceId!==source||!same(tip,point({height:after.height,hash:after.hash})))throw protocol();
-      pending.check();return {txid:txId(id),state:value.state,inclusion,tip,priorInclusion:null,sourceId:source,observedAt:new Date().toISOString()};
+      pending.check();return {txid:txId(id),state:value.state,inclusion,tip,priorInclusion,sourceId:source,observedAt:new Date().toISOString()};
     }finally{pending.close();}
   }
   async broadcast(bytes:Uint8Array,id:TxId,expectedSource:string,signal:AbortSignal):Promise<BroadcastReport>{

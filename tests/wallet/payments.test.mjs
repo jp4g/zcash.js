@@ -43,7 +43,7 @@ function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delaye
   const client={network,async getTreeState({height}){control.requests++;const block=height===0?network.genesisHash:hash;return {network,point:{height,hash:block},sapling:null,ironwood:null,encoded:concat(scalar(2,height),bytesField(3,new TextEncoder().encode(block))),sourceId:'source',observedAt:new Date().toISOString()};},
     async getTip(){control.requests++;return {height:20,hash,sourceId:'source',observedAt:new Date().toISOString()};},
     async getTransaction(){throw Error('not used');},
-    async getTransactionStatus(){control.reads++;if(control.stalled){control.started?.();return new Promise(()=>{});}return {txid,state:control.mined?'mined':'notSeen',inclusion:control.mined?{height:19,blockHash:hash,confirmations:999}:null,tip:null,priorInclusion:null,sourceId:'source',observedAt:new Date().toISOString()};},
+    async getTransactionStatus(){control.reads++;if(control.stalled){control.started?.();return new Promise(()=>{});}return {txid,state:control.mined?'mined':'notSeen',inclusion:control.mined?{height:19,blockHash:hash,confirmations:999}:null,tip:null,priorInclusion:control.prior??null,sourceId:'source',observedAt:new Date().toISOString()};},
     async broadcastTransaction({bytes}){assert.deepEqual([...bytes],[1,2,3]);control.dispatches++;control.started?.();if(delayed)return new Promise(resolve=>{control.reply=resolve;});return {txid,outcome:'acknowledged',diagnosticCode:null,sourceId:'source',observedAt:new Date().toISOString()};}};
   const wallet={session,close:()=>session.close()};
   const options={network,storage:{kind:'memory'},runtime:{maxQueuedJobs:8},observation:{pollIntervalMs:5,maxBufferedUpdates:buffer},recovery:online?{mode:'online',timeoutMs:30}:{mode:'offline'},...(light?{light:client}:{}),broadcaster:client};
@@ -114,4 +114,13 @@ test('recovery retains native no-commit observation uncertainty but rejects stor
   assert.equal(report.lastError.code,'RECOVERY_REQUIRED');assert.equal(report.deferredOperations,1);
   const broken=setup(t,{online:true});broken.control.observeError='STORAGE_ERROR';
   await assert.rejects(broken.payments.recover(),{code:'STORAGE_ERROR'});
+});
+
+test('first observation retains owned source prior inclusion without old confirmations',async t=>{
+  const {payments,control}=setup(t);await payments.recover();
+  control.prior={height:18,blockHash:hash,confirmations:100};
+  const handle=await payments.operations.resume({operationId:operationId(1)}),events=handle.events();
+  const state=(await events.next()).value;control.prior.height=1;
+  assert.deepEqual(state.steps[0].observation.priorInclusion,{height:18,blockHash:hash,confirmations:null});
+  await events.return();
 });

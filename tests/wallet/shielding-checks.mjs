@@ -27,8 +27,8 @@ export async function shieldingChecks(session,fixture,definition,saved) {
     const before=await session.scan.state();
     // Native selection uses the emitted DB; no host-created transaction or funds.
     const plan=await proposals.create({...input,revision:before.revision});
-    check(plan.steps[0].inputs.every(value=>value.pool==='transparent'),'native shielding consumes transparent inputs');
-    check(plan.steps[0].outputs.every(value=>value.pool==='sapling'&&value.address===null),'native shielding retains unresolved internal destination');
+    check(plan.steps[0].inputs.length===1&&plan.steps[0].inputs.every(value=>value.pool==='transparent'&&value.value===70000n),'native shielding consumes the fixture transparent input');
+    check(plan.steps[0].outputs.length>0&&plan.steps[0].outputs.every(value=>value.pool==='sapling'&&value.address===null),'native shielding retains unresolved internal destination');
     check(plan.totalFee>0n&&plan.accountIds[0]===fixture.accountId,'native fee and account projection');
     const committed=await session.scan.state();
     await rejects(proposals.create({...input,revision:committed.revision,idempotencyKey:'exhausted-shield'}),'NOTHING_TO_SHIELD');

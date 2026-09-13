@@ -166,3 +166,10 @@ test('malformed provider prior hash is a protocol error',async t=>{
   const handle=await payments.operations.resume({operationId:operationId(1)}),events=handle.events();
   await assert.rejects(events.next(),{code:'PROTOCOL_MISMATCH'});await events.return();
 });
+
+test('recovery pause stays asynchronous when the monotonic clock advances during setup',async t=>{
+  let clock=0;t.mock.method(performance,'now',()=>clock+=2);
+  const {payments}=setup(t,{count:2,finalized:false,light:false});
+  const report=await payments.recover();
+  assert.equal(report.local,'complete');assert.equal(report.operations,2);
+});

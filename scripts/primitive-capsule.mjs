@@ -33,14 +33,14 @@ if (generate) {
     const bytes=await readFile(join(source,name));assert.equal(sha(bytes),hash,name);inputs[name]=hash;
   }
   const wasm=await readFile(join(source,profile.wasm));
-  assert.ok(wasm.length>0 && wasm.length<=1048576);
+  assert.ok(wasm.length>0 && wasm.length<=(profile.name==='primitive'?3*1048576:1048576));
   const entry=profile.factory?`import {${profile.factory}} from '${join(source,'codec.mjs')}';
 let codec;
-export function initialize(){return codec??=${profile.factory}(Uint8Array.from(atob('${wasm.toString('base64')}'),c=>c.charCodeAt(0)));}`:`import {initialize as initializeNative,consensusContext} from '${join(source,'network.mjs')}';
+export function initialize(){return codec??=${profile.factory}(Uint8Array.from(atob('${wasm.toString('base64')}'),c=>c.charCodeAt(0)));}`:`import {initialize as initializeNative,consensusContext,openViewingAuthority,decodeViewingAddress,selectViewingReceiver} from '${join(source,'network.mjs')}';
 import {decodeTransaction} from '${join(source,'transaction.mjs')}';
 let initialized=false;
 export function initialize(){if(!initialized){initializeNative(Uint8Array.from(atob('${wasm.toString('base64')}'),c=>c.charCodeAt(0)));initialized=true;}}
-export {consensusContext,decodeTransaction};`;
+export {consensusContext,decodeTransaction,openViewingAuthority,decodeViewingAddress,selectViewingReceiver};`;
   const {rolldown}=await import('rolldown');
   const bundle=await rolldown({input:'capsule-entry',platform:'neutral',
     plugins:[{name:'capsule-entry',resolveId(id){if(id==='capsule-entry')return '\0capsule-entry';},load(id){if(id==='\0capsule-entry')return entry;}}],

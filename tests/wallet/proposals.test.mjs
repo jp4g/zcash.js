@@ -153,3 +153,11 @@ test('PCZT export rejects ambiguous and foreign handles before native reads',asy
   await assert.rejects(other.api.export({proposal}),{code:'WRONG_INSTANCE'});
   assert.equal(calls,before);
 });
+
+test('proposal export preserves a completed build if later export observes cancellation',async t=>{
+  const {api,session}=setup(t,op=>op==='proposal_create'?review():built());
+  const proposal=await api.create(args()),controller=new AbortController(),build=api.build.bind(api);
+  api.build=async input=>{const artifact=await build(input);controller.abort();return artifact;};
+  await assert.rejects(api.export({proposal,signal:controller.signal}),error=>error.code==='ABORTED'
+    &&session.completion(error).completion==='committed'&&session.completion(error).value.artifactId==='06'.repeat(32));
+});

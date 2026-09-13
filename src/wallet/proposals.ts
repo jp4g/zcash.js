@@ -85,8 +85,12 @@ export class WalletProposals {
     const input=snapshot(args,['proposal','pczt','signal']);
     if(Object.hasOwn(input,'proposal')===Object.hasOwn(input,'pczt'))throw invalidArgument();
     const op=input.signal===undefined?{}:{signal:input.signal};
-    const artifact=Object.hasOwn(input,'proposal')?await this.build({proposal:input.proposal!,...op}):input.pczt!;
-    const binding=pcztArtifactBinding(artifact,this.session);
+    if(Object.hasOwn(input,'proposal')) {
+      const artifact=await this.build({proposal:input.proposal!,...op});
+      try {return await this.export({pczt:artifact,...op});}
+      catch(error) {if(error&&typeof error==='object')this.session.committed(error,artifact);throw error;}
+    }
+    const binding=pcztArtifactBinding(input.pczt!,this.session);
     const proposal=await this.restore({operationId:binding.operationId,...op});
     if(!proposal)throw protocol();
     const retained=await this.session.pczt.get({...binding,...op});

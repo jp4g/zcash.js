@@ -95,7 +95,7 @@ async function unspent(session:Session,light:LightClient,revision:string,request
       const group:NonNullable<ReturnType<typeof groups.get>>=groups.get(id)??{height:item.minedHeight,outputs:[]};if(group.height!==item.minedHeight)throw protocol();
       group.outputs.push({outputIndex:item.outputIndex,script,value:item.value});groups.set(id,group);
     }
-    let batch:{bytes:Uint8Array;minedHeight:number|null;unspentOutputs:{outputIndex:number;script:Uint8Array;value:bigint}[]}[]=[],bytes=0;
+    let batch:{txid:string;bytes:Uint8Array;minedHeight:number|null;unspentOutputs:{outputIndex:number;script:Uint8Array;value:bigint}[]}[]=[],bytes=0;
     const coherent=async()=>{const after=point(await pending.wait(light.getTip(op)));if(after.height!==before.height||after.hash!==before.hash||after.sourceId!==before.sourceId)throw protocol();};
     const flush=async(complete:boolean)=>{await coherent();pending.check();revision=(await session.enhancement.apply({revision,request,result:{transactions:batch,asOfHeight:before.height,asOfHash:nativeHash,complete},...op})).revision;batch=[];bytes=0;};
     for(const [id,group] of groups){
@@ -107,7 +107,7 @@ async function unspent(session:Session,light:LightClient,revision:string,request
       if(!['mined','mempool'].includes(observed.state)||(observed.state==='mined'&&(height===null||!Number.isInteger(height)))||(observed.state==='mempool'&&observed.inclusion!==null)||height!==group.height)throw protocol();
       const raw=ownBytes(transaction.raw,protocol,limit,2*1024*1024),size=raw.length+group.outputs.reduce((n,output)=>n+output.script.length,0);if(size>2*1024*1024)throw limit();
       if(batch.length===16||bytes+size>2*1024*1024)await flush(false);
-      batch.push({bytes:raw,minedHeight:group.height,unspentOutputs:group.outputs});bytes+=size;
+      batch.push({txid:id,bytes:raw,minedHeight:group.height,unspentOutputs:group.outputs});bytes+=size;
     }
     await flush(true);
   }finally{pending.close();}

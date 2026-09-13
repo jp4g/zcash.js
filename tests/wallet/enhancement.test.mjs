@@ -55,7 +55,7 @@ test('unspent enhancement owns positive outputs, brackets native tip and complet
     const result=applyEnhancement(value.session,value.light,'0',value.request);
     if(failAfter)await assert.rejects(result,{code:'PROTOCOL_MISMATCH'});else await result;
     assert.equal(value.control.raw,17);assert.equal(value.commits[0].transactions.length,16);assert.equal(value.commits[0].complete,false);
-    assert.equal(value.commits[0].transactions[0].unspentOutputs[0].script[0],1);
+    assert.equal(value.commits[0].transactions[0].unspentOutputs[0].script[0],1);assert.equal(value.commits[0].transactions[0].txid,value.items[0].txid);
     assert.equal(value.commits.length,failAfter?1:2);if(!failAfter)assert.equal(value.commits[1].complete,true);
   }
 });
@@ -78,9 +78,9 @@ test('worker admission copies bounded nested positive outputs using existing que
   const session=attachWalletWorker(channel.port1,async()=>channel.port2.close(),{maxQueuedJobs:4,maxQueuedBytes:65536,maxPcztBytes:65536});
   try{
     const outputs=Array.from({length:20},(_,outputIndex)=>({outputIndex,script:new Uint8Array([1]),value:2n}));
-    const args={revision:'0',request:unspentFixture(0).request,result:{transactions:[{bytes:new Uint8Array([1]),minedHeight:2,unspentOutputs:outputs}],asOfHeight:50,asOfHash:'ab'.repeat(32),complete:true}};
+    const args={revision:'0',request:unspentFixture(0).request,result:{transactions:[{txid:'01'.repeat(32),bytes:new Uint8Array([1]),minedHeight:2,unspentOutputs:outputs}],asOfHeight:50,asOfHash:'ab'.repeat(32),complete:true}};
     const pending=session.enhancement.apply(args);outputs[0].script[0]=99;await pending;
-    assert.equal(received.result.transactions[0].unspentOutputs.length,20);assert.equal(received.result.transactions[0].unspentOutputs[0].script[0],1);assert.equal(received.result.transactions[0].unspentOutputs[0].value,2n);
+    assert.equal(received.result.transactions[0].txid,'01'.repeat(32));assert.equal(received.result.transactions[0].unspentOutputs.length,20);assert.equal(received.result.transactions[0].unspentOutputs[0].script[0],1);assert.equal(received.result.transactions[0].unspentOutputs[0].value,2n);
     args.result.transactions[0].unspentOutputs=Array.from({length:1001},()=>outputs[0]);await assert.rejects(session.enhancement.apply(args),{code:'INVALID_ARGUMENT'});
   }finally{await session.close();}
 });

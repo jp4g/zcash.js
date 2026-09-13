@@ -8,6 +8,12 @@ There are two execution routes. They share reviewed effects but have different b
 
 The opaque USK held by a `MemorySigner` enables Zakura's `create_proposed_transactions` path. It composes authorization, proving, creation and storage and can support actual multi-step dependencies. There is no universal detached local builder or resumable local proof/sign stage exposed by the API. Spending-key bytes never leave through an export method.
 
+Zakura's builder selects wallet-owned change/intermediate addresses during this
+fused call. There is no separate pre-signing review pause for those exact internal
+addresses. Recipient addresses and requested amounts remain unchanged; native
+ownership and dependency checks protect internal outputs. Wallet-owned change
+remains subject to ordinary confirmation and maturity rules.
+
 ## External authority
 
 A custom signer uses supported **single-step** PCZT. Negotiate capabilities before disclosure: network, pool, branch ID, transaction/circuit/PCZT versions, proof-state prerequisite, required profile fields, size and review mode. Reject multi-step plans with `PCZT_MULTI_STEP_UNSUPPORTED` before handing data to the adapter; retain allocated operation identity.
@@ -20,7 +26,12 @@ This example starts from an associated artifact whose proof state has already me
 
 ## Role order and finalization
 
-`build` constructs a single-step PCZT. `prove` and `sign` each produce a new associated artifact. Legal ordering depends on qualified pool/version roles and available proving authority; neither sign-first nor prove-first is universal. Violations return `ROLE_PRECONDITION`. `finalize` verifies completeness, extracts/stores exact transaction bytes and creates the outbox, with **no network dispatch**. Call pending/wallet broadcast explicitly afterward.
+`build` constructs a single-step PCZT. Its `PcztArtifact.outputs` projects exact
+native-built addresses, including change, for review before external signing.
+Build-time output associations must match the retained proposal's recipients,
+amounts, memos and internal ownership constraints. Returned signer data is checked
+against those retained built effects; unresolved proposal addresses are not a
+permission to redirect payments. `prove` and `sign` each produce a new associated artifact. Legal ordering depends on qualified pool/version roles and available proving authority; neither sign-first nor prove-first is universal. Violations return `ROLE_PRECONDITION`. `finalize` verifies completeness, extracts/stores exact transaction bytes and creates the outbox, with **no network dispatch**. Call pending/wallet broadcast explicitly afterward.
 
 Standalone `pczt.parse/serialize/inspect/combine/redact` operate on disposable handles with explicit context and bounds. They confer no wallet association. Redaction accepts only qualified versioned profiles. Unknown profile fields reject.
 

@@ -1,6 +1,7 @@
 import {defineNetwork,pczt} from '../../dist/src/index.js';
 import {walletAccounts} from '../../dist/src/wallet/accounts.js';
 import {WalletProposals} from '../../dist/src/wallet/proposals.js';
+import {walletSign} from '../../dist/src/wallet/sign.js';
 const hex=value=>Uint8Array.from(value.match(/../g)??[],byte=>parseInt(byte,16));
 const check=(ok,label)=>{if(!ok)throw Error(label);};
 const equal=(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index]);
@@ -36,9 +37,15 @@ export async function pcztBuildChecks(open,fixture,definition) {
       finally {await exchanged.dispose();}
       exchange.bytes.fill(0);
       check(equal((await wallet.session.pczt.get({operationId:proposal.operationId})).bytes,retained.bytes),'mutable exchange leaves retained full copy unchanged');
+      let authorization;
+      if(scope==='internal') {
+        const signed=await walletSign(proposals,wallet.session,accounts)({pczt:artifact,signer});
+        check(signed.authorizationComplete&&!signed.proofsComplete,'wallet sign persists native authorization');
+        authorization={pczt:(await wallet.session.pczt.get({operationId:signed.operationId,artifactId:signed.artifactId})).bytes};
+      }
       await accounts.close();
       const capability=await signer.getCapabilities();
-      const authorization=await signer.authorize({requestId:`built-${scope}`,pczt:retained.bytes,context:proposal.context,accountIds:proposal.accountIds,capabilityRevision:capability.revision,reviewCommitment:proposal.reviewCommitment});
+      authorization??=await signer.authorize({requestId:`built-${scope}`,pczt:retained.bytes,context:proposal.context,accountIds:proposal.accountIds,capabilityRevision:capability.revision,reviewCommitment:proposal.reviewCommitment});
       const parsed=await pczt.parse({bytes:authorization.pczt,context:proposal.context,maxBytes:65536});
       try {const inspection=await pczt.inspect({pczt:parsed});check(inspection.authorizationComplete&&!inspection.proofsComplete,'built PCZT signed after wallet close');}
       finally {await parsed.dispose();}
@@ -46,7 +53,7 @@ export async function pcztBuildChecks(open,fixture,definition) {
       reopened=await open(scope);
       const inventory=await reopened.session.proposals.list({afterSequence:'0',limit:200});
       check(inventory.items.length===1,'reopen discovers operation without saved ID');
-      const restored=await reopened.session.pczt.get({operationId:inventory.items[0].operationId});
+      const restored=await reopened.session.pczt.get({operationId:inventory.items[0].operationId,artifactId:artifact.artifactId});
       check(restored.artifactId===artifact.artifactId&&equal(restored.bytes,retained.bytes),'reopen retains exact unsigned artifact without rebuild');
       const imports=new WalletProposals(reopened.session,network),operationId=inventory.items[0].operationId;
       if(scope==='external') {

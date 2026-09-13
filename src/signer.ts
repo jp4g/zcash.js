@@ -56,12 +56,17 @@ function response<T>(read: () => T): T {
 
 /** Owned adapter transport only; returned PCZT bytes are not verified authorization.
  * The adapter owns cleanup of undelivered account results after cancellation. */
-export function createCustomSigner(adapter: Signer): Signer {
+export function createCustomSigner(adapter: Signer): Signer { return boundedSigner(adapter,Number.MAX_SAFE_INTEGER); }
+const adapters=new WeakMap<Signer,{adapter:Signer;methods:Record<keyof Signer,Function>}>();
+/** Wallet admission must bound the original adapter response before any wrapper copies it. */
+export function boundedSigner(adapter: Signer, maximum: number): Signer {
+  const captured=adapters.get(adapter);
+  adapter=captured?.adapter??adapter;
   // Methods may be prototype data properties on a stateful device adapter.
-  const methods = {} as Record<keyof Signer, Function>;
+  const methods = captured?.methods??{} as Record<keyof Signer, Function>;
   try {
     if (!adapter || typeof adapter !== 'object') throw 0;
-    for (const name of ['getCapabilities','getAccount','authorize'] as const) {
+    for (const name of captured?[]:['getCapabilities','getAccount','authorize'] as const) {
       let owner: object | null = adapter, property: PropertyDescriptor | undefined;
       const seen = new Set<object>();
       while (owner && !property) {
@@ -85,7 +90,7 @@ export function createCustomSigner(adapter: Signer): Signer {
     } catch (error) { pending.check(); throw isZcashError(error) ? error : rejected(); }
     finally { pending.close(); }
   }
-  return Object.freeze({
+  const signer=Object.freeze({
     async getCapabilities(args = {}) {
       const input = snapshot(args, ['signal']);
       return invoke(methods.getCapabilities, {}, input.signal, signerCapabilities);
@@ -109,14 +114,15 @@ export function createCustomSigner(adapter: Signer): Signer {
       });
     },
     async authorize(args) {
-      const {request, signal} = signingRequest(args);
+      const {request, signal} = signingRequest(args,maximum);
       return invoke(methods.authorize, request, signal, (value:SigningResult) => {
         const result = snapshot(value, ['requestId','pczt']);
         if (result.requestId !== request.requestId) throw protocol();
-        return {requestId:result.requestId,pczt:ownBytes(result.pczt,protocol,limit,Number.MAX_SAFE_INTEGER)};
+        return {requestId:result.requestId,pczt:ownBytes(result.pczt,protocol,limit,maximum)};
       });
     },
   } satisfies Signer);
+  adapters.set(signer,{adapter,methods});return signer;
 }
 
 /** Internal admission shared by adapter and native memory authorities. */

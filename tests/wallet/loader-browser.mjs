@@ -1,3 +1,4 @@
+import {shieldingChecks} from './shielding-checks.mjs';
 import {accountsChecks} from './accounts-checks.mjs';
 import {pcztBuildChecks} from './pczt-build-checks.mjs';
 import { memorySignerChecks, mnemonicWalletChecks, sharedWalletChecks, memoryWalletChecks, offlineSyncChecks, scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
@@ -125,11 +126,23 @@ export async function runBrowser() {
       try {cursor=await historyPageChecks(opened.session,fixture.history,reopen?cursor:undefined);}
       finally {await opened.close();}
     }
+    mark('shielding');
+    check(fixture.shielding,'native shielding fixture');
+    const shieldingOptions={...options,storage:{kind:'browser-opfs',name:name+'-shielding'}};
+    const shieldingDirectory=await(await navigator.storage.getDirectory()).getDirectoryHandle(shieldingOptions.storage.name,{create:true});
+    const shieldingFile=await shieldingDirectory.getFileHandle('wallet.db',{create:true}),shieldingWriter=await shieldingFile.createWritable();
+    await shieldingWriter.write(Uint8Array.from(fixture.shielding.database.match(/../g),byte=>parseInt(byte,16)));await shieldingWriter.close();
+    let shielding;
+    for(const reopen of [false,true]) {
+      const opened=await openWalletRuntime(shieldingOptions);
+      try {shielding=await shieldingChecks(opened.session,fixture.shielding,options.network,reopen?shielding:undefined);}
+      finally {await opened.close();}
+    }
     mark('complete');
-    return { phases,accountsApi:true,memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    return { phases,shielding:true,idempotency:true,accountsApi:true,memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
-    for (const entry of [`${name}-accounts-a`,`${name}-accounts-b`,`${name}-complete-signer`,`${name}-mnemonic-a`, `${name}-mnemonic-b`, `${name}-shared-a`, `${name}-shared-b`, `${name}-shared-cancel`, name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
+    for (const entry of [`${name}-accounts-a`,`${name}-accounts-b`,`${name}-complete-signer`,`${name}-mnemonic-a`, `${name}-mnemonic-b`, `${name}-shared-a`, `${name}-shared-b`, `${name}-shared-cancel`, name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`,`${name}-shielding`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
       if (error.name !== 'NotFoundError') throw error;
     });
   }

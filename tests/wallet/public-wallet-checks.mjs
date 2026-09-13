@@ -21,7 +21,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       const imported=await authorityWallet.accounts.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:data.accountIndex,
         birthday:{network,source:'checkpoint',firstScanHeight:data.import.birthday.firstScanHeight,priorTreeState:hex(data.import.birthday.priorTreeState)}});
       signer=imported.signer;await authorityWallet.close();authorityWallet=undefined;
-      const configured={...options(name),...common,transactionPolicy:{spendPools:mode==='shield'?['transparent']:['sapling'],transparent:mode==='shield'?'allow-owned':'disallow',changePool:'sapling',feeRule:'zip317-standard',confirmations,expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20,shieldingThreshold:10000n,freshness:{mode:'require-synced',maxLagBlocks:0}}};
+      const configured={...options(name),...common,transactionPolicy:{spendPools:mode==='transfer'?['sapling','transparent']:mode==='shield'?['transparent']:['sapling'],transparent:mode==='tex'?'disallow':'allow-owned',changePool:'sapling',feeRule:'zip317-standard',confirmations,expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20,shieldingThreshold:10000n,freshness:{mode:'require-synced',maxLagBlocks:0}}};
       const {proving,...withoutProving}=configured;
       wallet=await createWalletClient(configured);
       check((await wallet.accounts.list()).some(account=>account.id===data.accountId),'public native-funded account discovery');
@@ -32,20 +32,26 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       check((await wallet.getHistory({accountId:data.accountId})).items.length>0,'public history retains native funding');
       const destination=mode==='tex'?data.tex:(await wallet.addresses.next({accountId:data.accountId,request:{format:'transparent'}})).address;
       const intent=mode==='shield'?{accountId:data.accountId,toPool:'sapling',threshold:10000n,idempotencyKey:`public-${mode}`}:{accountId:data.accountId,to:destination,amount:10000n,idempotencyKey:`public-${mode}`};
+      const operationCount=mode==='transfer'?2:1;
       const before=(await submitted()).length;
       if(mode==='transfer') {
+        const draft=await wallet.propose({kind:'shield',accountId:data.accountId,toPool:'sapling',threshold:10000n,idempotencyKey:'retained-draft'});
+        check(draft.steps.flatMap(step=>step.inputs).every(input=>input.pool==='transparent')&&draft.steps.flatMap(step=>step.inputs).reduce((sum,input)=>sum+input.value,0n)===40000n,'draft reserves actual native transparent funds');
+        const transfer=await wallet.propose(intent);
+        check(transfer.steps.flatMap(step=>step.inputs).every(input=>input.pool==='sapling')&&transfer.steps.flatMap(step=>step.inputs).reduce((sum,input)=>sum+input.value,0n)===40000n,'native locks leave actual Sapling funds for transfer');
+        check(transfer.steps.flatMap(step=>step.outputs).some(output=>output.kind==='payment'&&output.address===destination&&output.amount===10000n),'transfer recipient and amount remain exact');
         const controller=new AbortController(),post=MessagePort.prototype.postMessage;
         MessagePort.prototype.postMessage=function(value,...rest){const result=Reflect.apply(post,this,[value,...rest]);if(value?.command==='fused_send')controller.abort();return result;};
-        try {await wallet.send({...intent,signal:controller.signal});throw Error('missing committed public send cancellation');}
+        try {await wallet.send({proposal:transfer,signal:controller.signal});throw Error('missing committed public send cancellation');}
         catch(error){check(error.code==='ABORTED'&&typeof error.operationId==='string','committed send cancellation retains public operation identity');}
         finally {MessagePort.prototype.postMessage=post;}
         const discovered=await wallet.operations.list();
-        check(discovered.items.length===1&&discovered.items[0].steps.every(step=>step.txid!==null),'canceled native send retains complete outbox');
+        check(discovered.items.length===2&&discovered.items.filter(item=>item.steps.every(step=>step.txid!==null)).length===1,'canceled native send retains complete outbox');
         check((await submitted()).length===before,'canceled fused completion does not dispatch');
         await wallet.close();wallet=undefined;
         wallet=await createWalletClient({...withoutProving,recovery:{mode:'online',timeoutMs:15000,rebroadcast:{mode:'previously-dispatched',maxAttempts:1,minIntervalMs:1}}});
-        check(wallet.recovery.local==='complete'&&wallet.recovery.operations===1&&wallet.recovery.observedOperations===1&&wallet.recovery.deferredOperations===0&&wallet.recovery.lastError===null,'startup discovers and observes canceled finalized operation');
-        check((await submitted()).length===before&&(await wallet.operations.list()).items[0].steps.every(step=>step.attempts.length===0),'startup policy never grants first dispatch');
+        check(wallet.recovery.local==='complete'&&wallet.recovery.operations===operationCount&&wallet.recovery.observedOperations===1&&wallet.recovery.deferredOperations===0&&wallet.recovery.lastError===null,'startup discovers and observes canceled finalized operation');
+        check((await submitted()).length===before&&(await wallet.operations.list()).items.every(item=>item.steps.every(step=>step.attempts.length===0)),'startup policy never grants first dispatch');
         await wallet.accounts.attachSigner({accountId:data.accountId,signer});
       }
       const pending=await (mode==='shield'?wallet.shield(intent):wallet.send(intent));
@@ -66,8 +72,18 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       wallet=await createWalletClient({...withoutProving,recovery:{mode:'offline'}});
       check((await submitted()).length===sentBeforeOpen,'offline reopen never submits');
       const page=await wallet.operations.list({limit:1});
-      check(page.items.length===1&&page.nextCursor===null,'public operation inventory survives new owner');
-      const restored=await wallet.operations.resume({operationId:page.items[0].operationId});
+      const inventory=[...page.items];let cursor=page.nextCursor;
+      while(cursor!==null){const next=await wallet.operations.list({limit:1,cursor});check(next.items.length===1,'each inventory page contains one real operation');inventory.push(...next.items);cursor=next.nextCursor;check(inventory.length<=operationCount,'inventory terminates at captured operations');}
+      check(inventory.length===operationCount&&new Set(inventory.map(item=>item.operationId)).size===operationCount,'all database operations discovered across pages');
+      check(wallet.recovery.operations===operationCount&&wallet.recovery.observedOperations===0&&wallet.recovery.deferredOperations===1,'offline recovery counts every operation but only finalized observation candidate');
+      const finalized=inventory.filter(item=>item.steps.some(step=>step.txid!==null));check(finalized.length===1,'exactly one finalized operation discovered');
+      for(const item of inventory.filter(item=>item.steps.every(step=>step.txid===null))){
+        const draft=await wallet.operations.resume({operationId:item.operationId});const state=await draft.snapshot();
+        check(state.missing.includes('finalizedBytes')&&state.steps.every(step=>step.txid===null&&step.attempts.length===0),'draft survives reopen without finalization or dispatch');
+        for(const invoke of [()=>draft.broadcast(),()=>draft.wait()]){try{await invoke();throw Error('missing unfinalized rejection');}catch(error){check(error.code==='NOT_FINALIZED','draft cannot submit or wait without explicit execution');}}
+        check((await submitted()).length===sentBeforeOpen,'resuming draft never dispatches');
+      }
+      const restored=await wallet.operations.resume({operationId:finalized[0].operationId});
       const state=await restored.snapshot();
       check(state.steps.length===expected&&state.steps.every((step,index)=>step.txid===original[index].txid&&step.exactBytesSha256===first.steps[index].exactBytesSha256),'all exact transaction identities survive reopen');
       const controller=new AbortController();controller.abort();
@@ -81,15 +97,17 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
         const beforeRecovery=(await submitted()).length;
         wallet=await createWalletClient({...withoutProving,recovery:{mode:'online',timeoutMs:15000,...(maxAttempts===undefined?{}:{rebroadcast:{mode:'previously-dispatched',maxAttempts,minIntervalMs:1}})}});
         const report=wallet.recovery;
-        check(report.local==='complete'&&report.operations===1&&report.observation==='complete'&&report.observedOperations===1&&report.deferredOperations===0&&report.lastError===null,'online startup reconciles and observes the database operation');
+        check(report.local==='complete'&&report.operations===operationCount&&report.observation==='complete'&&report.observedOperations===1&&report.deferredOperations===0&&report.lastError===null,'online startup reconciles and observes the database operation');
         const sent=(await submitted()).slice(beforeRecovery);
         check(sent.length===(maxAttempts===1?expected:0)&&sent.every((row,index)=>row.txid===original[index].txid&&row.hex===original[index].hex),'startup retries exact ordered bytes only within persisted consent and budget');
         const recovered=(await wallet.operations.list()).items;
-        check(recovered.length===1&&recovered[0].steps.length===expected&&recovered[0].steps.every((step,index)=>step.attempts.length===attemptCounts[index]+Number(maxAttempts!==undefined)),'looser reopen policy cannot replenish the automatic retry budget');
+        const final=recovered.filter(item=>item.steps.some(step=>step.txid!==null));
+        check(recovered.length===operationCount&&final.length===1&&final[0].steps.length===expected&&final[0].steps.every((step,index)=>step.attempts.length===attemptCounts[index]+Number(maxAttempts!==undefined)),'looser reopen policy cannot replenish the automatic retry budget');
+        check(recovered.filter(item=>item.steps.every(step=>step.txid===null)).every(item=>item.missing.includes('finalizedBytes')&&item.steps.every(step=>step.attempts.length===0)),'online startup leaves draft unfinalized and undispatched');
       }
     }finally{await wallet?.close();await authorityWallet?.close();await signer?.dispose();}
   }
-  return {publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,retryBudget:true};
+  return {publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,allOperationsRecovery:true,retryBudget:true};
 }
 
 // Payload handler for the existing native gRPC / gRPC-Web test servers. Framing,

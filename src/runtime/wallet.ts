@@ -26,12 +26,12 @@ const reviewedAssets: Record<keyof typeof layout, string> = {
 };
 // Independently reviewed threaded producer and worker bootstrap closure.
 const reviewedThreadedAssets: Record<string, string> = {
-  'wallet.mjs': '8a7a9598f16b634da2e90d5c7e1221f2ba6643ddc8f41919827595343faf9cfc',
-  'worker.mjs': 'de88fd6c3717154fc3e2e39c308f6946825e10b2104c7da5f209f309eea3260e',
+  'wallet.mjs': '0495717f67e282436e8c01dfed14a18a04ae8403f43f167f360d38baecc0f94a',
+  'worker.mjs': '97ab121b9c43f6f407e30d7d0213cf11030783ce8dd4dae67235bc0b37ad6a6f',
   'bindings_bg.wasm': '5668ed08d8dc6cc1e2bb72ad964e51cf4b5ba80ef3ff6f1dbe6091dce068284d',
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
-  'thread-bootstrap.mjs': 'de88fd6c3717154fc3e2e39c308f6946825e10b2104c7da5f209f309eea3260e',
+  'thread-bootstrap.mjs': '97ab121b9c43f6f407e30d7d0213cf11030783ce8dd4dae67235bc0b37ad6a6f',
 };
 const policy = { ...walletProfile, mode: 'baseline' as const, maxManifestBytes: 16384,
   maxAssetBytes: 32 * 1024 * 1024, maxTotalAssetBytes: 40 * 1024 * 1024, maxFiles: 5, timeoutMs: 30000 };

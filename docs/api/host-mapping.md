@@ -49,15 +49,15 @@ Consumed by `sync/watchSync`, whose shared finite/continuous orchestration is **
 
 ## Proposal and fused execution
 
-`proposal_create({ intent, transactionPolicy })` → retained proposal handle and `Proposal` review DTO. **Direct** B wallet `propose_transfer/propose_shielding`; **composed/narrow glue** versioned proposal, advisory lock/operation owner and immutable review commitment. Send/shield intents keep their exact public union and defaults. Allocate operation identity before/with locks.
+`proposal_create({ intent, transactionPolicy })` → retained proposal handle and `Proposal` review DTO. **Direct** B wallet `propose_transfer/propose_shielding`; **composed/narrow glue** versioned proposal, advisory lock/operation owner and immutable review commitment. Send/shield intents keep their exact public union and defaults. Allocate operation identity before/with locks. Proposal payment addresses remain exact; change and step-funding addresses may be unresolved until the unchanged native builder chooses them.
 
 `proposal_review({ proposal })` → owned `Proposal` DTO; `proposal_restore({ operationId, artifactVersion })` → new retained handle/DTO or recovery error. **Direct/composed** `Proposal/Step` getters and `proto::proposal::Proposal::{from_standard_proposal,try_into_standard_proposal}` plus **narrow glue** association/revalidation. Restore is internal to persisted work; there is no corresponding new public method.
 
-`local_execute_and_store({ proposal, authorityRef, assets })` → stored operation/step state used to create `PendingPayment`. **Composed** B `create_proposed_transactions(SpendingKeys, ...)`, `get_transaction`, locked-graph `Transaction::write`; **narrow glue** atomic exact-byte journal via S extension transactions. This is fused and potentially multi-step. All policy/context/locks/effects are revalidated. No detached universal local build/sign/prove operations are exposed. TS performs the initial broadcast pass after durable storage.
+`local_execute_and_store({ proposal, authorityRef, assets })` → stored operation/step state used to create `PendingPayment`. **Composed** B `create_proposed_transactions(SpendingKeys, ...)`, `get_transaction`, locked-graph `Transaction::write`; **narrow glue** atomic exact-byte journal via S extension transactions. This is fused and potentially multi-step. All policy/context/locks/effects are revalidated. No detached universal local build/sign/prove operations or exact internal-address review pause are exposed. TS performs the initial broadcast pass after durable storage.
 
 ## PCZT and proving
 
-- `pczt_build({ proposal })` → `PcztArtifact`: **direct** B `create_pczt_from_proposal`, **narrow glue** single-step rejection/association/storage.
+- `pczt_build({ proposal })` → `PcztArtifact`: **direct** B `create_pczt_from_proposal`, **narrow glue** single-step rejection/association/storage and exact `PcztArtifact.outputs` projection for review before external signing.
 - `pczt_export({ proposal } | { pczt })` → `PcztExchange`: **composed** B `redact_pczt_for_signer` and P serialization plus retained full copy. No export on multi-step or unsupported role before disclosure.
 - `pczt_import({ operationId, bytes })` → new associated artifact: **composed** P parse/Combiner plus **narrow glue** effects, signature, request and association validation/persistence. Partial authorization can remain partial.
 - `pczt_prove({ pczt, assets, authorityRef? })` → new artifact: **composed** P `Prover::{new,requires_sapling_proofs,requires_ironwood_proof,create_sapling_proofs,create_ironwood_proof,finish}`. Least necessary proving authority is internal; no public authority parameter is added to `wallet.prove`.

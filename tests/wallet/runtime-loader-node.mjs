@@ -1,3 +1,4 @@
+import {accountsChecks} from './accounts-checks.mjs';
 // Real TLS acquisition, reviewed executable bytes, actual worker/Rust filesystem wallet.
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, readdir, mkdir, writeFile } from 'node:fs/promises';
@@ -121,6 +122,7 @@ try {
   await sharedWalletChecks((name,signal)=>openWalletRuntime({...options(`shared-${name}`),signal}),fixture);
   await mnemonicWalletChecks(name=>openWalletRuntime(options(`mnemonic-${name}`)));
   await memorySignerChecks(()=>openWalletRuntime(options('complete-signer')),signerFixture,network);
+  await accountsChecks(suffix=>openWalletRuntime(options(`accounts-${suffix}`)),{...fixture,signer:signerFixture},network);
   let account, addresses, previousScan;
   for (const reopen of [false, true]) {
     const input = options('wallet'), diagnostics = [];
@@ -194,6 +196,6 @@ try {
   }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 96, 'six pinned assets per owner, including complete signer; no execution refetch');
-  console.log(JSON.stringify({ pass: true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, 102, 'six pinned assets per owner, including complete signer; no execution refetch');
+  console.log(JSON.stringify({ pass: true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

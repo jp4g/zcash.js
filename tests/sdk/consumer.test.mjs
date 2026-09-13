@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import vm from 'node:vm';
+import { createServer } from 'node:https';
+import { once } from 'node:events';
+import { createHash } from 'node:crypto';
 import { build } from 'vite';
 
 // File descriptors also work in sandboxes that deny socket-backed child pipes.
@@ -58,6 +61,32 @@ test('packed private package imports and typechecks in an isolated Node consumer
     console.log(JSON.stringify(Object.keys(sdk).sort()));
   `], { cwd: consumer });
   assert.deepEqual(JSON.parse(runtime.stdout), implemented);
+  if(process.env.WALLET_RUNTIME_PACKAGE){
+    const packet=process.env.WALLET_RUNTIME_PACKAGE,manifestBytes=await readFile(join(packet,'manifest.json')),manifest=JSON.parse(manifestBytes);
+    const sha=bytes=>createHash('sha256').update(bytes).digest('hex'),assets=new Map([['manifest.json',{bytes:manifestBytes,type:'application/json'}]]);
+    for(const file of manifest.files){const bytes=await readFile(join(packet,file.url));assert.equal(sha(bytes),file.sha256);assert.equal(bytes.length,file.byteLength);assets.set(file.url,{bytes,type:file.kind==='wasm'?'application/wasm':'text/javascript'});}
+    const requests=[],server=createServer({cert:await readFile(process.env.WALLET_TLS_CERT),key:await readFile(process.env.WALLET_TLS_KEY)},(req,res)=>{
+      requests.push(req.url);const asset=assets.get(req.url.slice(1));if(!asset||req.headers.authorization||req.headers.cookie){res.writeHead(400).end();return;}res.writeHead(200,{'content-type':asset.type});res.end(asset.bytes);
+    });
+    try{
+      server.listen(0,'127.0.0.1');await once(server,'listening');
+      await writeFile(join(consumer,'wallet.mjs'),`
+        import assert from 'node:assert/strict';
+        import {readdir} from 'node:fs/promises';
+        import {tmpdir} from 'node:os';
+        import {createWalletClient,defineNetwork} from 'zcash.js';
+        const before=(await readdir(tmpdir())).filter(x=>x.startsWith('zcash-wallet-runtime-')).sort();
+        const network=await defineNetwork({identity:'fixture',genesisHash:'03'.repeat(32),parametersFormat:'zcash-js-network/1',parameters:new TextEncoder().encode(JSON.stringify({encoding:'regtest',Overwinter:10,Sapling:20,Blossom:30,Heartwood:40,Canopy:50,Nu5:60,Nu6:70,Nu6_1:80,Nu6_2:90,Nu6_3:100}))});
+        const options={network,storage:{kind:'node-filesystem',path:process.env.CONSUMER_WALLET_PATH},runtime:{baseline:{manifestUrl:process.env.CONSUMER_MANIFEST_URL,manifestSha256:process.env.CONSUMER_MANIFEST_SHA},threading:{mode:'baseline'},maxMemoryBytes:512*1024*1024,maxQueuedBytes:65536,maxQueuedJobs:8,scanBatchSize:10,maxPcztBytes:1048576},confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},observation:{pollIntervalMs:1000,maxBufferedUpdates:16},recovery:{mode:'offline'}};
+        for(let i=0;i<2;i++){const wallet=await createWalletClient(options);try{assert.deepEqual(await wallet.accounts.list(),[]);await wallet.getSyncStatus();assert.ok(wallet.recovery);}finally{await wallet.close();await wallet.close();}}
+        assert.deepEqual((await readdir(tmpdir())).filter(x=>x.startsWith('zcash-wallet-runtime-')).sort(),before);
+        console.log('installed public wallet: native filesystem open/read/close/reopen PASS');
+      `);
+      const result=await exec(process.execPath,['wallet.mjs'],{cwd:consumer,env:{...process.env,CONSUMER_WALLET_PATH:join(folder,'wallet'),CONSUMER_MANIFEST_URL:`https://127.0.0.1:${server.address().port}/manifest.json`,CONSUMER_MANIFEST_SHA:sha(manifestBytes)}});
+      assert.match(result.stdout,/open\/read\/close\/reopen PASS/);assert.equal(requests.length,2*(manifest.files.length+1));t.diagnostic(result.stdout.trim());
+    }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+  }else t.diagnostic('Actual installed wallet check requires WALLET_RUNTIME_PACKAGE and trusted WALLET_TLS_CERT/WALLET_TLS_KEY.');
+
   await writeFile(join(consumer, 'consumer.ts'), `
     import { parseZec, formatZec, txId, blockHash, accountIndex, diversifierIndex, http, grpc, createLightClient, createPublicClient, isZcashError, defineNetwork } from 'zcash.js';
     import type { TxId, BlockHash, AccountIndex, DiversifierIndex, HttpTransport, LightClient, ZcashError, Network, NetworkDefinition } from 'zcash.js';

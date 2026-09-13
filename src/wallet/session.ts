@@ -1,3 +1,4 @@
+import type { NativeProposalInput, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
 import { failure } from '../errors.js';
 import type { AccountRecord, AccountsApi, Birthday, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
@@ -105,6 +106,12 @@ export class WalletSession {
     this.tail = result.catch(() => undefined);
     return result;
   }
+
+  readonly proposals = {
+    create: (args: NativeProposalInput) => this.invoke<NativeProposalReview>('proposal_create',args),
+    get: (args: { operationId: string }) => this.invoke<NativeProposalReview | null>('proposal_get',args),
+    list: (args: ProposalInventoryInput) => this.invoke<ProposalInventory>('proposal_list',args),
+  };
 
   readonly mnemonic = {
     create: (args: MnemonicAccountInput) => this.invoke<NativeCreatedAccount>('account_create_mnemonic_signer', args),

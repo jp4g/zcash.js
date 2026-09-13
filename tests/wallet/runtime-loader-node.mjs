@@ -6,8 +6,21 @@ import { createServer } from 'node:https';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
-import { openWalletRuntime } from '../../dist/src/runtime/wallet.js';
+import { openWalletRuntime, browserThreadingPrerequisites } from '../../dist/src/runtime/wallet.js';
 
+// Capability admission only; actual native runtime qualification follows below.
+const capabilityNames = ['isSecureContext', 'crossOriginIsolated', 'Worker', 'Atomics'];
+const descriptors = capabilityNames.map(name => Object.getOwnPropertyDescriptor(globalThis, name));
+try {
+  Object.assign(globalThis, { isSecureContext: true, crossOriginIsolated: true, Worker: function () {} });
+  assert.equal(browserThreadingPrerequisites(), true);
+  for (const value of [undefined, {}, { wait() {} }, { notify() {} }]) {
+    globalThis.Atomics = value;
+    assert.equal(browserThreadingPrerequisites(), false, 'missing Atomics wait/notify selects fallback');
+  }
+} finally {
+  capabilityNames.forEach((name, index) => descriptors[index] ? Object.defineProperty(globalThis, name, descriptors[index]) : delete globalThis[name]);
+}
 assert.ok(process.argv[2], 'actual reviewed package directory required');
 const packet = process.argv[2], sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const manifestBytes = await readFile(`${packet}/manifest.json`), manifest = JSON.parse(manifestBytes);

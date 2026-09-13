@@ -42,6 +42,13 @@ function record(value: unknown, keys: string[]): Record<string, any> {
   } catch { throw invalidArgument(); }
 }
 
+/** Browser capabilities only; this does not qualify a threaded artifact. */
+export function browserThreadingPrerequisites(): boolean {
+  return globalThis.isSecureContext === true && globalThis.crossOriginIsolated === true
+    && typeof SharedArrayBuffer === 'function' && typeof Worker === 'function'
+    && typeof Atomics === 'object' && typeof Atomics.wait === 'function' && typeof Atomics.notify === 'function';
+}
+
 /** Internal baseline construction. The returned session is not the complete WalletClient. */
 export async function openWalletRuntime(options: { runtime: RuntimeOptions; storage: WalletStorage; network: NetworkDefinition } & Op) {
   const input = record(options, ['runtime', 'storage', 'network', 'signal']);
@@ -58,9 +65,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
       if (!Number.isSafeInteger(threading[key]) || threading[key] <= 0) throw invalidArgument();
     }
   }
-  const fallback = threading.mode === 'prefer-threaded' && !node
-    && (globalThis.isSecureContext !== true || globalThis.crossOriginIsolated !== true
-      || typeof SharedArrayBuffer !== 'function' || typeof Worker !== 'function');
+  const fallback = threading.mode === 'prefer-threaded' && !node && !browserThreadingPrerequisites();
   for (const key of ['maxMemoryBytes', 'maxQueuedBytes', 'maxQueuedJobs', 'scanBatchSize', 'maxPcztBytes']) {
     if (!Number.isSafeInteger(runtime[key]) || runtime[key] <= 0) throw invalidArgument();
   }

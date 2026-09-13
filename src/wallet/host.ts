@@ -228,6 +228,8 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
   shared?.wake.add(pump);
   port.start();
   return {
+    committed(error: object, value: unknown) { receipts.set(error,{completion:'committed',value}); },
+    check() { if(stopped || closing) throw closedError(); },
     mnemonic: {
       create: (args: MnemonicAccountInput & Op) => call<NativeCreatedAccount>('account_create_mnemonic_signer', args),
       import: (args: MnemonicAccountInput & Op) => call<NativeCreatedAccount>('account_import_mnemonic_signer', args),
@@ -247,6 +249,8 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       unbind: (args: { token: number; accountId: string }) => call<void>('signer_unbind', args),
     },
     accounts: {
+      remove: (args: Parameters<AccountsApi['remove']>[0]) => call<void>('account_remove', args),
+      checkKey: (args: {accountId: string; viewingKey: string} & Op) => call<'ready' | 'recovery-required'>('account_check_key', args),
       import: (args: ViewingImport) => call<AccountRecord>('account_import', args),
       list: (args?: Op) => call<readonly AccountRecord[]>('account_list', args),
       get: (args: Parameters<AccountsApi['get']>[0]) => call<AccountRecord | null>('account_get', args),

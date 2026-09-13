@@ -139,6 +139,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
       // Internal signer composition retains this owner independently of its creating wallet.
       owner: Object.freeze({
         identity: owner.token,
+        check: owner.check,
         signers: owner.signers,
         invalidate: owner.invalidate,
         retain() {

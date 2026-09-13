@@ -38,7 +38,7 @@ export async function memorySigner(network: Network, authority: Authority): Prom
     if (capabilities.maxPcztBytes !== maximum) throw mismatch();
   } catch (error) { await authority.dispose().catch(() => {}); throw error; }
   let disposing: Promise<void> | undefined;
-  const check = () => { if (disposing) throw failure('CLOSED','authorization','none','Signer is disposed.'); };
+  const check = () => { if (disposing) throw failure('CLOSED','authorization','none','Signer is disposed.'); authority.check(); };
   const sameNetwork = (value: Network) => {
     if (networkBinding(value).definition.binding !== bound.definition.binding) throw failure('NETWORK_MISMATCH','authorization','correct-input','Signer network does not match.');
   };

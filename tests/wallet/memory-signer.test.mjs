@@ -9,7 +9,7 @@ const network=await defineNetwork({identity:'memory-signer-test',genesisHash:'03
 function owner(overrides={}) {
   let disposed=0;
   const identity={parameters:Buffer.from(parameters).toString('hex'),genesis:'03'.repeat(32)};
-  const authority={
+  const authority={check(){},
     describe:async()=>({...identity,accountIndex:0,viewingKey:fixture.ufvk}),
     capabilities:async()=>({...identity,revision:'zakura-memory-signer/1',authorizations:[],accountDiscovery:'explicit-index',exportableViewing:['ufvk','uivk'],maxPcztBytes:4*1024*1024}),
     dispose:async()=>{disposed++;},authorize:async()=>{throw Error('must not sign');},...overrides,
@@ -44,4 +44,14 @@ test('memory signer rejects canceled, stale-capability and oversized requests be
     await assert.rejects(signer.authorize(request),{code:'SIGNER_CAPABILITY_MISMATCH'});
     await assert.rejects(signer.authorize({...request,pczt:new Uint8Array(4*1024*1024+1)}),{code:'RESOURCE_LIMIT'});
   } finally {await signer.dispose();}
+});
+
+test('cached memory signer methods observe retained owner invalidation',async()=>{
+  let invalid=false;
+  const crashed=Object.assign(Error('worker failed'),{code:'WORKER_CRASHED'});
+  const native=owner({check(){if(invalid)throw crashed;}}),signer=await memorySigner(network,native.authority);
+  invalid=true;
+  await assert.rejects(signer.getCapabilities(),error=>error===crashed);
+  await assert.rejects(signer.getAccount({network,selector:{kind:'derived',accountIndex:0}}),error=>error===crashed);
+  await signer.dispose();
 });

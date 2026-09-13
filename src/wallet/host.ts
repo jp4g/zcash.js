@@ -201,7 +201,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     if (!data.outcome.ok) {
       const e = data.outcome.error;
       if (!e || !walletErrorCodes.has(e.code) || e.retryable !== false || typeof e.message !== 'string'
-        || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync'].includes(e.stage)
+        || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync', 'authorization'].includes(e.stage)
         || !['reopen', 'sync', 'none', 'correct-input', 'configure'].includes(e.recovery)) { crashed(); return; }
     } else if (data.invalid) { crashed(); return; }
     if (data.outcome.ok && mnemonicCommand(job.command) && shared?.signers) {

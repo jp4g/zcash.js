@@ -18,7 +18,7 @@ function fixture(t, options={}) {
     release(token){if(options.releaseFailure)throw Error('failure');if(!live.delete(token))throw 'STALE_HANDLE';released++;},
   });
   const authorityHost=attachWalletWorker(authorityChannel.port1,async()=>authorityChannel.port2.close(),limits,budget);
-  const owner={identity:{},signers:authorityHost.signers,invalidate:async()=>{invalidations++;live.clear();authorityHost.crashed();for(const w of wallets)w.session.crashed();},retain(){leases++;let done=false;return async()=>{if(!done){done=true;leases--;}};}};
+  const owner={check(){if(invalidations)throw Error('invalid owner');},identity:{},signers:authorityHost.signers,invalidate:async()=>{invalidations++;live.clear();authorityHost.crashed();for(const w of wallets)w.session.crashed();},retain(){leases++;let done=false;return async()=>{if(!done){done=true;leases--;}};}};
   const wallets=[];
   function wallet(){
     const channel=new MessageChannel();

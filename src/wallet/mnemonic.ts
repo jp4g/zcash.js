@@ -35,12 +35,13 @@ export async function createMnemonicAccount(wallet: Wallet, kind: 'create' | 'im
   }
   const token = created.signerToken;
   let disposing: Promise<void> | undefined;
-  const check = () => { if (disposing) throw failure('CLOSED','account','none','Signer authority is disposed.'); };
+  const check = () => { if (disposing) throw failure('CLOSED','account','none','Signer authority is disposed.'); wallet.owner.check(); };
   const sameOwner = (other: Wallet) => {
     check();
     if (other.owner.identity !== wallet.owner.identity) throw failure('SIGNER_CAPABILITY_MISMATCH','account','configure','Signer belongs to another native owner.');
   };
   const authority = Object.freeze({
+    check,
     capabilities(args: Op = {}) { check(); return wallet.owner.signers.capabilities({...snapshot(args,['signal']),token}); },
     authorize(args: Omit<NativeSignerAuthorization, 'token'> & Op) { check(); return wallet.owner.signers.authorize({...snapshot(args,['format','parameters','genesis','height','branch','bytes','maximum','signal']),token}); },
     describe(args: Op = {}) { check(); return wallet.owner.signers.describe({...snapshot(args,['signal']),token}); },

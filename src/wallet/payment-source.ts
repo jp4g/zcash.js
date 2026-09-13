@@ -89,7 +89,7 @@ export class PaymentSource {
         const prior=snapshot(value.priorInclusion,['height','blockHash','confirmations']);
         if(!Number.isInteger(prior.height)||prior.height<0||prior.height>0xffffffff)throw protocol();
         if(prior.confirmations!==null&&(!Number.isSafeInteger(prior.confirmations)||prior.confirmations<0))throw protocol();
-        priorInclusion={height:prior.height,blockHash:prior.blockHash===null?null:blockHash(prior.blockHash),confirmations:null};
+        try{priorInclusion={height:prior.height,blockHash:prior.blockHash===null?null:blockHash(prior.blockHash),confirmations:null};}catch{throw protocol();}
       }
       if(value.state==='mined'){
         const claimed=snapshot(value.inclusion!,['height','blockHash','confirmations']),p=await pending.wait(this.tree(claimed.height,pending.signal));

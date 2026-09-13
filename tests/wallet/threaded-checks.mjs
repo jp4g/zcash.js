@@ -18,8 +18,15 @@ export async function threadedChecks(options,fixture,definition,WorkerType) {
   const expectedRange=request('GetBlockRange',{start:{height:String(data.target.height)},end:{height:String(data.target.height)}});
   let streams=0;
   const light=createLightClient({network,transport:{kind:'custom-lightwallet',sourceId:'threaded-native-fixture',protocolRevision:revision,
-    async unary({method,request:bytes}){if(method==='GetTreeState'&&encoded(bytes)===priorRequest)return priorTreeState;const result=responses.response(method,bytes);check(result.payload,'known native fixture read');return result.payload;},
-    async *stream({method,request:bytes,signal}){check(method==='GetBlockRange'&&encoded(bytes)===expectedRange,'exact native funding range');if(signal.aborted)return;streams++;yield hex(data.block);}}});
+    async unary({method,request:bytes}){try{if(method==='GetTreeState'&&encoded(bytes)===priorRequest)return priorTreeState;const result=responses.response(method,bytes);check(result.payload,'known native fixture read');return result.payload;}catch(error){console.error('threaded fixture unary',method,encoded(bytes),String(error));throw error;}},
+    async *stream({method,request:bytes,signal}){
+      if(method==='GetTaddressTransactions'){
+        const funding=(await wallet.listUtxos({accountId})).items.find(row=>row.txid===data.txid);
+        check(funding?.address&&encoded(bytes)===request(method,{address:funding.address,range:{start:{height:String(data.target.height)},end:{height:String(data.target.height)}}}),'exact native funding address history');
+        if(signal.aborted)return;yield responses.response('GetTransaction',codec.encodeRequest('GetTransaction',JSON.stringify({hash:encoded(hex(data.txid).reverse())}))).payload;return;
+      }
+      if(method!=='GetBlockRange'||encoded(bytes)!==expectedRange)console.error('threaded fixture stream',method,encoded(bytes));check(method==='GetBlockRange'&&encoded(bytes)===expectedRange,'exact native funding range');if(signal.aborted)return;streams++;yield hex(data.block);
+    }}});
   const confirmations={trusted:1,untrusted:1,allowZeroConfirmationShielding:false};
   const diagnostics=[],owners=new Set(),children=[],terminated=new Set(),originalPost=WorkerType.prototype.postMessage,originalTerminate=WorkerType.prototype.terminate;
   let fault,triggered=false;
@@ -40,7 +47,7 @@ export async function threadedChecks(options,fixture,definition,WorkerType) {
   };
   WorkerType.prototype.terminate=function(...args){const result=Reflect.apply(originalTerminate,this,args);if(result&&typeof result.then==='function')return result.then(value=>{terminated.add(this);return value;});terminated.add(this);return result;};
   const configured=(name,threaded=true)=>{const input=options(name);return {...input,network,light,confirmations,observation:{pollIntervalMs:1000,maxBufferedUpdates:16},recovery:{mode:'offline'},runtime:{...input.runtime,...(!threaded?{threading:{mode:'baseline'}}:{}),onDiagnostic:value=>diagnostics.push(value)}};};
-  let wallet,signer,descriptor;
+  let wallet,signer,descriptor,accountId;
   try {
     const controller=new AbortController();fault=controller;triggered=false;
     try{await createWalletClient({...configured('cancel'),signal:controller.signal});throw Error('missing bootstrap cancellation');}catch(error){check(error.code==='ABORTED','partial bootstrap cancellation');}
@@ -56,7 +63,7 @@ export async function threadedChecks(options,fixture,definition,WorkerType) {
       wallet=await createWalletClient(configured(name,threaded));
       check(diagnostics[seen]?.code===(threaded?'THREADED_SELECTED':'BASELINE_SELECTED'),'selected runtime cannot be fallback');
       if(threaded)check(children.length-before===2&&new Set(children.slice(before).map(row=>row.index)).size===2,'two actual compute workers ready');
-      const imported=await wallet.accounts.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:data.accountIndex,birthday:{network,source:'checkpoint',firstScanHeight:data.import.birthday.firstScanHeight,priorTreeState:hex(data.import.birthday.priorTreeState)}});signer=imported.signer;
+      const imported=await wallet.accounts.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:data.accountIndex,birthday:{network,source:'checkpoint',firstScanHeight:data.import.birthday.firstScanHeight,priorTreeState:hex(data.import.birthday.priorTreeState)}});signer=imported.signer;accountId=imported.account.id;
       const result=await wallet.sync({target:data.target});check(result.targetReached&&result.scan.scanComplete,'public native scan completes');
       const balance=await wallet.getBalance({accountId:imported.account.id});
       check(balance.amounts.sapling.spendable===40000n,'native Sapling funding scanned');

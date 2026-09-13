@@ -320,6 +320,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     },
     accounts: {
       remove: (args: Parameters<AccountsApi['remove']>[0]) => call<void>('account_remove', args),
+      viewingKey:(args:{accountId:string}&Op)=>call<string|null>('account_viewing_key',args),
       checkKey: (args: {accountId: string; viewingKey: string} & Op) => call<'ready' | 'recovery-required'>('account_check_key', args),
       import: (args: ViewingImport) => call<AccountRecord>('account_import', args),
       list: (args?: Op) => call<readonly AccountRecord[]>('account_list', args),

@@ -1,5 +1,6 @@
 // Account method composition/ownership only; native deletion and key matching have native fixtures.
 import test from 'node:test';
+import {createHash} from 'node:crypto';
 import assert from 'node:assert/strict';
 import {memorySigner} from '../../dist/src/wallet/memory-signer.js';
 import {walletAccounts} from '../../dist/src/wallet/accounts.js';
@@ -10,6 +11,7 @@ function wallet(){
   let record={id:'account',name:null,birthdayHeight:1,accountIndex:0,viewOnly:false,signerAttached:false},checks=0,deleted=0;
   const value={close:async()=>{},owner:{check(){}},session:{check(){},accounts:{
     async get(){return record;},async list(){return record?[record]:[];},
+    async viewingKey(){return fixture.ufvk;},
     async checkKey({viewingKey}){assert.equal(viewingKey,fixture.ufvk);checks++;return 'ready';},
     async remove({acknowledge}){assert.equal(acknowledge,'deletes-local-history');record=null;deleted++;},
     async import(args){assert.equal(args.viewingKey,fixture.ufvk);return record;},
@@ -29,12 +31,23 @@ test('account binding uses independently owned descriptor and never disposes cal
   assert.equal(await accounts.get({accountId:'account'}),null);assert.equal(disposed,0);assert.equal(calls,2);
   assert.deepEqual(f.counts(),{checks:2,deleted:1});
 });
-test('unknown imported generic selector and pre-abort reject without calling signer',async()=>{
+test('imported external account uses deterministic fingerprint and native correspondence',async()=>{
+  const f=wallet(),composition=walletAccounts(f.value,network),accounts=composition.api;f.imported();let calls=0;
+  const expected=createHash('sha256').update(fixture.ufvk,'utf8').digest('hex');
+  const signer={getCapabilities:async()=>{},authorize:async()=>{},async getAccount({network:actual,selector}){
+    calls++;assert.equal(actual,network);assert.deepEqual(selector,{kind:'fingerprint',fingerprint:expected});
+    return accountFromViewingKey({network,format:'ufvk',encoded:fixture.ufvk,enabledPools:['sapling']});
+  }};
+  const binding=await accounts.attachSigner({accountId:'account',signer});assert.equal(binding.state,'ready');
+  await binding.dispose();await accounts.attachSigner({accountId:'account',signer});assert.equal(calls,2);assert.equal(f.counts().checks,2);
+  await composition.close();assert.throws(()=>composition.attachedSigner('account'),{code:'CLOSED'});
+});
+test('fingerprint lookup without matching adapter rejects; pre-abort does not call adapter',async()=>{
   const f=wallet(),accounts=walletAccounts(f.value,network).api;f.imported();let calls=0;
-  const signer={getAccount:async()=>{calls++;throw Error('must not guess');}};
-  await assert.rejects(accounts.attachSigner({accountId:'account',signer}),{code:'SIGNER_CAPABILITY_MISMATCH'});
+  const signer={getCapabilities:async()=>{},authorize:async()=>{},getAccount:async()=>{calls++;throw Error('fingerprint not found');}};
+  await assert.rejects(accounts.attachSigner({accountId:'account',signer}),{code:'SIGNER_REJECTED'});
   await assert.rejects(accounts.attachSigner({accountId:'account',signer,signal:AbortSignal.abort()}),{code:'ABORTED'});
-  assert.equal(calls,0);
+  assert.equal(calls,1);assert.equal((await accounts.get({accountId:'account'})).signerAttached,false);
 });
 test('close clears attachments and rejects late custom descriptor publication',async()=>{
   const f=wallet(),composition=walletAccounts(f.value,network);let finish;
@@ -81,4 +94,13 @@ test('close rejects all account admissions while native unbind is held',async()=
     ()=>composition.api.attachSigner({accountId:'account',signer}),()=>composition.api.detachSigner({accountId:'account'}),
   ])await assert.rejects(request(),{code:'CLOSED'});
   assert.equal(dispatches,before);finish();await closing;await signer.dispose();
+});
+
+test('fingerprint match cannot bypass native key correspondence',async()=>{
+  const f=wallet(),composition=walletAccounts(f.value,network);f.imported();let checked=0;
+  const mismatch=Object.assign(Error('native key mismatch'),{code:'ACCOUNT_KEY_MISMATCH'});
+  f.value.session.accounts.checkKey=async()=>{checked++;throw mismatch;};
+  const signer={getCapabilities:async()=>{},authorize:async()=>{},getAccount:()=>accountFromViewingKey({network,format:'ufvk',encoded:fixture.ufvk,enabledPools:['sapling']})};
+  await assert.rejects(composition.api.attachSigner({accountId:'account',signer}),error=>error===mismatch);
+  assert.equal(checked,1);assert.equal(composition.attachedSigner('account'),undefined);await composition.close();
 });

@@ -21,3 +21,11 @@ test('wallet bound rejects raw and SDK-wrapped adapter output before copying, pr
   finally {globalThis.Uint8Array=Original;}
   assert.equal(called,2);assert.equal(copies,0);
 });
+
+test('fingerprint selector admission rejects malformed hints before adapter callback',async()=>{
+  const {fixture}=await import('./viewing-fixture.mjs');
+  const network=await api.defineNetwork({identity:'fingerprint-admission',genesisHash:'03'.repeat(32),parametersFormat:'zcash-js-network/1',parameters:new TextEncoder().encode(fixture.parameters)});
+  let calls=0;const signer=api.createCustomSigner({getCapabilities:async()=>{},authorize:async()=>{},getAccount:async()=>{calls++;}});
+  for(const fingerprint of ['','ff','AB'.repeat(32)])await assert.rejects(signer.getAccount({network,selector:{kind:'fingerprint',fingerprint}}),{code:'INVALID_ARGUMENT'});
+  assert.equal(calls,0);
+});

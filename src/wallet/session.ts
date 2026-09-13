@@ -144,10 +144,12 @@ export class WalletSession {
   };
 
   readonly accounts: Pick<AccountsApi, 'list' | 'get' | 'remove'> & {
+    viewingKey(args:{accountId:string}):Promise<string|null>;
     checkKey(args: {accountId: string; viewingKey: string}): Promise<'ready' | 'recovery-required'>;
     import(args: Omit<ViewingImport, 'birthday'> & { readonly birthday: 'fullScan' | Omit<Birthday, 'network'> & { readonly parameters: Uint8Array; readonly genesis: Uint8Array } }): Promise<AccountRecord>;
   } = {
     remove: args => this.invoke('account_remove', args),
+    viewingKey: args => this.invoke('account_viewing_key',args),
     checkKey: args => this.invoke('account_check_key', args),
     import: args => this.invoke('account_import', args),
     list: args => this.invoke('account_list', args),

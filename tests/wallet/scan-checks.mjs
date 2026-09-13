@@ -230,14 +230,15 @@ export async function sharedWalletChecks(open, fixture) {
   const first=await open('a');
   let release, reopened, second;
   try {
-  const abort=new AbortController(),cancelled=open('cancel',abort.signal);abort.abort();
-  try {await cancelled;throw Error('unexpected shared open');}catch(error){check(error.code==='ABORTED','shared open cancellation');}
-  second=await open('b');
+    const abort=new AbortController(),cancelled=open('cancel',abort.signal);abort.abort();
+    try {await cancelled;throw Error('unexpected shared open');}catch(error){check(error.code==='ABORTED','shared open cancellation');}
+    try {await open('a');throw Error('unexpected shared lease');}catch(error){check(error.code==='STORAGE_BUSY','duplicate DB lease remains exclusive');}
+    second=await open('b');
     check(first.owner.identity===second.owner.identity,'already-open wallets share native owner');
     check((await second.session.accounts.list()).length===0,'second DB starts empty');
     const account=await first.session.accounts.import({...fixture.import,birthday:'fullScan'});
     check((await second.session.accounts.list()).length===0,'wallet databases remain isolated');
-    await first.session.addresses.next({accountId:account.id,request:{format:'transparent'}});
+    const address=await first.session.addresses.next({accountId:account.id,request:{format:'transparent'}});
     release=first.owner.retain();
     await first.close();
     check((await second.session.accounts.list()).length===0,'closing first wallet preserves second');
@@ -246,6 +247,6 @@ export async function sharedWalletChecks(open, fixture) {
     check(reopened.owner.identity===first.owner.identity,'caller lease preserves owner across wallet closes');
     check((await reopened.session.accounts.get({accountId:account.id})).id===account.id,'reopened DB retains account');
     await release();release=undefined;
-    check((await reopened.session.addresses.list({accountId:account.id})).length===1,'wallet survives authority lease release');
+    check((await reopened.session.addresses.list({accountId:account.id})).some(row=>row.address===address.address),'wallet survives authority lease release');
   } finally {await release?.();await first.close();await second?.close();await reopened?.close();}
 }

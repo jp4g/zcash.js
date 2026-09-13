@@ -224,7 +224,8 @@ export class WalletPayments {
                   try{const checked=await this.observe(value,this.light!,pending.signal);observed++;
                     if(this.policy.rebroadcast&&!pending.signal.aborted)await this.submit(row.operationId,pending.signal,true,checked);
                   }catch(error){
-                    if(error&&typeof error==='object'&&this.wallet.session.completion(error)||isZcashError(error)&&['storage','runtime'].includes(error.stage))throw error;
+                    const receipt=error&&typeof error==='object'?this.wallet.session.completion(error):undefined;
+                    if(receipt&&receipt.completion!=='none'||isZcashError(error)&&['storage','runtime'].includes(error.stage))throw error;
                     const known=isZcashError(error)?error:failure('TRANSPORT_ERROR','observation','configure','Payment endpoint is unavailable.');
                     lastError={code:known.code,stage:known.stage,recovery:known.recovery,retryable:known.retryable,message:'Payment recovery network pass did not complete.'};halt=true;
                   }

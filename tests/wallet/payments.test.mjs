@@ -15,17 +15,17 @@ function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delaye
   const control={revision:1,calls:[],requests:0,dispatches:0,finish:0,position:'0',closed:0,reads:0,mined:false,stalled:false,started:null,reply:null};
   const channels=new MessageChannel(),budget={jobs:0,bytes:0,active:false,wake:new Set(),signers:new Map(),proving:{capacity:128*1024*1024,bytes:0,active:false}};
   const current=row=>{row.state.revision=String(control.revision);return structuredClone({state:row.state,observationSequence:row.observationSequence});};
-  installWalletWorker({generation:1,instance:'wallet',close(){control.closed++;},async call(_g,_i,command,args){
+  installWalletWorker({generation:1,instance:'wallet',close(){control.closed++;},call(_g,_i,command,args){
     control.calls.push(command);
     const row=journal.find(row=>row.state.operationId===args.operationId);
     if(command==='payment_list')return {revision:String(control.revision),highWater:args.highWater??String(count),observationPosition:control.position,
       items:journal.filter(row=>BigInt(row.sequence)>BigInt(args.afterSequence)&&BigInt(row.sequence)<=BigInt(args.highWater??count)).slice(0,args.limit).map(row=>({sequence:row.sequence,operationId:row.state.operationId}))};
     if(command==='payment_recovery_position'){control.position=args.afterSequence;control.revision++;return;}
-    if(command==='payment_get'){if(control.getGate){control.started?.();await control.getGate;}return row?current(row):null;}
+    if(command==='payment_get'){if(control.getGate){control.started?.();return control.getGate.then(()=>row?current(row):null);}return row?current(row):null;}
     if(!row)throw Object.assign(Error('OPERATION_NOT_FOUND'),{commit:'none'});
     const step=row.state.steps[0];
     if(command==='payment_reconcile'){for(const attempt of step.attempts)if(attempt.outcome==='started')attempt.outcome='unknown';control.revision++;return current(row);}
-    if(command==='payment_observe'){step.observation=args.observation;step.inclusion=args.observation.inclusion;row.observationSequence=String(+row.observationSequence+1);control.revision++;return current(row);}
+    if(command==='payment_observe'){if(control.observeError)throw Object.assign(Error(control.observeError),{commit:'none'});step.observation=args.observation;step.inclusion=args.observation.inclusion;row.observationSequence=String(+row.observationSequence+1);control.revision++;return current(row);}
     if(command==='payment_attempt_begin'){
       assert.equal(args.maximum,65536);if(!step.txid)throw Object.assign(Error('NOT_FINALIZED'),{commit:'none'});
       if(args.mode==='automatic')return null;
@@ -106,4 +106,12 @@ test('close cancels a hung observer and leaves runtime closure to its owner',asy
   await entered;let closed=false;const closing=payments.close().then(()=>{closed=true;});
   await wait(10);assert.equal(closed,false);release();await rejected;await closing;
   assert.equal(control.requests,0);
+});
+
+test('recovery retains native no-commit observation uncertainty but rejects storage failure',async t=>{
+  const uncertain=setup(t,{online:true});uncertain.control.observeError='RECOVERY_REQUIRED';
+  const report=await uncertain.payments.recover();assert.equal(report.local,'complete');
+  assert.equal(report.lastError.code,'RECOVERY_REQUIRED');assert.equal(report.deferredOperations,1);
+  const broken=setup(t,{online:true});broken.control.observeError='STORAGE_ERROR';
+  await assert.rejects(broken.payments.recover(),{code:'STORAGE_ERROR'});
 });

@@ -21,12 +21,13 @@ export async function runBrowser() {
     network: { identity: 'synthetic-regtest', genesisHash: '03'.repeat(32), parametersFormat: 'zcash-js-network/1', parameters } };
   const check = (value, label) => { if (!value) throw Error(label); };
   const same = (a, b) => JSON.stringify(a, (_, v) => typeof v === 'bigint' ? String(v) : v) === JSON.stringify(b, (_, v) => typeof v === 'bigint' ? String(v) : v);
-  let account, addresses, previousScan, workerDestructions = 0,publicWalletResult={publicWallet:false};
+  let account, addresses, previousScan, workerDestructions = 0,webpackWallet=false,publicWalletResult={publicWallet:false};
   const NativeWorker = globalThis.Worker;
   globalThis.Worker = class extends NativeWorker {
     terminate() { workerDestructions++; return super.terminate(); }
   };
   try {
+    if(fixture.webpack){mark('webpack-wallet');const {runWallet}=await import('/webpack-wallet.mjs');const result=await runWallet({...options,storage:{kind:'browser-opfs',name:`${name}-webpack`}});check(result.closed&&result.accounts===0,'installed Webpack bundle opens and closes native OPFS wallet');webpackWallet=true;}
     for(const [storage,signal,code] of [[{kind:'memory',name:'invalid'},undefined,'INVALID_ARGUMENT'],[{kind:'memory'},AbortSignal.abort(),'ABORTED']]) {
       try {await openWalletRuntime({...options,storage,signal});throw Error('unexpected memory startup');}
       catch(error){check(error.code===code,'memory storage admission/cancellation');}
@@ -153,10 +154,10 @@ export async function runBrowser() {
         fixture.pczt,options.network,async()=>{const response=await fetch('/public-wallet-submitted',{cache:'no-store'});check(response.ok,'public dispatch inventory');return response.json();});
     }
     mark('complete');
-    return { phases,...publicWalletResult,proving:!!fixture.proving,shielding:true,idempotency:true,accountsApi:true,memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    return { phases,...publicWalletResult,webpackWallet,proving:!!fixture.proving,shielding:true,idempotency:true,accountsApi:true,memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
-    for (const entry of [...['transfer','shield','tex'].map(mode=>`${name}-public-${mode}`),`${name}-pczt-external`,`${name}-pczt-internal`,`${name}-accounts-a`,`${name}-accounts-b`,`${name}-complete-signer`,`${name}-mnemonic-a`, `${name}-mnemonic-b`, `${name}-shared-a`, `${name}-shared-b`, `${name}-shared-cancel`, name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`,`${name}-shielding`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
+    for (const entry of [...['transfer','shield','tex'].map(mode=>`${name}-public-${mode}`),...(fixture.webpack?[`${name}-webpack`]:[]),`${name}-pczt-external`,`${name}-pczt-internal`,`${name}-accounts-a`,`${name}-accounts-b`,`${name}-complete-signer`,`${name}-mnemonic-a`, `${name}-mnemonic-b`, `${name}-shared-a`, `${name}-shared-b`, `${name}-shared-cancel`, name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`,`${name}-shielding`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {
       if (error.name !== 'NotFoundError') throw error;
     });
   }

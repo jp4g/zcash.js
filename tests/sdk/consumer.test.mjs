@@ -70,10 +70,15 @@ test('packed private package imports and typechecks in an isolated Node consumer
     export const amount=sdk.formatZec(sdk.parseZec('1.00000001'));
     export const transport=sdk.http('https://synthetic.invalid',{sourceId:'webpack',timeoutMs:1000,maxResponseBytes:4096,readRetry:{attempts:1,delayMs:0}});
   `);
-  for(const queryOnly of [false,true]){
+  for(const variant of ['full','query',...(process.env.WALLET_WEBPACK_OUTPUT?['wallet']:[])]){
+    const queryOnly=variant==='query',walletOnly=variant==='wallet';
+    if(walletOnly)await writeFile(join(consumer,'webpack-entry.mjs'),`
+      import {createWalletClient,defineNetwork} from 'zcash.js';
+      export async function runWallet(options){const network=await defineNetwork(options.network);const wallet=await createWalletClient({...options,network,confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},observation:{pollIntervalMs:1000,maxBufferedUpdates:16},recovery:{mode:'offline'}});let count;try{count=(await wallet.accounts.list()).length;await wallet.getSyncStatus();}finally{await wallet.close();}if(count!==0)throw Error('fresh bundled wallet must be empty');return {closed:true,accounts:count};}
+    `);
     if(queryOnly)await writeFile(join(consumer,'webpack-entry.mjs'),"import {parseZec,formatZec,createPublicClient,http} from 'zcash.js'; export {createPublicClient,http}; export const amount=formatZec(parseZec('1.00000001'));\n");
-    const compiler=webpack({mode:'production',context:consumer,target:['web','es2022'],entry:'./webpack-entry.mjs',devtool:false,
-      performance:{hints:false},module:{parser:{javascript:{dynamicImportMode:'eager'}}},optimization:{minimize:false},output:{path:join(consumer,'webpack'),filename:'bundle.js',library:{name:'SDKProbe',type:'var'},globalObject:'globalThis',publicPath:''}});
+    const compiler=webpack({mode:'production',context:consumer,target:['web','es2022'],entry:'./webpack-entry.mjs',devtool:false,...(walletOnly?{experiments:{outputModule:true}}:{}),
+      performance:{hints:false},module:{parser:{javascript:{dynamicImportMode:'eager'}}},optimization:{minimize:false},output:{path:join(consumer,'webpack'),filename:'bundle.js',library:walletOnly?{type:'module'}:{name:'SDKProbe',type:'var'},...(walletOnly?{module:true}:{}),globalObject:'globalThis',publicPath:''}});
     let stats;try{stats=await new Promise((resolve,reject)=>compiler.run((error,result)=>error?reject(error):resolve(result)));}finally{await new Promise((resolve,reject)=>compiler.close(error=>error?reject(error):resolve()));}
     assert.equal(stats.hasErrors(),false,stats.toString({all:false,errors:true}));
     const details=stats.toJson({all:false,warnings:true,modules:true});
@@ -82,6 +87,12 @@ test('packed private package imports and typechecks in an isolated Node consumer
       'grpc.js','runtime/wallet.js','wallet/host.js','wallet/host.js'
     ].map(name=>({module:'./node_modules/zcash.js/dist/src/'+name,message:'Critical dependency: the request of a dependency is an expression'})));
     const code=await readFile(join(consumer,'webpack/bundle.js'),'utf8');
+    if(walletOnly){
+      const output=resolve(process.env.WALLET_WEBPACK_OUTPUT);await mkdir(output,{recursive:true});
+      const tarball=await readFile(join(folder,packed.filename)),sha=bytes=>createHash('sha256').update(bytes).digest('hex');
+      await writeFile(join(output,'wallet.mjs'),code);await writeFile(join(output,'package.tgz'),tarball);
+      await writeFile(join(output,'receipt.json'),JSON.stringify({webpack:'5.110.3',bundleSha256:sha(code),tarballSha256:sha(tarball),consumerSha256:sha(await readFile(import.meta.filename)),lockSha256:sha(await readFile('package-lock.json'))},null,2)+'\n');continue;
+    }
     const globals={URL,Headers,TextEncoder,TextDecoder,AbortController,AbortSignal,EventTarget,setTimeout,clearTimeout,performance};
     Object.defineProperty(globals,'WebAssembly',{get(){throw Error('native initialization forbidden');}});
     globals.fetch=()=>{throw Error('unexpected asset or endpoint request');};

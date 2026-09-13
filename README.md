@@ -1,8 +1,8 @@
 # zcash.js
 
-**Proposed v1 API · documentation/specification only.** This private repository contains no production SDK, runtime dependencies, published npm package or validated wallet support. The proposed product is one TypeScript API for Node and browsers, backed by Zakura Rust/WASM, targeting transparent, Sapling and Ironwood.
+**Private TypeScript SDK with qualified synthetic Node/browser wallet workflows.** The package exposes independent public, light and wallet clients, plus optional composition. Baseline wallet storage, account/query/sync, signing/proving and payment recovery paths have actual Node filesystem and Firefox OPFS evidence. This is not complete v1 acceptance or a published npm package.
 
-Start stakeholder review with the [API book](docs/api/README.md) and its [end-to-end walkthrough](docs/api/walkthrough.md): client setup, account creation/recovery, sync, receive, balances, reviewed send, wait, restart/resume and close. Each chapter distinguishes proposed behavior, missing implementation and qualification requirements. Examples contain no real wallet data and are compile-only.
+See [local installation and runtime assets](docs/api/installation.md) for installing a local tarball and configuring the separately verified wallet runtime. The [API book](docs/api/README.md) describes the frozen contract; its compile-only examples are not evidence that every contract case is implemented. Known gaps include generic signer selection for UFVK attachment (#97), HD enabledPools subsets (#98), already-finalized transparent PCZT inputs (#102), and healthy threaded runtime integration.
 
 ## Local review site
 
@@ -15,7 +15,7 @@ npm run docs:build
 npm run docs:preview
 ```
 
-Open **http://127.0.0.1:4173/**. For editing, run `npm run docs:dev` at the same address instead; only one server can own port 4173. The site uses base `/`. GitHub Actions checks declarations/examples and builds the site only; no Pages deployment is configured. The root private package contains development tooling only, with no SDK entry points or runtime dependencies.
+Open **http://127.0.0.1:4173/**. For editing, run `npm run docs:dev` at the same address instead; only one server can own port 4173. The site uses base `/`. No Pages deployment is configured. The package remains private; local distribution qualification does not authorize publication or deployment.
 
 ## Review contracts and evidence
 

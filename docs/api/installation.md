@@ -1,6 +1,6 @@
 # Installation and import notation
 
-The repository builds a private SDK with actual synthetic Node filesystem and Firefox OPFS wallet qualification. It is not published. Keep `private: true`; these instructions install only a locally built tarball.
+The repository builds a private SDK with actual synthetic Node filesystem and Firefox OPFS wallet qualification. It is not published. Keep `private: true`; these instructions install only a locally built tarball. See the [private delivery status](../planning/private-release-notes.md) for known limitations and the remaining security/privacy and dependency/license closeout.
 
 ## Install a local package
 

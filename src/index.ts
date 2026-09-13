@@ -1,3 +1,4 @@
+export { createCustomSigner } from './signer.js';
 export { resolveBirthday } from './birthday.js';
 export { createPublicClient } from './public.js';
 export { accountFromViewingKey, viewing, addresses } from './viewing.js';
@@ -9,6 +10,7 @@ export { accountIndex, diversifierIndex, txId, blockHash } from './primitives.js
 export { isZcashError } from './errors.js';
 export { http } from './http.js';
 export type {
+  Signer, SignerCapabilities, SignerSelector, SigningRequest, SigningResult,
   Birthday, AccountDescriptor, ViewKeyHandle, ViewingApi, AddressApi, AddressRecord, AddressRequest, DecodedAddress, SelectedReceiver, ConsensusContext, Pool, NonEmpty, ReceiverType,
   Network, NetworkDefinition, Op, AccountIndex, DiversifierIndex, TxId, BlockHash, ErrorCode, ErrorInfo, ZcashError,
   PublicClient, ObservationOptions, WaitOptions, ChainPoint, ChainTip, BlockSelector, BlockHeader, PublicBlock,

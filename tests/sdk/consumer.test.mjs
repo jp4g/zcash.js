@@ -27,7 +27,7 @@ async function exec(command, args, options = {}) {
     await rm(folder, { recursive: true, force: true });
   }
 }
-const implemented = ['accountFromViewingKey', 'accountIndex', 'addresses', 'blockHash', 'createLightClient', 'createPublicClient', 'defineNetwork', 'diversifierIndex', 'formatZec', 'grpc', 'http', 'isZcashError', 'parseZec', 'resolveBirthday', 'txId', 'viewing'];
+const implemented = ['accountFromViewingKey', 'accountIndex', 'addresses', 'blockHash', 'createCustomSigner', 'createLightClient', 'createPublicClient', 'defineNetwork', 'diversifierIndex', 'formatZec', 'grpc', 'http', 'isZcashError', 'parseZec', 'resolveBirthday', 'txId', 'viewing'];
 
 test('packed private package imports and typechecks in an isolated Node consumer', async (t) => {
   const folder = await mkdtemp(join(tmpdir(), 'zcash-sdk-consumer-'));

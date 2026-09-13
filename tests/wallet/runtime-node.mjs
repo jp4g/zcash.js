@@ -32,11 +32,15 @@ const initialize = { type: 'initialize', moduleUrl: pathToFileURL(`${packet}/wal
   wasm, expected, maxMemoryBytes: 4096 * 65536 };
 function start() {
   const worker = new Worker(pathToFileURL(`${packet}/worker.mjs`), { trackUnmanagedFds: true });
+  let nextId = 0;
   const messages = []; worker.on('message', value => messages.push(value));
   return { worker, messages,
     async request(value, transfer = []) {
       const pending = once(worker, 'message', { signal: AbortSignal.timeout(10000) });
-      worker.postMessage(value, transfer); return (await pending)[0];
+      const id=++nextId;worker.postMessage({...value,id}, transfer);
+      const {id:replyId,fatal,...reply}=(await pending)[0];assert.equal(replyId,id);
+      if(reply.type==='failure')assert.equal(typeof fatal,'boolean');
+      return reply;
     },
     async stop() { await worker.terminate(); destructions++; },
   };
@@ -64,8 +68,8 @@ for (const name of ['genesis', 'before-ready', 'pending-initialize']) {
       assert.equal(existsSync(`${root}/${name}`), false, 'handshake has not created storage');
     } else if (name === 'pending-initialize') {
       const replies = on(owner.worker, 'message', { signal: AbortSignal.timeout(10000) });
-      owner.worker.postMessage(initialize);
-      owner.worker.postMessage({ type: 'invalid-control' });
+      owner.worker.postMessage({...initialize,id:100});
+      owner.worker.postMessage({ type: 'invalid-control',id:101 });
       // Startup may finish first. Either scheduling order must remain terminal after failure.
       for await (const [reply] of replies) {
         if (reply.type === 'failure') { assert.equal(reply.code, 'PROTOCOL_MISMATCH'); break; }

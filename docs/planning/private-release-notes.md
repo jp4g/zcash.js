@@ -15,7 +15,10 @@ The [payment qualification record](wallet-payments-qualification.md) binds the a
 - [#102](https://github.com/jp4g/zcash.js/issues/102) is explicitly deferred. Native import can retain verified finalized transparent scripts, but wallet finalization rejects already-finalized transparent inputs with `METHOD_NOT_SUPPORTED`. External signing that returns partial signatures and ordinary local sending remain in scope.
 - [#107](https://github.com/jp4g/zcash.js/issues/107) tracks the current healthy-threaded wallet artifact/build boundary. Qualified baseline execution and missing-prerequisite fallback do not establish healthy-threaded wallet support.
 
-The deferred [#10–#12](future-issues.md) scope is unchanged. These notes do not close the remaining frozen capability or conformance gates.
+- [#115](https://github.com/jp4g/zcash.js/issues/115) tracks third-party notice reconciliation and artifact license provenance; the factual inventory does not fulfill those obligations.
+- [#116](https://github.com/jp4g/zcash.js/issues/116) tracks current-artifact OPFS quota, interrupted-write and opening-migration qualification. Older fault receipts and current dispatch-interruption checks do not establish those results for the current runtime.
+
+#107, #115 and #116 remain unresolved qualification/tooling obligations, not waivers or completed gates. The deferred [#10–#12](future-issues.md) scope is unchanged. These notes do not close the remaining frozen capability or conformance gates.
 
 ## Security, privacy and provenance
 

@@ -14,7 +14,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
   const confirmations={trusted:1,untrusted:1,allowZeroConfirmationShielding:false};
   const observation={pollIntervalMs:1000,maxBufferedUpdates:16};
   const common={network,confirmations,observation};
-  for(const mode of ['transfer','shield','tex']) {
+  for(const mode of ['transfer','shield','tex',...(fixture.ironwoodFunding?['ironwood']:[])]) {
     const name=`public-${mode}`;
     await seed(name,hex(data.database));
     let authorityWallet,wallet,signer;
@@ -23,7 +23,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       const imported=await authorityWallet.accounts.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:data.accountIndex,
         birthday:{network,source:'checkpoint',firstScanHeight:data.import.birthday.firstScanHeight,priorTreeState:hex(data.import.birthday.priorTreeState)}});
       signer=imported.signer;await authorityWallet.close();authorityWallet=undefined;
-      const configured={...options(name),...common,transactionPolicy:{spendPools:mode==='transfer'?['sapling','transparent']:mode==='shield'?['transparent']:['sapling'],transparent:mode==='tex'?'disallow':'allow-owned',changePool:'sapling',feeRule:'zip317-standard',confirmations,expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20,shieldingThreshold:10000n,freshness:{mode:'require-synced',maxLagBlocks:0}}};
+      const configured={...options(name),...common,transactionPolicy:{spendPools:mode==='ironwood'?['ironwood']:mode==='transfer'?['sapling','transparent']:mode==='shield'?['transparent']:['sapling'],transparent:mode==='tex'||mode==='ironwood'?'disallow':'allow-owned',changePool:mode==='ironwood'?'ironwood':'sapling',feeRule:'zip317-standard',confirmations,expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20,shieldingThreshold:10000n,freshness:{mode:'require-synced',maxLagBlocks:0}}};
       const {proving,...withoutProving}=configured;
       wallet=await createWalletClient(configured);
       check((await wallet.accounts.list()).some(account=>account.id===data.accountId),'public native-funded account discovery');
@@ -33,7 +33,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       check(balance.amounts?.transparent.regular.spendable===40000n&&balance.amounts.sapling.spendable===40000n,'public balance matches native funded amounts');
       check((await wallet.getHistory({accountId:data.accountId})).items.length>0,'public history retains native funding');
       if(mode==='transfer')await publicEmptyForkChecks(withoutProving,seed,name+'-fork',data);
-      const destination=mode==='tex'?data.tex:(await wallet.addresses.next({accountId:data.accountId,request:{format:'transparent'}})).address;
+      const destination=mode==='tex'?data.tex:(await wallet.addresses.next({accountId:data.accountId,request:mode==='ironwood'?{format:'unified',transparent:'omit',sapling:'omit',ironwood:'require'}:{format:'transparent'}})).address;
       const intent=mode==='shield'?{accountId:data.accountId,toPool:'sapling',threshold:10000n,idempotencyKey:`public-${mode}`}:{accountId:data.accountId,to:destination,amount:10000n,idempotencyKey:`public-${mode}`};
       const operationCount=mode==='transfer'?2:1;
       const before=(await submitted()).length;
@@ -56,6 +56,12 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
         check(wallet.recovery.local==='complete'&&wallet.recovery.operations===operationCount&&wallet.recovery.observedOperations===1&&wallet.recovery.deferredOperations===0&&wallet.recovery.lastError===null,'startup discovers and observes canceled finalized operation');
         check((await submitted()).length===before&&(await wallet.operations.list()).items.every(item=>item.steps.every(step=>step.attempts.length===0)),'startup policy never grants first dispatch');
         await wallet.accounts.attachSigner({accountId:data.accountId,signer});
+      }
+      if(mode==='ironwood'){
+        check(balance.amounts.ironwood.spendable===40000n,'native Ironwood funding is spendable');
+        const proposal=await wallet.propose(intent),inputs=proposal.steps.flatMap(step=>step.inputs);
+        check(inputs.length>0&&inputs.every(input=>input.pool==='ironwood')&&inputs.reduce((sum,input)=>sum+input.value,0n)===40000n,'public send selects only real Ironwood funds');
+        check(proposal.steps.flatMap(step=>step.outputs).some(output=>output.kind==='payment'&&output.address===destination&&output.amount===10000n),'Ironwood recipient and amount remain exact');
       }
       const pending=await (mode==='shield'?wallet.shield(intent):wallet.send(intent));
       const first=await pending.snapshot(),expected=mode==='tex'?2:1;
@@ -110,7 +116,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       }
     }finally{await wallet?.close();await authorityWallet?.close();await signer?.dispose();}
   }
-  return {publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,allOperationsRecovery:true,publicForkReplay:true,retryBudget:true};
+  return {localIronwood:fixture.ironwoodFunding===true,publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,allOperationsRecovery:true,publicForkReplay:true,retryBudget:true};
 }
 
 // Payload handler for the existing native gRPC / gRPC-Web test servers. Framing,

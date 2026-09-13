@@ -87,6 +87,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     const fixtureBytes = await readFile(`${packet}/bundle/tests/views-fixture.json`);
     assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'), packetBuild.artifacts['tests/views-fixture.json']);
     const nativeFixture = JSON.parse(fixtureBytes);
+    const {publicWalletFixture}=await import('./public-wallet-fixture.mjs');
+    report.supplementalFixture=await publicWalletFixture(nativeFixture,process.env.WALLET_PUBLIC_FIXTURE);
     const {provingFixture}=await import('./proving-fixture.mjs');
     const provingAssets=await provingFixture(process.env.WALLET_PROVING_PARAMETERS);
     let signerFixture;
@@ -254,10 +256,10 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
     if(process.env.WALLET_WEBPACK_OUTPUT)assert.equal(answer.value.webpackWallet,true);
-    if(process.env.WALLET_LOADER&&provingAssets.size){for(const key of ['publicWallet','localTransfer','localShield','localTex','startupRecovery','allOperationsRecovery','retryBudget'])assert.equal(answer.value[key],true);assert.ok(server.calls.length>0&&server.calls.every(call=>call.closed),'all native gRPC-Web responses closed');}
+    if(process.env.WALLET_LOADER&&provingAssets.size){for(const key of ['publicWallet','localTransfer','localShield','localTex','startupRecovery','allOperationsRecovery','publicForkReplay','retryBudget',...(report.supplementalFixture?['localIronwood']:[])])assert.equal(answer.value[key],true);assert.ok(server.calls.length>0&&server.calls.every(call=>call.closed),'all native gRPC-Web responses closed');}
     if(crash){assert.equal(createHash('sha256').update(await readFile(process.env.WALLET_CRASH_DATABASE)).digest('hex'),report.crashDatabaseSha256,'source database snapshot unchanged');for(const flag of ['browserDispatchCrash','unknownAttempt','exactRetry','draftUntouched'])assert.equal(answer.value[flag],true);assert.ok(server.calls.every(call=>call.closed));}
     if(process.env.WALLET_LOADER&&!crash){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, crash?1:process.env.WALLET_LOADER ? (provingAssets.size?40:24)+Number(Boolean(process.env.WALLET_WEBPACK_OUTPUT)) : 2);
+    assert.equal(answer.value.workerDestructions, crash?1:process.env.WALLET_LOADER ? (provingAssets.size?40+Number(Boolean(report.supplementalFixture))*6:24)+Number(Boolean(process.env.WALLET_WEBPACK_OUTPUT)) : 2);
     report.status = 'passed';
   } catch (error) {
     if (report.interruptedBy) report.status = 'interrupted';

@@ -5,6 +5,7 @@ import {Server,ServerCredentials} from '@grpc/grpc-js';
 import {shieldingChecks} from './shielding-checks.mjs';
 import {accountsChecks} from './accounts-checks.mjs';
 import {pcztBuildChecks} from './pczt-build-checks.mjs';
+import {publicWalletFixture} from './public-wallet-fixture.mjs';
 import {provingFixture} from './proving-fixture.mjs';
 // Real TLS acquisition, reviewed executable bytes, actual worker/Rust filesystem wallet.
 import assert from 'node:assert/strict';
@@ -118,6 +119,7 @@ try {
   const fixtureBytes = await readFile(`${process.argv[3]}/bundle/tests/views-fixture.json`);
   assert.equal(sha(fixtureBytes), JSON.parse(nativeReceipt).artifacts['tests/views-fixture.json']);
   const fixture = JSON.parse(fixtureBytes);
+  const supplementalFixture=await publicWalletFixture(fixture,process.env.WALLET_PUBLIC_FIXTURE);
   const nativeBuild=JSON.parse(nativeReceipt);
   const signerBytes=await readFile(`${nativeBuild.work}/source/tests/signer-fixture.json`);
   assert.equal(sha(signerBytes),nativeBuild.sources['tests/signer-fixture.json']);
@@ -270,7 +272,7 @@ try {
   }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, provingAssets.size?258:150, 'six pinned assets per owner, including startup recovery reopens; no execution refetch');
-  if(provingAssets.size)assert.equal(requests.filter(path=>path.startsWith('/proving/')).length,8,'public memory caches and persistent parameter cache suppresses repeated callback loads');
-  console.log(JSON.stringify({ pass: true,...publicWalletResult,workerDispatchCrash, proving:provingAssets.size>0, shielding:true, idempotency:true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, provingAssets.size?258+Number(Boolean(supplementalFixture))*36:150, 'six pinned assets per owner, including startup recovery reopens; no execution refetch');
+  if(provingAssets.size)assert.equal(requests.filter(path=>path.startsWith('/proving/')).length,8+Number(Boolean(supplementalFixture))*2,'public memory caches and persistent parameter cache suppresses repeated callback loads');
+  console.log(JSON.stringify({ pass: true,supplementalFixture,...publicWalletResult,workerDispatchCrash, proving:provingAssets.size>0, shielding:true, idempotency:true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { rpcServer?.forceShutdown();server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

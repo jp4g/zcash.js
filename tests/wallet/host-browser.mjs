@@ -130,6 +130,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     if (process.env.WALLET_LOADER) {
       assets.set('/tests/wallet/accounts-checks.mjs', await readFile(new URL('./accounts-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/pczt-build-checks.mjs', await readFile(new URL('./pczt-build-checks.mjs', import.meta.url)));
+      assets.set('/tests/wallet/shielding-checks.mjs', await readFile(new URL('./shielding-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/scan-checks.mjs', await readFile(new URL('./scan-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/loader-browser.mjs', await readFile(new URL('./loader-browser.mjs', import.meta.url)));
       for (const name of ['runtime/wallet', 'runtime/artifacts', 'runtime/wallet-profile', 'network-parameters', 'primitives']) {
@@ -145,7 +146,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       await modules(`${build}/src`,'/dist/src');
       assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
     }
-    assets.set('/fixture.json', JSON.stringify({ pczt:nativeFixture.pczt, signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
+    assets.set('/fixture.json', JSON.stringify({ shielding:nativeFixture.shielding, pczt:nativeFixture.pczt, signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
@@ -194,7 +195,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 20 : 2);
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 22 : 2);
     report.status = 'passed';
   } catch (error) {
     if (report.interruptedBy) report.status = 'interrupted';

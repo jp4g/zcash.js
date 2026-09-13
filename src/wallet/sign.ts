@@ -57,7 +57,7 @@ export function walletSign(proposals:WalletProposals,session:Session,accounts:Pi
         const maximum=Math.min(session.pczt.maximum,capabilities.maxPcztBytes);
         if(bytes.length>maximum)throw failure('RESOURCE_LIMIT','authorization','configure','Signer PCZT exceeds limit.');
         pending.check();session.check();
-        const result=await boundedSigner(authority,maximum).authorize({requestId:binding.artifactId,pczt:bytes,context:proposal.context,
+        const result=await boundedSigner(signer,maximum).authorize({requestId:binding.artifactId,pczt:bytes,context:proposal.context,
           accountIds:proposal.accountIds,capabilityRevision:capabilities.revision,reviewCommitment:proposal.reviewCommitment,signal:pending.signal});
         pending.check();session.check();
         return await proposals.import({operationId:binding.operationId,bytes:result.pczt,signal:pending.signal});

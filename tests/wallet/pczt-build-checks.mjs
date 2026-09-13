@@ -11,7 +11,7 @@ export async function pcztBuildChecks(open,fixture,definition) {
   const network=await defineNetwork(definition);
   for(const scope of ['external','internal']) {
     const data=fixture[scope],wallet=await open(scope),accounts=walletAccounts(wallet,network);
-    let signer,reopened;
+    let signer,reopened,signerAccount;
     try {
       const birthday={network,source:'checkpoint',firstScanHeight:data.import.birthday.firstScanHeight,priorTreeState:hex(data.import.birthday.priorTreeState)};
       const created=await accounts.api.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:fixture.accountIndex,birthday});
@@ -45,6 +45,7 @@ export async function pcztBuildChecks(open,fixture,definition) {
       }
       await accounts.close();
       const capability=await signer.getCapabilities();
+      if(scope==='external')signerAccount=await signer.getAccount({network,selector:{kind:'derived',accountIndex:fixture.accountIndex}});
       authorization??=await signer.authorize({requestId:`built-${scope}`,pczt:retained.bytes,context:proposal.context,accountIds:proposal.accountIds,capabilityRevision:capability.revision,reviewCommitment:proposal.reviewCommitment});
       const parsed=await pczt.parse({bytes:authorization.pczt,context:proposal.context,maxBytes:65536});
       try {const inspection=await pczt.inspect({pczt:parsed});check(inspection.authorizationComplete&&!inspection.proofsComplete,'built PCZT signed after wallet close');}
@@ -70,6 +71,17 @@ export async function pcztBuildChecks(open,fixture,definition) {
       const importedRevision=(await reopened.session.scan.state()).revision;
       check((await imports.import({operationId,bytes:authorization.pczt})).artifactId===imported.artifactId,'duplicate signed import reuses artifact identity');
       check((await reopened.session.scan.state()).revision===importedRevision,'duplicate import leaves native revision unchanged');
+      if(scope==='external') {
+        const proposal=await imports.restore({operationId}),unsigned=await imports.build({proposal});
+        let authorizations=0;
+        const adapter={
+          async getCapabilities(){adapter.authorize=()=>{throw Error('changed adapter method invoked');};return {...capability,authorizations:capability.authorizations.map(role=>({...role,requiredFields:['zakura-signer-full/1'],review:'device'}))};},
+          async getAccount(){return signerAccount;},
+          async authorize(request){authorizations++;check(!new TextDecoder().decode(request.pczt).includes('zcash_client_backend:proposal_info'),'custom signer receives redacted view');return {requestId:request.requestId,pczt:authorization.pczt};},
+        };
+        const signed=await walletSign(imports,reopened.session,{attachedSigner(){return adapter;}})({pczt:unsigned});
+        check(authorizations===1&&signed.artifactId===imported.artifactId,'captured custom signer contribution is checked and retained');
+      }
       await reopened.close();reopened=await open(scope);
       const discovered=await reopened.session.proposals.list({afterSequence:'0',limit:200});
       check(discovered.items.length===1,'reopen discovers signed operation without saved ID');
@@ -77,6 +89,6 @@ export async function pcztBuildChecks(open,fixture,definition) {
       check(latest.artifactId===imported.artifactId&&latest.authorizationComplete&&equal(latest.bytes,signed.bytes),'signed artifact bytes survive new owner');
       const original=await reopened.session.pczt.get({operationId:discovered.items[0].operationId,artifactId:artifact.artifactId});
       check(equal(original.bytes,retained.bytes)&&!original.authorizationComplete,'old artifact identity still resolves original unsigned bytes');
-    } finally {await signer?.dispose();await reopened?.close();await accounts.close();await wallet.close();}
+    } finally {await signerAccount?.viewing.dispose();await signer?.dispose();await reopened?.close();await accounts.close();await wallet.close();}
   }
 }

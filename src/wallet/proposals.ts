@@ -76,7 +76,7 @@ export class WalletProposals {
     return this.projectArtifact(value,binding.operationId,input.proposal.accountIds[0]);
   }
   async import(args: Parameters<WalletPcztApi['import']>[0]): Promise<PcztArtifact> {
-    const input=snapshot(args,['operationId','bytes','signal']);
+    const input=snapshot(args,['operationId','bytes','signal'],this.session.pczt.maximum);
     const value=await this.session.pczt.import(input);
     return this.projectArtifact(value,input.operationId);
   }

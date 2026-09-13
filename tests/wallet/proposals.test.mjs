@@ -128,3 +128,18 @@ test('PCZT import retains native rejection, committed cancellation and projectio
   await assert.rejects(broken.api.import(input),e=>e.code==='PROTOCOL_MISMATCH'&&broken.session.completion(e).completion==='committed');
   assert.equal((await api.import(input)).artifactId,built().artifactId,'known input errors do not poison owner');
 });
+
+test('configured PCZT cap rejects before either snapshot constructs an owned byte view',async t=>{
+  let dispatches=0;const {session,api}=setup(t,()=>{dispatches++;return built();},{maxPcztBytes:8});
+  const NativeBytes=globalThis.Uint8Array,oversized=new NativeBytes(9);let constructions=0;
+  globalThis.Uint8Array=new Proxy(NativeBytes,{construct(target,args,newTarget){
+    if(args[0]===oversized.buffer||(ArrayBuffer.isView(args[0])&&args[0].byteLength===9))constructions++;
+    return Reflect.construct(target,args,newTarget);
+  }});
+  try {
+    assert.equal(session.pczt.maximum,8);
+    for(const owner of [api,session.pczt])await assert.rejects(owner.import({operationId:'01'.repeat(32),bytes:oversized}),{code:'RESOURCE_LIMIT'});
+    assert.equal(constructions,0,'reject before the first new Uint8Array, not only before worker dispatch');
+    assert.equal(dispatches,0);
+  }finally{globalThis.Uint8Array=NativeBytes;}
+});

@@ -102,7 +102,7 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
       } else args = input;
     }
     if (command === 'pczt_import') {
-      const input=fields(args as {operationId:string;bytes:Uint8Array} & Op,['operationId','bytes','signal']);
+      const input=fields(args as {operationId:string;bytes:Uint8Array} & Op,['operationId','bytes','signal'],Math.min(pcztMaximum,4 * 1024 * 1024));
       args={...input,maximum:Math.min(pcztMaximum,4 * 1024 * 1024)};
     }
     if (command === 'signer_authorize') {
@@ -236,6 +236,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     committed(error: object, value: unknown) { receipts.set(error,{completion:'committed',value}); },
     check() { if(stopped || closing) throw closedError(); },
     pczt: {
+      get maximum() { return Math.min(maxPcztBytes,4 * 1024 * 1024); },
       import: (args: { operationId: string; bytes: Uint8Array } & Op) => call<NativePcztArtifact>('pczt_import',args),
       build: (args: NativePcztBuildInput & Op) => call<NativePcztArtifact>('pczt_build',args),
       get: (args: { operationId: string; artifactId?: string } & Op) => call<NativePcztArtifact | null>('pczt_get_artifact',args),

@@ -18,9 +18,9 @@ const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wa
 // Reviewed private producer + actual SDK bootstrap, not arbitrary same-profile JavaScript.
 // Updating this immutable executable closure requires reviewing the corresponding package.
 const reviewedAssets: Record<keyof typeof layout, string> = {
-  'wallet.mjs': '9765bdd4baf2ee4b9643949de36e3886fdd3f5fed03cabe9f035df8185aa88a7',
-  'worker.mjs': '90adc04727cbd0378f7d64be784faa9745718df61051558aef54980a6c6def2c',
-  'bindings_bg.wasm': '2e1b2e1f2131ac3cda9a0dc6d82e557934b2b065b532e99bb911f90d51af03e8',
+  'wallet.mjs': 'b63dd978eba2af99f4c40d5a57a18bfc1f31058d8c4d9ac6a49e87de57f6cc3a',
+  'worker.mjs': 'e7012d85d1dcea131bae53acc4cc23ea4ad550dbdc852dafb2b4c32d97c77233',
+  'bindings_bg.wasm': 'b08ebf0a7456a62a4ab320a9c5716b7bed9acf281c80a4e0cd5c90301660e001',
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
 };
@@ -103,7 +103,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     const controller = new AbortController();
     entry = { refs: 0, wallets: 0, controller, ready: undefined! };
     const created = entry;
-    entry.ready = createOwner(baseline as WasmArtifact, runtime, controller.signal, () => {
+    entry.ready = createOwner(baseline as WasmArtifact, runtime, runtime.maxMemoryBytes-reserved, controller.signal, () => {
       if (owners.get(key) === created) owners.delete(key);
     });
     owners.set(key, entry);
@@ -172,10 +172,10 @@ type OpenedWallet = { session: ReturnType<typeof attachWalletWorker>; close(): P
 type Owner = Awaited<ReturnType<typeof createOwner>>;
 const owners = new Map<string, { refs: number; wallets: number; controller: AbortController; ready: Promise<Owner> }>();
 
-async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>, signal: AbortSignal, forget: () => void) {
+async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>, provingCapacity: number, signal: AbortSignal, forget: () => void) {
   let worker: { postMessage(value: unknown, transfer: any[]): void; terminate(): unknown } | undefined;
   const sessions = new Set<ReturnType<typeof attachWalletWorker>>();
-  const budget: WalletQueueBudget = { jobs: 0, bytes: 0, active: false, wake: new Set(), signers: new Map() };
+  const budget: WalletQueueBudget = { jobs: 0, bytes: 0, active: false, wake: new Set(), signers: new Map(), proving: {capacity:provingCapacity,bytes:0,active:false} };
   let removeAssets = () => {}, removeEvents = () => {};
   let destroying: Promise<void> | undefined, stopped: ZcashError | undefined;
   let nextId = 0;
@@ -265,7 +265,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
       if (ready?.type !== 'ready' || !identity || !sameRecord(expected, {
         contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
-      }) || !sameRecord(identity.memory, { initialPages: 307, maximumPages: 4096, shared: false })) throw mismatch();
+      }) || !sameRecord(identity.memory, { initialPages: 319, maximumPages: 4096, shared: false })) throw mismatch();
       const authorityChannel = channels();
       let authority: ReturnType<typeof attachWalletWorker>;
       try {

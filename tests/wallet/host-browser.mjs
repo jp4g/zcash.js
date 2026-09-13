@@ -62,7 +62,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
   const report = { status: 'failed', runRoot, build, sandbox: 'unchanged', started: new Date().toISOString() };
   const stop = new AbortController();
-  const deadline = setTimeout(() => stop.abort(), process.env.WALLET_LOADER ? 150000 : 90000);
+  const deadline = setTimeout(() => stop.abort(), process.env.WALLET_PROVING_PARAMETERS ? 330000 : process.env.WALLET_LOADER ? 150000 : 90000);
   const onSignal = signal => { report.interruptedBy = signal; stop.abort(); };
   process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -87,6 +87,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     const fixtureBytes = await readFile(`${packet}/bundle/tests/views-fixture.json`);
     assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'), packetBuild.artifacts['tests/views-fixture.json']);
     const nativeFixture = JSON.parse(fixtureBytes);
+    const {provingFixture}=await import('./proving-fixture.mjs');
+    const provingAssets=await provingFixture(process.env.WALLET_PROVING_PARAMETERS);
     let signerFixture;
     if(process.env.WALLET_LOADER) {
       const signerBytes=await readFile(`${packetBuild.work}/source/tests/signer-fixture.json`);
@@ -146,7 +148,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       await modules(`${build}/src`,'/dist/src');
       assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256 }));
     }
-    assets.set('/fixture.json', JSON.stringify({ shielding:nativeFixture.shielding, pczt:nativeFixture.pczt, signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
+    for(const [name,bytes] of provingAssets)assets.set(name,bytes);
+    assets.set('/fixture.json', JSON.stringify({ proving:provingAssets.size>0, shielding:nativeFixture.shielding, pczt:nativeFixture.pczt, signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
@@ -185,7 +188,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     let answer;
     // Account, PCZT and shielding workflows add seven owners to the original suite.
     // Allow their actual native work, leaving 30s for startup and cleanup.
-    const resultDeadline = Date.now() + (process.env.WALLET_LOADER ? 120000 : 45000);
+    const resultDeadline = Date.now() + (process.env.WALLET_PROVING_PARAMETERS ? 300000 : process.env.WALLET_LOADER ? 120000 : 45000);
     while (!answer) {
       stop.signal.throwIfAborted(); assert.ok(Date.now() < resultDeadline, 'page result deadline');
       answer = await request(`/session/${session}/execute/sync`, 'POST', { script: 'return window.walletResult || null;', args: [] });
@@ -195,7 +198,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 24 : 2);
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? provingAssets.size?25:24 : 2);
     report.status = 'passed';
   } catch (error) {
     if (report.interruptedBy) report.status = 'interrupted';

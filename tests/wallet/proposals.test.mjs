@@ -17,10 +17,10 @@ const {networkBinding}=await import('../../dist/src/network.js');
 const bound=networkBinding(network),branch=bound.codec.consensusContext(bound.definition.parametersFormat,parameters,101).branchId;
 const review=()=>({...native(),branchId:branch});
 const args=()=>({revision:'epoch:0',accountId:'account',payments:[{to:'recipient',amount:10000n,memo:new Uint8Array([0,255])}],policy:{spendPools:['sapling'],transparent:'disallow',changePool:'sapling',feeRule:'zip317-standard',confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20}});
-function setup(t,invoke,limits={}) {
+function setup(t,invoke,limits={},shared) {
   const channel=new MessageChannel();
   installWalletWorker({generation:1,instance:'fixture',close(){},call:(_g,_i,operation,input)=>invoke(operation,input)},channel.port2);
-  const session=attachWalletWorker(channel.port1,async()=>channel.port2.close(),{maxQueuedJobs:4,maxQueuedBytes:8192,...limits});
+  const session=attachWalletWorker(channel.port1,async()=>channel.port2.close(),{maxQueuedJobs:4,maxQueuedBytes:8192,...limits},shared);
   t.after(()=>session.close().catch(()=>{}));
   return {session,api:new WalletProposals(session,network)};
 }
@@ -142,6 +142,60 @@ test('configured PCZT cap rejects before either snapshot constructs an owned byt
     assert.equal(constructions,0,'reject before the first new Uint8Array, not only before worker dispatch');
     assert.equal(dispatches,0);
   }finally{globalThis.Uint8Array=NativeBytes;}
+});
+
+test('prove uses retained identities and native missing-work flags without asset guesses',async t=>{
+  const calls=[],native={...built(),requiresSaplingProofs:false,requiresIronwoodProof:false,requiresOrchardProof:false};
+  const {session,api}=setup(t,(op,input)=>{calls.push({op,input});return op==='proposal_create'?review():native;});
+  const proposal=await api.create(args()),artifact=await api.build({proposal});
+  await assert.rejects(api.prove({pczt:artifact}),{code:'PROVING_MATERIAL_REQUIRED'});
+  const proving=new WalletProposals(session,network,{kind:'local',assets:[],loadAsset(){throw Error('must not load for native no-missing-work');},cache:{kind:'memory',maxBytes:1},maxConcurrentProofs:1});
+  const result=await proving.prove({pczt:artifact});
+  const request=calls.at(-1);assert.equal(request.op,'pczt_prove');
+  assert.equal(request.input.artifactId,artifact.artifactId);assert.equal(request.input.maximum,4*1024*1024);
+  assert.equal(request.input.spend.byteLength,0);assert.equal(request.input.output.byteLength,0);
+  assert.equal(result.artifactId,artifact.artifactId);
+  const before=calls.length;await assert.rejects(proving.prove({pczt:{...artifact}}),{code:'INVALID_ARGUMENT'});
+  await assert.rejects(proving.prove({pczt:artifact,signal:AbortSignal.abort()}),{code:'ABORTED'});assert.equal(calls.length,before);
+});
+
+test('proof admission is shared and native failure/cancellation preserve receipts',async t=>{
+  const shared={jobs:0,bytes:0,active:false,wake:new Set(),proving:{capacity:1000000000,bytes:0,active:false}};
+  let reject='',calls=0;const native={...built(),requiresSaplingProofs:false,requiresIronwoodProof:false,requiresOrchardProof:false};
+  const first=setup(t,(op)=>{calls++;if(op==='proposal_create')return review();if(op==='pczt_prove'&&reject)throw Object.assign(Error(reject),{commit:'none'});return native;},{},shared);
+  const second=setup(t,()=>native,{},shared);
+  const artifact=await first.api.build({proposal:await first.api.create(args())});
+  const configured={kind:'local',assets:[],loadAsset(){throw Error('unused');},cache:{kind:'memory',maxBytes:1},maxConcurrentProofs:1};
+  const api=new WalletProposals(first.session,network,configured);
+  const release=second.session.pczt.startProof();await assert.rejects(api.prove({pczt:artifact}),{code:'RESOURCE_LIMIT'});release();
+  reject='PROOF_FAILED';await assert.rejects(api.prove({pczt:artifact}),error=>error.code==='PROOF_FAILED'&&error.stage==='proving'&&first.session.completion(error).completion==='none');reject='';
+  const signal=new AbortController(),send=MessagePort.prototype.postMessage;
+  MessagePort.prototype.postMessage=function(value,...rest){const result=Reflect.apply(send,this,[value,...rest]);if(value?.command==='pczt_prove')signal.abort();return result;};
+  try{await assert.rejects(api.prove({pczt:artifact,signal:signal.signal}),e=>e.code==='ABORTED'&&first.session.completion(e).completion==='committed');}
+  finally{MessagePort.prototype.postMessage=send;}
+  assert.equal(shared.proving.active,false);assert.equal((await api.prove({pczt:artifact})).artifactId,artifact.artifactId);
+});
+test('required proving assets reject insufficient configured queue before callback',async t=>{
+  let loads=0;const native={...built(),requiresSaplingProofs:true,requiresIronwoodProof:false,requiresOrchardProof:false};
+  const {session,api}=setup(t,op=>op==='proposal_create'?review():native);
+  const artifact=await api.build({proposal:await api.create(args())});
+  const configured=new WalletProposals(session,network,{kind:'local',assets:[],loadAsset(){loads++;return new Uint8Array();},cache:{kind:'memory',maxBytes:100000000},maxConcurrentProofs:1});
+  await assert.rejects(configured.prove({pczt:artifact}),{code:'RESOURCE_LIMIT'});assert.equal(loads,0);
+});
+test('wallet close cancels asset delivery and releases shared proof/cache reservations',async t=>{
+  const {saplingAssets}=await import('../../dist/src/wallet/proving-assets.js');
+  const total=saplingAssets.reduce((sum,asset)=>sum+asset.byteLength,0);
+  const shared={jobs:0,bytes:0,active:false,wake:new Set(),proving:{capacity:1000000000,bytes:0,active:false}};
+  const native={...built(),requiresSaplingProofs:true,requiresIronwoodProof:false,requiresOrchardProof:false};
+  const {session,api}=setup(t,op=>op==='proposal_create'?review():native,{maxQueuedBytes:2*total+2048},shared);
+  const artifact=await api.build({proposal:await api.create(args())});
+  let entered;const started=new Promise(resolve=>{entered=resolve;});let assetSignal;
+  const configured=new WalletProposals(session,network,{kind:'local',assets:saplingAssets.map(value=>({pool:value.pool,circuitVersion:value.circuitVersion,assetId:value.assetId,format:value.format,byteLength:value.byteLength,digest:{algorithm:'sha256',hex:value.sha256}})),
+    loadAsset({signal}){assetSignal=signal;entered();return new Promise(()=>{});},cache:{kind:'memory',maxBytes:total},maxConcurrentProofs:1});
+  const pending=configured.prove({pczt:artifact});await started;
+  assert.equal(shared.proving.bytes,6*total);assert.equal(shared.proving.active,true);
+  const rejected=assert.rejects(pending,{code:'ABORTED'});await session.close();await rejected;
+  assert.equal(assetSignal.aborted,true);assert.equal(shared.proving.bytes,0);assert.equal(shared.proving.active,false);
 });
 
 test('PCZT export rejects ambiguous and foreign handles before native reads',async t=>{

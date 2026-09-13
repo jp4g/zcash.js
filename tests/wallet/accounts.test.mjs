@@ -104,3 +104,12 @@ test('fingerprint match cannot bypass native key correspondence',async()=>{
   await assert.rejects(composition.api.attachSigner({accountId:'account',signer}),error=>error===mismatch);
   assert.equal(checked,1);assert.equal(composition.attachedSigner('account'),undefined);await composition.close();
 });
+
+test('mnemonic onboarding rejects removed pool selection before authority or dispatch',async()=>{
+  const accounts=walletAccounts(wallet().value,network).api;
+  for(const enabledPools of [['sapling'],['transparent','sapling','ironwood']]){
+    await assert.rejects(accounts.create({mnemonic:new Uint8Array([1]),enabledPools}),{code:'INVALID_ARGUMENT'});
+    await assert.rejects(accounts.import({mnemonic:new Uint8Array([1]),accountIndex:0,birthday:'fullScan',enabledPools}),{code:'INVALID_ARGUMENT'});
+  }
+  await accounts.import({viewingKey:fixture.ufvk,birthday:'fullScan',enabledPools:['sapling']});
+});

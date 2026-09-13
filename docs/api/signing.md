@@ -20,6 +20,8 @@ A custom signer uses supported **single-step** PCZT. Negotiate capabilities befo
 
 `wallet.pczt.export` accepts a proposal or associated artifact, retains the full copy and exports a minimal signer view. Serialization is not approval. `wallet.pczt.import` requires a known operation, validates effects and signatures, combines with retained full data and persists a new artifact. It may accept partial authorization; it does not enroll unknown work.
 
+Already-finalized transparent inputs from an external signer are currently unsupported: import may retain them, but wallet finalization rejects them with `METHOD_NOT_SUPPORTED`. External adapters should return partial signatures and leave transparent finalization to the wallet. Support for final scripts is deferred in [#102](https://github.com/jp4g/zcash.js/issues/102); ordinary fused local sending is unaffected.
+
 <<< ./examples/pczt.ts
 
 This example starts from an associated artifact whose proof state has already met the negotiated role prerequisites. The application exchange represents a reviewed device/offline transport; it is not an SDK method. A production adapter must implement `Signer.authorize(SigningRequest)` and match returned request ID, capability revision, review commitment, account keys and authorized inputs.

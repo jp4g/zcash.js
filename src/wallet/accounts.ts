@@ -24,7 +24,7 @@ export function walletAccounts(wallet: Wallet, network: Network) {
   };
   const project = (record: AccountRecord): AccountRecord => ({...record,signerAttached:record.signerAttached||Boolean(bindings.has(record.id)&&!memorySignerAuthority(bindings.get(record.id)!.signer))});
   async function mnemonic(kind:'create'|'import',args: Parameters<AccountsApi['create']>[0] | MnemonicImport):Promise<CreatedAccount> {
-    const input=snapshot(args,kind==='create'?['mnemonic','passphrase','name','enabledPools','signal']:['mnemonic','passphrase','name','enabledPools','accountIndex','birthday','signal']);
+    const input=snapshot(args,kind==='create'?['mnemonic','passphrase','name','signal']:['mnemonic','passphrase','name','accountIndex','birthday','signal']);
     const pending=operation(input.signal);let created: Awaited<ReturnType<typeof createMnemonicAccount>> | undefined;
     try {
       pending.check();check();

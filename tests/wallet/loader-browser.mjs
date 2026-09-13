@@ -19,6 +19,7 @@ export async function runBrowser() {
     threading: { mode: 'baseline' }, maxMemoryBytes: 512 * 1024 * 1024, maxQueuedBytes: 65536, maxQueuedJobs: 8, scanBatchSize: 10, maxPcztBytes: 65536 },
     storage: { kind: 'browser-opfs', name },
     network: { identity: 'synthetic-regtest', genesisHash: '03'.repeat(32), parametersFormat: 'zcash-js-network/1', parameters } };
+  if(fixture.crash)return browserDispatchCrash(options,fixture.crash);
   const check = (value, label) => { if (!value) throw Error(label); };
   const same = (a, b) => JSON.stringify(a, (_, v) => typeof v === 'bigint' ? String(v) : v) === JSON.stringify(b, (_, v) => typeof v === 'bigint' ? String(v) : v);
   let account, addresses, previousScan, workerDestructions = 0,webpackWallet=false,publicWalletResult={publicWallet:false};
@@ -161,4 +162,47 @@ export async function runBrowser() {
       if (error.name !== 'NotFoundError') throw error;
     });
   }
+}
+
+// Opt-in two-page real interruption. Only database state supplies resume IDs.
+async function browserDispatchCrash(options,fixture){
+  const check=(value,label)=>{if(!value)throw Error(label);};
+  const network=await defineNetwork(options.network),light=createLightClient({network,transport:grpc(location.origin,{sourceId:'browser-dispatch-crash',timeoutMs:30000,maxResponseBytes:4*1024*1024,readRetry:{attempts:1,delayMs:0}})});
+  const configured={...options,network,storage:{kind:'browser-opfs',name:fixture.name},light,broadcaster:light,confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},observation:{pollIntervalMs:1000,maxBufferedUpdates:16},recovery:{mode:'offline'}};
+  const {createWalletClient}=await import('../../dist/src/index.js');
+  const root=await navigator.storage.getDirectory(),second=new URL(location.href).searchParams.has('reopen');
+  if(!second){
+    const directory=await root.getDirectoryHandle(fixture.name,{create:true}),file=await directory.getFileHandle('wallet.db',{create:true}),writer=await file.createWritable();
+    try{await writer.write(await (await fetch('/crash-wallet.db')).arrayBuffer());}finally{await writer.close();}
+  }
+  const NativeWorker=globalThis.Worker,post=MessagePort.prototype.postMessage;let initializations=0,terminations=0;
+  if(!second){globalThis.walletCrashFinish=0;MessagePort.prototype.postMessage=function(message,...rest){if(message?.command==='payment_attempt_finish')globalThis.walletCrashFinish++;return Reflect.apply(post,this,[message,...rest]);};}
+  globalThis.walletCrashRestore=()=>{MessagePort.prototype.postMessage=post;globalThis.Worker=NativeWorker;};
+  globalThis.Worker=class extends NativeWorker{
+    postMessage(message,...rest){if(message?.type==='initialize'){initializations++;globalThis.walletCrashWorker=this;}return super.postMessage(message,...rest);}
+    terminate(){terminations++;return super.terminate();}
+  };
+  let wallet;
+  try{
+    wallet=await createWalletClient(configured);check(initializations===1,'exactly one initialized native wallet worker');
+    const rows=(await wallet.operations.list()).items,finalized=rows.filter(row=>row.steps.some(step=>step.txid!==null)),drafts=rows.filter(row=>row.steps.every(step=>step.txid===null));
+    check(rows.length===2&&finalized.length===1&&drafts.length===1,'discover finalized and draft database operations');
+    check(drafts[0].steps.every(step=>step.attempts.length===0)&&drafts[0].missing.includes('finalizedBytes'),'draft remains unfinalized and undispatched');
+    const step=finalized[0].steps[0];check(finalized[0].steps.length===1,'single retained transfer');
+    if(!second){
+      globalThis.walletCrashReady={txid:step.txid,digest:step.exactBytesSha256,attempts:step.attempts.length,initializations};
+      // The driver destroys this worker and page; do not await dead-owner cleanup.
+      void wallet.broadcast({operationId:finalized[0].operationId}).then(()=>{globalThis.walletCrashSettled=true;},error=>{globalThis.walletCrashSettled=true;globalThis.walletCrashFailure={code:error.code};});
+      wallet=undefined;return await new Promise(()=>{});
+    }
+    const evidence=await (await fetch('/crash-evidence')).json();
+    check(step.txid===evidence.before.txid&&step.exactBytesSha256===evidence.before.digest&&step.attempts.length===evidence.before.attempts+1&&step.attempts.at(-1).outcome==='unknown','reopen reconciles durable interrupted attempt without changing bytes');
+    const retried=await wallet.broadcast({operationId:finalized[0].operationId});
+    check(retried.steps[0].attempts.length===step.attempts.length+1&&retried.steps[0].attempts.at(-1).outcome==='acknowledged','explicit resumed retry acknowledged');
+    const received=await (await fetch('/public-wallet-submitted')).json();
+    check(received.length===2&&received[0].txid===step.txid&&received[1].txid===received[0].txid&&received[1].hex===received[0].hex,'retry sends exact bytes received before worker destruction');
+    await wallet.close();wallet=undefined;check(terminations===1,'reopened native worker closed');
+    await root.removeEntry(fixture.name,{recursive:true});
+    return {browserDispatchCrash:true,unknownAttempt:true,exactRetry:true,draftUntouched:true,workerDestructions:terminations};
+  }finally{globalThis.walletCrashRestore();if(second)await wallet?.close();}
 }

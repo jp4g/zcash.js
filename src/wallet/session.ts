@@ -25,7 +25,6 @@ export interface InitializedSigners {
 export interface MnemonicAccountInput {
   readonly mnemonic: Uint8Array; readonly passphrase?: Uint8Array;
   readonly accountIndex?: number; readonly birthday?: unknown; readonly name?: string;
-  readonly enabledPools?: readonly string[];
 }
 export interface NativeCreatedAccount { readonly account: AccountRecord; readonly signerToken: number }
 

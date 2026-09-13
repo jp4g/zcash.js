@@ -422,11 +422,11 @@ export interface Birthday {
 export declare function resolveBirthday(args: {
   light: LightClient; firstScanHeight: number; recoverUntilExclusive?: number;
 } & Op): Promise<Birthday>;
+/** Mnemonic accounts use all supported pools; pool selection is not an onboarding option. */
 export interface AccountCreate extends Op {
   readonly mnemonic: SecretInput; // UTF-8; all checksum-valid BIP39 12/15/18/21/24 counts
   readonly passphrase?: SecretInput; // omitted = empty BIP39 passphrase; NFKD required
   readonly name?: string; // omitted = null
-  readonly enabledPools?: NonEmpty<Pool>; // omitted = all three v1 pools, enforced in Rust
 }
 export interface MnemonicImport extends AccountCreate {
   readonly accountIndex: AccountIndex;

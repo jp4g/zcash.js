@@ -108,8 +108,9 @@ export class WalletSession {
   }
 
   readonly pczt = {
+    import: (args: { operationId: string; bytes: Uint8Array; maximum: number }) => this.invoke<NativePcztArtifact>('pczt_import',args),
     build: (args: NativePcztBuildInput) => this.invoke<NativePcztArtifact>('pczt_build',args),
-    get: (args: { operationId: string }) => this.invoke<NativePcztArtifact | null>('pczt_get_artifact',args),
+    get: (args: { operationId: string; artifactId?: string }) => this.invoke<NativePcztArtifact | null>('pczt_get_artifact',args),
   };
 
   readonly proposals = {

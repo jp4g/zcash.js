@@ -17,10 +17,10 @@ const {networkBinding}=await import('../../dist/src/network.js');
 const bound=networkBinding(network),branch=bound.codec.consensusContext(bound.definition.parametersFormat,parameters,101).branchId;
 const review=()=>({...native(),branchId:branch});
 const args=()=>({revision:'epoch:0',accountId:'account',payments:[{to:'recipient',amount:10000n,memo:new Uint8Array([0,255])}],policy:{spendPools:['sapling'],transparent:'disallow',changePool:'sapling',feeRule:'zip317-standard',confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20}});
-function setup(t,invoke) {
+function setup(t,invoke,limits={}) {
   const channel=new MessageChannel();
   installWalletWorker({generation:1,instance:'fixture',close(){},call:(_g,_i,operation,input)=>invoke(operation,input)},channel.port2);
-  const session=attachWalletWorker(channel.port1,async()=>channel.port2.close(),{maxQueuedJobs:4,maxQueuedBytes:8192});
+  const session=attachWalletWorker(channel.port1,async()=>channel.port2.close(),{maxQueuedJobs:4,maxQueuedBytes:8192,...limits});
   t.after(()=>session.close().catch(()=>{}));
   return {session,api:new WalletProposals(session,network)};
 }
@@ -93,4 +93,53 @@ test('PCZT projection rejection preserves committed native artifact receipt',asy
   const {session,api}=setup(t,op=>op==='proposal_create'?review():{...built(),outputs:[{...built().outputs[0],address:null}]});
   const proposal=await api.create(args());
   await assert.rejects(api.build({proposal}),e=>e.code==='PROTOCOL_MISMATCH'&&session.completion(e).completion==='committed'&&session.completion(e).value.artifactId==='06'.repeat(32));
+});
+
+test('PCZT import owns bytes, preserves prior handles and routes explicit artifact IDs',async t=>{
+  const calls=[];const original=built(),imported={...built(),artifactId:'07'.repeat(32),authorizationComplete:true};
+  const {session,api}=setup(t,(op,input)=>{calls.push({op,input});return op==='proposal_create'?review():op==='pczt_import'?imported:op==='pczt_get_artifact'&&input.artifactId===imported.artifactId?imported:original;},{maxPcztBytes:8});
+  const proposal=await api.create(args()),old=await api.build({proposal});
+  const bytes=new Uint8Array([3,4]),pending=api.import({operationId:old.operationId,bytes});bytes.fill(99);
+  const next=await pending;
+  assert.deepEqual([...calls.at(-1).input.bytes],[3,4]);assert.equal(calls.at(-1).input.maximum,8);
+  assert.equal(next.authorizationComplete,true);assert.equal(old.authorizationComplete,false);
+  assert.notEqual(next.artifactId,old.artifactId);assert.equal('bytes'in next,false);
+  next.outputs[0].memo.bytes.fill(99);assert.deepEqual([...next.outputs[0].memo.bytes],[0,255]);
+  assert.deepEqual(await session.pczt.get(pcztArtifactBinding(old,session)),original);
+  assert.deepEqual(await session.pczt.get(pcztArtifactBinding(next,session)),imported);
+  const count=calls.length;
+  await assert.rejects(api.import({operationId:old.operationId,bytes:new Uint8Array(9)}),{code:'RESOURCE_LIMIT'});
+  await assert.rejects(session.pczt.import({operationId:old.operationId,bytes:new Uint8Array(9)}),{code:'RESOURCE_LIMIT'});
+  await assert.rejects(api.import({operationId:old.operationId,bytes:new Uint8Array([1]),signal:AbortSignal.abort()}),{code:'ABORTED'});
+  assert.equal(calls.length,count,'configured input cap and abort precede dispatch');
+});
+test('PCZT import retains native rejection, committed cancellation and projection receipts',async t=>{
+  let code='INVALID_PCZT',calls=0;
+  const {session,api}=setup(t,()=>{calls++;if(code)throw Object.assign(Error(code),{commit:'none'});return built();});
+  const input={operationId:'01'.repeat(32),bytes:new Uint8Array([1])};
+  for(code of ['INVALID_PCZT','PCZT_ASSOCIATION_MISMATCH','OPERATION_NOT_FOUND'])await assert.rejects(api.import(input),error=>error.code===code&&session.completion(error).completion==='none');
+  code='';const before=calls,controller=new AbortController(),send=MessagePort.prototype.postMessage;
+  MessagePort.prototype.postMessage=function(value,...rest){const result=Reflect.apply(send,this,[value,...rest]);if(value?.command==='pczt_import')controller.abort();return result;};
+  try {await assert.rejects(api.import({...input,signal:controller.signal}),e=>e.code==='ABORTED'&&session.completion(e).completion==='committed'&&session.completion(e).value.artifactId===built().artifactId);}
+  finally{MessagePort.prototype.postMessage=send;}
+  assert.equal(calls,before+1);
+  // An inconsistent operation cannot become a new opaque handle after native commit.
+  const broken=setup(t,()=>({...built(),operationId:'ff'.repeat(32)}));
+  await assert.rejects(broken.api.import(input),e=>e.code==='PROTOCOL_MISMATCH'&&broken.session.completion(e).completion==='committed');
+  assert.equal((await api.import(input)).artifactId,built().artifactId,'known input errors do not poison owner');
+});
+
+test('configured PCZT cap rejects before either snapshot constructs an owned byte view',async t=>{
+  let dispatches=0;const {session,api}=setup(t,()=>{dispatches++;return built();},{maxPcztBytes:8});
+  const NativeBytes=globalThis.Uint8Array,oversized=new NativeBytes(9);let constructions=0;
+  globalThis.Uint8Array=new Proxy(NativeBytes,{construct(target,args,newTarget){
+    if(args[0]===oversized.buffer||(ArrayBuffer.isView(args[0])&&args[0].byteLength===9))constructions++;
+    return Reflect.construct(target,args,newTarget);
+  }});
+  try {
+    assert.equal(session.pczt.maximum,8);
+    for(const owner of [api,session.pczt])await assert.rejects(owner.import({operationId:'01'.repeat(32),bytes:oversized}),{code:'RESOURCE_LIMIT'});
+    assert.equal(constructions,0,'reject before the first new Uint8Array, not only before worker dispatch');
+    assert.equal(dispatches,0);
+  }finally{globalThis.Uint8Array=NativeBytes;}
 });

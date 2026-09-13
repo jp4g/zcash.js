@@ -28,6 +28,14 @@ export async function pcztBuildChecks(open,fixture,definition) {
       check(artifact.outputs.some(output=>output.kind==='payment'&&output.address===destination.address&&output.amount===10000n),'built recipient remains exact');
       check((await proposals.build({proposal})).artifactId===artifact.artifactId,'repeated build retains artifact identity');
       check(equal((await wallet.session.pczt.get({operationId:proposal.operationId})).bytes,retained.bytes),'repeated build preserves exact bytes');
+      const exchange=await proposals.export(scope==='external'?{pczt:artifact}:{proposal});
+      check(exchange.operationId===artifact.operationId&&exchange.artifactId===artifact.artifactId,'export retains operation/artifact association');
+      check(exchange.bytes.length<retained.bytes.length&&!new TextDecoder().decode(exchange.bytes).includes('zcash_client_backend:proposal_info'),'export strips retained wallet metadata');
+      const exchanged=await pczt.parse({bytes:exchange.bytes,context:proposal.context,maxBytes:65536});
+      try {check(!(await pczt.inspect({pczt:exchanged})).authorizationComplete,'serialization does not authorize');}
+      finally {await exchanged.dispose();}
+      exchange.bytes.fill(0);
+      check(equal((await wallet.session.pczt.get({operationId:proposal.operationId})).bytes,retained.bytes),'mutable exchange leaves retained full copy unchanged');
       await accounts.close();
       const capability=await signer.getCapabilities();
       const authorization=await signer.authorize({requestId:`built-${scope}`,pczt:retained.bytes,context:proposal.context,accountIds:proposal.accountIds,capabilityRevision:capability.revision,reviewCommitment:proposal.reviewCommitment});

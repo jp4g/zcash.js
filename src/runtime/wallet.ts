@@ -26,7 +26,7 @@ const reviewedAssets: Record<keyof typeof layout, string> = {
 };
 // Independently reviewed threaded producer and worker bootstrap closure.
 const reviewedThreadedAssets: Record<string, string> = {
-  'wallet.mjs': '0495717f67e282436e8c01dfed14a18a04ae8403f43f167f360d38baecc0f94a',
+  'wallet.mjs': '34f004cadd435b702375ae3078fcfe913004bccb4b620fee0a16871c021e3e75',
   'worker.mjs': '97ab121b9c43f6f407e30d7d0213cf11030783ce8dd4dae67235bc0b37ad6a6f',
   'bindings_bg.wasm': '5668ed08d8dc6cc1e2bb72ad964e51cf4b5ba80ef3ff6f1dbe6091dce068284d',
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',

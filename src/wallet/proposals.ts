@@ -6,6 +6,7 @@ import { networkBinding } from '../network.js';
 import { failure, invalidArgument } from '../errors.js';
 import { ownBytes, snapshot } from '../clients/owned-plumbing.js';
 import { pczt } from '../pczt.js';
+import type {NativeFinalized} from './payments.js';
 
 export type NativeProposalIntent = {
   readonly accountId: AccountId; readonly idempotencyKey?: string;
@@ -81,6 +82,29 @@ export class WalletProposals {
     const value=await this.session.pczt.build({...binding,...(input.signal===undefined?{}:{signal:input.signal})});
     return this.projectArtifact(value,binding.operationId,input.proposal.accountIds[0]);
   }
+  private async sapling(signal:AbortSignal){
+    if(!this.proving)throw failure('PROVING_MATERIAL_REQUIRED','finalization','configure','Local verification assets are not configured.');
+    this.session.pczt.checkProvingAssets();
+    if(!this.reserved){this.session.pczt.reserveProving(this.proving.cacheReservation,()=>this.proving!.close());this.reserved=true;}
+    const release=this.session.pczt.reserveProving(this.proving.workingReservation,()=>this.proving!.close());
+    try{return {assets:await this.proving.sapling(signal),release};}catch(error){release();throw error;}
+  }
+  async finalize(args:{pczt:PcztArtifact}&Op):Promise<NativeFinalized>{
+    const input=snapshot(args,['pczt','signal']),binding=pcztArtifactBinding(input.pczt,this.session),pending=operation(input.signal);
+    let working:(()=>void)|undefined,release:(()=>void)|undefined;
+    try{
+      pending.check();const prior=await this.session.pczt.finalized({operationId:binding.operationId,signal:pending.signal});
+      if(prior){if(prior.artifactId!==binding.artifactId)throw failure('PCZT_ASSOCIATION_MISMATCH','finalization','correct-input','A different artifact was already finalized.');return prior;}
+      release=this.session.pczt.startProof();
+      const retained=await this.session.pczt.get({...binding,signal:pending.signal}),proposal=await this.restore({operationId:binding.operationId,signal:pending.signal});
+      if(!retained||!proposal)throw protocol();
+      const handle=await pczt.parse({bytes:retained.bytes,context:proposal.context,maxBytes:this.session.pczt.maximum,signal:pending.signal});
+      let needsSapling:boolean;try{needsSapling=(await pczt.inspect({pczt:handle,signal:pending.signal})).pools.includes('sapling');}finally{await handle.dispose();}
+      let assets:{spend:Uint8Array;output:Uint8Array}={spend:new Uint8Array(),output:new Uint8Array()};
+      if(needsSapling){const prepared=await this.sapling(pending.signal);assets=prepared.assets;working=prepared.release;}
+      pending.check();return await this.session.pczt.finalize({...binding,...assets,signal:pending.signal});
+    }finally{working?.();release?.();pending.close();}
+  }
   async prove(args: {pczt:PcztArtifact} & Op):Promise<PcztArtifact> {
     const input=snapshot(args,['pczt','signal']),binding=pcztArtifactBinding(input.pczt,this.session);
     const pending=operation(input.signal);let release:(()=>void)|undefined,working:(()=>void)|undefined;
@@ -93,10 +117,7 @@ export class WalletProposals {
       if(retained.requiresOrchardProof)throw failure('ROLE_PRECONDITION','proving','correct-input','Legacy Orchard proving is unsupported.');
       let assets:{spend:Uint8Array;output:Uint8Array}={spend:new Uint8Array(),output:new Uint8Array()};
       if(retained.requiresSaplingProofs){
-        this.session.pczt.checkProvingAssets();
-        if(!this.reserved){this.session.pczt.reserveProving(this.proving.cacheReservation,()=>this.proving!.close());this.reserved=true;}
-        working=this.session.pczt.reserveProving(this.proving.workingReservation,()=>this.proving!.close());
-        assets=await this.proving.sapling(pending.signal);
+        const prepared=await this.sapling(pending.signal);working=prepared.release;assets=prepared.assets;
       }
       pending.check();
       const value=await this.session.pczt.prove({...binding,...assets,signal:pending.signal});

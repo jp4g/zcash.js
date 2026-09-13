@@ -5,7 +5,7 @@ import type { Completion, InitializedViews, InitializedSigners } from './session
 
 export type WalletCommand = 'account_remove' | 'account_check_key' | 'account_import' | 'account_list' | 'account_get' | 'account_balance'
   | 'account_import_mnemonic_signer' | 'account_create_mnemonic_signer' | 'signer_bind' | 'signer_unbind' | 'signer_describe' | 'signer_release' | 'signer_capabilities' | 'signer_authorize'
-  | 'pczt_build' | 'pczt_get_artifact' | 'proposal_create' | 'proposal_get' | 'proposal_list'
+  | 'pczt_build' | 'pczt_get_artifact' | 'proposal_lookup_intent' | 'proposal_create' | 'proposal_get' | 'proposal_list'
   | 'wallet_history' | 'wallet_transaction' | 'wallet_notes' | 'wallet_utxos'
   | 'enhancement_requests' | 'enhancement_apply'
   | 'scan_state' | 'scan_block_hash' | 'scan_rewind' | 'scan_complete' | 'scan_plan' | 'scan_ingest_batch' | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
@@ -87,7 +87,7 @@ export function installWalletWorker(owner: InitializedViews | undefined, port: M
     wallet_history: session.getHistory.bind(session), wallet_transaction: session.getTransaction.bind(session),
     account_import_mnemonic_signer: session.mnemonic.import, account_create_mnemonic_signer: session.mnemonic.create,
     pczt_build: session.pczt.build, pczt_get_artifact: session.pczt.get,
-    proposal_create: session.proposals.create, proposal_get: session.proposals.get, proposal_list: session.proposals.list,
+    proposal_lookup_intent: session.proposals.lookup, proposal_create: session.proposals.create, proposal_get: session.proposals.get, proposal_list: session.proposals.list,
     signer_bind: session.signers.bind, signer_unbind: session.signers.unbind,
   } : {
     signer_capabilities: args => signers!.capabilities(args.token),

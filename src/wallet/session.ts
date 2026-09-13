@@ -1,4 +1,4 @@
-import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
+import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalIntent, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
 import { failure } from '../errors.js';
 import type { AccountRecord, AccountsApi, Birthday, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
@@ -113,6 +113,7 @@ export class WalletSession {
   };
 
   readonly proposals = {
+    lookup: (args: NativeProposalIntent & {idempotencyKey:string}) => this.invoke<NativeProposalReview|null>('proposal_lookup_intent',args),
     create: (args: NativeProposalInput) => this.invoke<NativeProposalReview>('proposal_create',args),
     get: (args: { operationId: string }) => this.invoke<NativeProposalReview | null>('proposal_get',args),
     list: (args: ProposalInventoryInput) => this.invoke<ProposalInventory>('proposal_list',args),

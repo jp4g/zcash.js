@@ -64,6 +64,9 @@ export class WalletProposals {
       this.session.committed(rejected,value);throw rejected;
     }
   }
+  async lookup(args: NativeProposalIntent & {idempotencyKey:string} & Op): Promise<Proposal|null> {
+    const value=await this.session.proposals.lookup(args);return value===null?null:this.project(value);
+  }
   async restore(args: { operationId: string } & Op): Promise<Proposal | null> {
     const value=await this.session.proposals.get(args);return value===null?null:this.project(value);
   }

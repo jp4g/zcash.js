@@ -25,7 +25,7 @@ function policyCopy(value:TransactionPolicy):TransactionPolicy {
   const expiry=snapshot(input.expiry,['kind','blocks']);
   if(expiry.kind==='offset')uint(expiry.blocks,true);else if(expiry.kind!=='disabled'||Object.keys(expiry).length!==1)throw invalidArgument();
   const freshness=snapshot(input.freshness,['mode','maxLagBlocks','timeoutMs']);uint(freshness.maxLagBlocks);
-  if(freshness.mode==='catch-up')uint(freshness.timeoutMs,true);else if(freshness.mode!=='require-synced'||Object.hasOwn(freshness,'timeoutMs'))throw invalidArgument();
+  if(freshness.mode==='catch-up'){uint(freshness.timeoutMs,true);if(freshness.timeoutMs>0x7fff_ffff)throw invalidArgument();}else if(freshness.mode!=='require-synced'||Object.hasOwn(freshness,'timeoutMs'))throw invalidArgument();
   return {...input,spendPools:pools as [Pool,...Pool[]],confirmations,expiry,freshness,lockExpiryBlocks:uint(input.lockExpiryBlocks,true),shieldingThreshold:money(input.shieldingThreshold)};
 }
 function payment(value:Payment):{to:string;amount:bigint;memo?:Uint8Array} {
@@ -70,6 +70,7 @@ export function walletPropose(proposals:WalletProposals,sync:Pick<WalletSync,'ge
     const pending=operation(input.signal);let timer:ReturnType<typeof setTimeout>|undefined,timedOut=false;
     try {
       pending.check();
+      if(intent.idempotencyKey!==undefined){const retained=await proposals.lookup({...intent,idempotencyKey:intent.idempotencyKey,signal:pending.signal});pending.check();if(retained!==null)return retained;}
       if(freshness.mode==='catch-up')timer=setTimeout(()=>{timedOut=true;pending.cancel();},freshness.timeoutMs);
       let status=await pending.wait(sync.getSyncStatus({signal:pending.signal}));
       if(!fresh(status,freshness.maxLagBlocks)&&freshness.mode==='catch-up'){

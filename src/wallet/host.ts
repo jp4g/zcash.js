@@ -1,4 +1,4 @@
-import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
+import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalIntent, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance, ZcashError } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
@@ -236,6 +236,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       get: (args: { operationId: string } & Op) => call<NativePcztArtifact | null>('pczt_get_artifact',args),
     },
     proposals: {
+      lookup: (args: NativeProposalIntent & {idempotencyKey:string} & Op) => call<NativeProposalReview|null>('proposal_lookup_intent',args),
       create: (args: NativeProposalInput & Op) => call<NativeProposalReview>('proposal_create',args),
       get: (args: { operationId: string } & Op) => call<NativeProposalReview | null>('proposal_get',args),
       list: (args: ProposalInventoryInput & Op) => call<ProposalInventory>('proposal_list',args),

@@ -34,7 +34,7 @@ function list<T>(value: unknown, item: (value: unknown) => T): T[] {
     return item(property.value);
   });
 }
-function capabilities(value: SignerCapabilities): SignerCapabilities {
+export function signerCapabilities(value: SignerCapabilities): SignerCapabilities {
   let remaining = 65536;
   const charge = (size: number) => { if ((remaining -= size) < 0) throw limit(); };
   const string = (value: unknown) => { const result = text(value); charge(result.length * 2); return result; };
@@ -88,7 +88,7 @@ export function createCustomSigner(adapter: Signer): Signer {
   return Object.freeze({
     async getCapabilities(args = {}) {
       const input = snapshot(args, ['signal']);
-      return invoke(methods.getCapabilities, {}, input.signal, capabilities);
+      return invoke(methods.getCapabilities, {}, input.signal, signerCapabilities);
     },
     async getAccount(args) {
       const input = snapshot(args, ['network','selector','signal']);
@@ -109,17 +109,23 @@ export function createCustomSigner(adapter: Signer): Signer {
       });
     },
     async authorize(args) {
-      const input = snapshot(args, ['requestId','pczt','context','accountIds','capabilityRevision','reviewCommitment','signal']);
-      const context = snapshot(input.context, ['network','targetHeight','branchId']);
-      networkBinding(context.network); uint(context.targetHeight); uint(context.branchId);
-      const ids = list(input.accountIds,text); if (!ids.length) throw invalidArgument();
-      const request = {requestId:text(input.requestId), pczt:ownBytes(input.pczt,invalidArgument,limit,Number.MAX_SAFE_INTEGER),
-        context, accountIds:ids, capabilityRevision:text(input.capabilityRevision), reviewCommitment:text(input.reviewCommitment)};
-      return invoke(methods.authorize, request, input.signal, (value:SigningResult) => {
+      const {request, signal} = signingRequest(args);
+      return invoke(methods.authorize, request, signal, (value:SigningResult) => {
         const result = snapshot(value, ['requestId','pczt']);
         if (result.requestId !== request.requestId) throw protocol();
         return {requestId:result.requestId,pczt:ownBytes(result.pczt,protocol,limit,Number.MAX_SAFE_INTEGER)};
       });
     },
   } satisfies Signer);
+}
+
+/** Internal admission shared by adapter and native memory authorities. */
+export function signingRequest(args: Parameters<Signer['authorize']>[0], maximum = Number.MAX_SAFE_INTEGER) {
+  const input = snapshot(args, ['requestId','pczt','context','accountIds','capabilityRevision','reviewCommitment','signal']);
+  const context = snapshot(input.context, ['network','targetHeight','branchId']);
+  networkBinding(context.network); uint(context.targetHeight); uint(context.branchId);
+  const ids = list(input.accountIds,text); if (!ids.length) throw invalidArgument();
+  const request = {requestId:text(input.requestId), pczt:ownBytes(input.pczt,invalidArgument,limit,maximum),
+    context, accountIds:ids, capabilityRevision:text(input.capabilityRevision), reviewCommitment:text(input.reviewCommitment)};
+  return {request,signal:input.signal};
 }

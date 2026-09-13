@@ -8,7 +8,7 @@ import type { ScanTarget, ScanPlan, ScanBatch, ScanReceipt, ScanBlock, ScanRewin
 import type { EnhancementRequests, EnhancementApply } from './session.js';
 import type { WalletCommand, WalletReply } from './worker.js';
 import { walletErrorCodes, mnemonicCommand, clearMnemonic } from './worker.js';
-import type { MnemonicAccountInput, NativeCreatedAccount, NativeSignerDescription } from './session.js';
+import type { MnemonicAccountInput, NativeCreatedAccount, NativeSignerDescription, NativeSignerCapabilities, NativeSignerAuthorization } from './session.js';
 
 const aborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
 const add = EventTarget.prototype.addEventListener, remove = EventTarget.prototype.removeEventListener;
@@ -228,6 +228,8 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       import: (args: MnemonicAccountInput & Op) => call<NativeCreatedAccount>('account_import_mnemonic_signer', args),
     },
     signers: {
+      capabilities: (args: { token: number } & Op) => call<NativeSignerCapabilities>('signer_capabilities', args),
+      authorize: (args: NativeSignerAuthorization & Op) => call<Uint8Array>('signer_authorize', args),
       describe: (args: { token: number } & Op) => call<NativeSignerDescription>('signer_describe', args),
       release: (args: { token: number }) => {
         const input = fields(args, ['token']);

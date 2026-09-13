@@ -13,6 +13,8 @@ function fixture(t, options={}) {
   const authorityChannel=new MessageChannel();
   installWalletWorker(undefined,authorityChannel.port2,()=>false,{
     describe(token){if(!live.has(token))throw 'STALE_HANDLE';return {parameters:'00',genesis:'00'.repeat(32),accountIndex:0,viewingKey:'fixture'};},
+    capabilities(token){if(!live.has(token))throw 'STALE_HANDLE';return {revision:'native-test',maxPcztBytes:4194304};},
+    authorize(token,format,parameters,genesis,height,branch,bytes,maximum){if(!live.has(token))throw 'STALE_HANDLE';if(bytes[0]===0)throw 'INVALID_PCZT';return bytes;},
     release(token){if(options.releaseFailure)throw Error('failure');if(!live.delete(token))throw 'STALE_HANDLE';released++;},
   });
   const authorityHost=attachWalletWorker(authorityChannel.port1,async()=>authorityChannel.port2.close(),limits,budget);
@@ -94,4 +96,15 @@ test('browser host admission rejects shadow signal state without invoking getter
   t.after(()=>worker.terminate());
   const result=await new Promise((resolve,reject)=>{worker.once('message',resolve);worker.once('error',reject);});
   assert.deepEqual(result,{code:'INVALID_ARGUMENT',getters:0,requests:0});
+});
+
+test('signer owner routes bound authorization bytes and known errors without poisoning sibling wallet',async t=>{
+  const f=fixture(t),wallet=f.wallet(),{authority}=await createMnemonicAccount(wallet,'import',args());
+  assert.equal((await authority.capabilities()).revision,'native-test');
+  const bytes=new Uint8Array([1,2]);
+  const input={format:'test',parameters:new Uint8Array([1]),genesis:new Uint8Array(32),height:1,branch:1,bytes,maximum:4194304};
+  const signed=authority.authorize(input);bytes.fill(8);assert.deepEqual([...await signed],[1,2]);
+  await assert.rejects(authority.authorize({...input,bytes:new Uint8Array([0])}),{code:'INVALID_PCZT',stage:'authorization'});
+  assert.equal((await authority.capabilities()).revision,'native-test');
+  assert.deepEqual(await wallet.session.accounts.list(),[]);await authority.dispose();
 });

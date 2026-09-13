@@ -4,7 +4,7 @@ import { WalletSession } from './session.js';
 import type { Completion, InitializedViews, InitializedSigners } from './session.js';
 
 export type WalletCommand = 'account_import' | 'account_list' | 'account_get' | 'account_balance'
-  | 'account_import_mnemonic_signer' | 'account_create_mnemonic_signer' | 'signer_bind' | 'signer_unbind' | 'signer_describe' | 'signer_release'
+  | 'account_import_mnemonic_signer' | 'account_create_mnemonic_signer' | 'signer_bind' | 'signer_unbind' | 'signer_describe' | 'signer_release' | 'signer_capabilities' | 'signer_authorize'
   | 'wallet_history' | 'wallet_transaction' | 'wallet_notes' | 'wallet_utxos'
   | 'enhancement_requests' | 'enhancement_apply'
   | 'scan_state' | 'scan_block_hash' | 'scan_rewind' | 'scan_complete' | 'scan_plan' | 'scan_ingest_batch' | 'address_current' | 'address_next' | 'address_list' | 'address_at' | 'close';
@@ -22,6 +22,8 @@ export function clearMnemonic(args: any): void {
 }
 
 const nativeCodes: Record<string, ErrorCode> = {
+  INVALID_PCZT: 'INVALID_PCZT', ROLE_PRECONDITION: 'ROLE_PRECONDITION',
+  UNSUPPORTED_VERSION: 'UNSUPPORTED_VERSION', UNSUPPORTED_POOL: 'UNSUPPORTED_POOL', PCZT_ASSOCIATION_MISMATCH: 'PCZT_ASSOCIATION_MISMATCH',
   RESOURCE_LIMIT: 'RESOURCE_LIMIT', STALE_REVISION: 'CURSOR_STALE', CURSOR_STALE: 'CURSOR_STALE',
   RECOVERY_REQUIRED: 'RECOVERY_REQUIRED',
   INVALID_MNEMONIC: 'INVALID_MNEMONIC', ENTROPY_UNAVAILABLE: 'ENTROPY_UNAVAILABLE', SIGNER_MISMATCH: 'ACCOUNT_KEY_MISMATCH',
@@ -57,7 +59,7 @@ function errorInfo(error: unknown, command: WalletCommand): { error: ErrorInfo; 
   const storage = ['STORAGE_ERROR', 'STORAGE_BUSY', 'MIGRATION_REQUIRED'].includes(code);
   const sync = command.startsWith('scan_') || command.startsWith('enhancement_');
   const stage: ErrorInfo['stage'] = invalid ? 'runtime' : storage ? 'storage' : code === 'INVALID_ARGUMENT' ? 'validation'
-    : sync ? 'sync' : command === 'account_balance' || command.startsWith('wallet_') ? 'query' : command.startsWith('address_') ? 'address' : command === 'close' ? 'runtime' : 'account';
+    : command === 'signer_authorize' ? 'authorization' : sync ? 'sync' : command === 'account_balance' || command.startsWith('wallet_') ? 'query' : command.startsWith('address_') ? 'address' : command === 'close' ? 'runtime' : 'account';
   const recovery: ErrorInfo['recovery'] = code === 'RESOURCE_LIMIT' ? 'configure' : invalid || storage ? 'reopen' : code === 'SYNC_REQUIRED' || sync && ['CURSOR_STALE', 'PROTOCOL_MISMATCH'].includes(code) ? 'sync'
     : code === 'ABORTED' || code === 'CLOSED' ? 'none' : 'correct-input';
   return { error: { code, stage, recovery, retryable: false, message: 'Wallet operation failed.' }, invalid };
@@ -80,6 +82,8 @@ export function installWalletWorker(owner: InitializedViews | undefined, port: M
     account_import_mnemonic_signer: session.mnemonic.import, account_create_mnemonic_signer: session.mnemonic.create,
     signer_bind: session.signers.bind, signer_unbind: session.signers.unbind,
   } : {
+    signer_capabilities: args => signers!.capabilities(args.token),
+    signer_authorize: args => signers!.authorize(args.token, args.format, args.parameters, args.genesis, args.height, args.branch, args.bytes, args.maximum),
     signer_describe: args => signers!.describe(args.token), signer_release: args => signers!.release(args.token), close: () => {},
   };
   let lastId = 0, closed = false;

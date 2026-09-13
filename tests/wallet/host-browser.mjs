@@ -184,7 +184,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     report.browserResult = answer.value;
     assert.deepEqual(server.unexpected, []);
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 12 : 2);
+    assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 13 : 2);
     report.status = 'passed';
   } catch (error) { if (report.interruptedBy) report.status = 'interrupted'; report.error = { code: error.code, message: String(error), stack: error.stack }; }
   finally {

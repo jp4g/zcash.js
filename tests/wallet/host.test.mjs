@@ -264,3 +264,22 @@ test('checkpoint import snapshots registered network and bounded bytes before qu
   await assert.rejects(host.accounts.import({...input,birthday:{...input.birthday,priorTreeState:new Uint8Array(4096)}}),{code:'RESOURCE_LIMIT'});
   assert.equal(reads,0);assert.equal(calls.length,1);
 });
+
+test('wallet ports share one owner queue budget and release it on close', async t => {
+  const shared = {jobs:0,bytes:0,active:false,wake:new Set()};
+  const ports=[],calls=[];
+  for(let i=0;i<2;i++) {
+    const {port1,port2}=new MessageChannel();
+    installWalletWorker({generation:i+1,instance:'shared',call(){calls.push(i);return [];},close(){}},port2);
+    const host=attachWalletWorker(port1,async()=>port2.close(),{maxQueuedJobs:1,maxQueuedBytes:128},shared);
+    ports.push(host);t.after(()=>host.close().catch(()=>{}));
+  }
+  const first=ports[0].accounts.list();
+  await assert.rejects(ports[1].accounts.list(),{code:'RESOURCE_LIMIT'});
+  await first;
+  await ports[0].close();
+  await ports[1].accounts.list();
+  await ports[1].close();
+  assert.deepEqual(calls,[0,1]);
+  assert.equal(shared.jobs,0);assert.equal(shared.bytes,0);assert.equal(shared.active,false);assert.equal(shared.wake.size,0);
+});

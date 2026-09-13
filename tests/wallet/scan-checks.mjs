@@ -288,6 +288,7 @@ export async function mnemonicWalletChecks(open) {
 }
 
 export async function memorySignerChecks(open, fixture, definition) {
+  globalThis.walletPhase='memory-signer-start';
   const {createMnemonicAccount}=await import('../../dist/src/wallet/mnemonic.js');
   const {memorySigner}=await import('../../dist/src/wallet/memory-signer.js');
   const {pczt,viewing}=await import('../../dist/src/index.js');
@@ -320,7 +321,7 @@ export async function memorySignerChecks(open, fixture, definition) {
       check(output.pczt.some((byte,i)=>byte!==original[i]),'native authorization contributes signatures');
       const parsed=await pczt.parse({bytes:output.pczt,context:input.context,maxBytes:65536});
       try {const info=await pczt.inspect({pczt:parsed});check(info.authorizationComplete&&!info.proofsComplete,'authorization material without proof claim');}
-      finally {await parsed.dispose();}count++;
+      finally {await parsed.dispose();}count++;globalThis.walletPhase=`memory-signer-vector-${count}`;
     }
     check(count===10,'all native V5/V6 source vectors');
     const controller=new AbortController(),send=MessagePort.prototype.postMessage;
@@ -329,9 +330,11 @@ export async function memorySignerChecks(open, fixture, definition) {
     catch(error){check(error.code==='ABORTED','native authorization dispatched cancellation');}
     finally {MessagePort.prototype.postMessage=send;}
     check((await signer.authorize(input)).requestId===input.requestId,'signer remains usable after cancellation');
+    globalThis.walletPhase='memory-signer-dispose';
     const closing=signer.dispose();check(signer.dispose()===closing,'idempotent native signer disposal');await closing;
     try {await signer.getCapabilities();throw Error('disposed signer remained usable');}
     catch(error){check(error.code==='CLOSED','disposed signer admission');}
     check(typeof await viewing.export({account,format:'ufvk',acknowledge:'discloses-viewing-authority'})==='string','viewing authority survives signer disposal');
+    globalThis.walletPhase='memory-signer-complete';
   } finally {await first?.viewing.dispose();await account?.viewing.dispose();await signer?.dispose();await wallet.close();}
 }

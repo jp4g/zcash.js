@@ -1,6 +1,9 @@
 import { memorySignerChecks, mnemonicWalletChecks, sharedWalletChecks, memoryWalletChecks, offlineSyncChecks, scanChecks, checkBalance, enhancementChecks, emptyCompletionChecks, scanQueryChecks, historyPageChecks } from './scan-checks.mjs';
 // Real HTTPS acquisition -> verified Blob worker -> native OPFS persistence.
 export async function runBrowser() {
+  const started=performance.now(),phases=[];
+  const mark=name=>{globalThis.walletPhase=name;phases.push({name,elapsedMs:Math.round(performance.now()-started)});};
+  globalThis.walletPhases=phases;mark('startup');
   const { openWalletRuntime } = await import('/dist/src/runtime/wallet.js');
   const { manifestSha256 } = await (await fetch('/runtime-pin.json')).json();
   const fixture = await (await fetch('/fixture.json')).json();
@@ -32,7 +35,9 @@ export async function runBrowser() {
     check(same(names.sort(),after.sort()),'memory opens create no OPFS wallet files');
     await sharedWalletChecks((suffix,signal)=>openWalletRuntime({...options,signal,storage:{kind:'browser-opfs',name:`${name}-shared-${suffix}`}}),fixture);
     await mnemonicWalletChecks(suffix=>openWalletRuntime({...options,storage:{kind:'browser-opfs',name:`${name}-mnemonic-${suffix}`}}));
+    mark('memory-signer');
     await memorySignerChecks(()=>openWalletRuntime({...options,storage:{kind:'browser-opfs',name:`${name}-complete-signer`}}),fixture.signer,options.network);
+    mark('persistent-reopen');
     const abort = new AbortController(); abort.abort();
     try { await openWalletRuntime({ ...options, signal: abort.signal }); throw Error('missing startup abort'); }
     catch (error) { check(error.code === 'ABORTED', 'startup cancellation'); }
@@ -67,6 +72,7 @@ export async function runBrowser() {
         previousScan = balance.scan;
       } finally { await runtime.close(); }
     }
+    mark('empty-completion');
     let emptyRevision;
     const emptyOptions={...options,network:{...options.network,genesisHash:Array.from({length:32},(_,i)=>i.toString(16).padStart(2,'0')).join('')},storage:{kind:'browser-opfs',name:`${name}-empty`}};
     for(const reopen of [false,true]) {
@@ -74,6 +80,7 @@ export async function runBrowser() {
       try {const revision=await emptyCompletionChecks(opened.session,fixture.scan,emptyOptions.network,reopen);if(reopen)check(revision!==emptyRevision,'empty reopen epoch');else emptyRevision=revision;}
       finally{await opened.close();}
     }
+    mark('scan');
     const scanOptions = { ...options, storage: { kind: 'browser-opfs', name: `${name}-scan` } };
     let scanned;
     const first = await openWalletRuntime(scanOptions);
@@ -86,6 +93,7 @@ export async function runBrowser() {
       await scanQueryChecks(reopened.session,fixture.scan,scanned.account.id,scanned.queries);
       check(balance.scan.revision !== scanned.balance.scan.revision, 'scanned reopen epoch');
     } finally { await reopened.close(); }
+    mark('enhancement');
     check(fixture.enhancement,'native enhancement fixture');
     const enhancedOptions={...options,storage:{kind:'browser-opfs',name:`${name}-enhanced`}};
     const directory=await(await navigator.storage.getDirectory()).getDirectoryHandle(enhancedOptions.storage.name,{create:true});
@@ -99,6 +107,7 @@ export async function runBrowser() {
         if(reopen)check(revision!==enhancedRevision,'enhanced reopen epoch');else enhancedRevision=revision;
       } finally {await opened.close();}
     }
+    mark('history');
     check(fixture.history,'native paginated history fixture');
     const historyOptions={...options,storage:{kind:'browser-opfs',name:name+'-history'}};
     const historyDirectory=await(await navigator.storage.getDirectory()).getDirectoryHandle(historyOptions.storage.name,{create:true});
@@ -110,7 +119,8 @@ export async function runBrowser() {
       try {cursor=await historyPageChecks(opened.session,fixture.history,reopen?cursor:undefined);}
       finally {await opened.close();}
     }
-    return { memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
+    mark('complete');
+    return { phases,memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, prerequisiteFallback:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, scanned: true, persisted: true, addresses: addresses.length, workerDestructions, userAgent: navigator.userAgent };
   } finally {
     globalThis.Worker = NativeWorker;
     for (const entry of [`${name}-complete-signer`,`${name}-mnemonic-a`, `${name}-mnemonic-b`, `${name}-shared-a`, `${name}-shared-b`, `${name}-shared-cancel`, name, `${name}-empty`, `${name}-scan`,`${name}-enhanced`,`${name}-history`]) await (await navigator.storage.getDirectory()).removeEntry(entry, { recursive: true }).catch(error => {

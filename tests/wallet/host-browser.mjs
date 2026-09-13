@@ -180,7 +180,9 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     await request(`/session/${session}/timeouts`, 'POST', { script: 20000, pageLoad: 15000, implicit: 0 });
     await request(`/session/${session}/url`, 'POST', { url: server.origin });
     let answer;
-    const resultDeadline = Date.now() + 45000;
+    // The expanded loader adds a native owner and ten V5/V6 signing cases.
+    // Keep a finite page budget below the unchanged 90s overall cleanup deadline.
+    const resultDeadline = Date.now() + (process.env.WALLET_LOADER ? 60000 : 45000);
     while (!answer) {
       stop.signal.throwIfAborted(); assert.ok(Date.now() < resultDeadline, 'page result deadline');
       answer = await request(`/session/${session}/execute/sync`, 'POST', { script: 'return window.walletResult || null;', args: [] });
@@ -192,7 +194,12 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     if(process.env.WALLET_LOADER){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
     assert.equal(answer.value.workerDestructions, process.env.WALLET_LOADER ? 15 : 2);
     report.status = 'passed';
-  } catch (error) { if (report.interruptedBy) report.status = 'interrupted'; report.error = { code: error.code, message: String(error), stack: error.stack }; }
+  } catch (error) {
+    if (report.interruptedBy) report.status = 'interrupted';
+    report.error = { code: error.code, message: String(error), stack: error.stack };
+    if(session) try { report.pageDiagnostic=await request(`/session/${session}/execute/sync`,'POST',{script:'return {url:location.href,title:document.title,text:document.body?.innerText?.slice(0,2000),phase:window.walletPhase,phases:window.walletPhases,result:window.walletResult};',args:[]},true); }
+    catch(diagnosticError){report.pageDiagnostic={error:String(diagnosticError)};}
+  }
   finally {
     clearTimeout(deadline);
     const errors = []; let sessionDeleted = !session, groupGone = !driverIdentity;

@@ -16,7 +16,8 @@ export async function resolveBirthday(args: Parameters<typeof ResolveBirthday>[0
   const network = light?.network, bound = networkBinding(network);
   const read = light.getTreeState;
   if (typeof read !== 'function') throw invalidArgument();
-  const pending = operation(owned.signal);
+  let pending: ReturnType<typeof operation>;
+  try { pending = operation(owned.signal); } catch { throw invalidArgument(); }
   try {
     pending.check();
     const result = snapshot(await pending.wait(Reflect.apply(read, light, [{height: first - 1, signal: pending.signal}])),

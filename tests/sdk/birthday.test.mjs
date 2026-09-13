@@ -20,6 +20,7 @@ test('birthday composition owns source bytes and preserves cancellation without 
   const light={network,async getTreeState(args){requests++;assert.equal(args.height,0);return tree();}};
   const value=await resolveBirthday({light,firstScanHeight:1,recoverUntilExclusive:1});
   encoded.fill(9);assert.deepEqual([...value.priorTreeState],[1,2]);assert.equal(value.source,'light-client');assert.equal(calls.length,1);assert.deepEqual([...calls[0][1]],Array.from({length:32},(_,i)=>31-i));
+  await assert.rejects(resolveBirthday({light,firstScanHeight:1,signal:{}}),e=>e.code==='INVALID_ARGUMENT');assert.equal(requests,1);
   await assert.rejects(resolveBirthday({light,firstScanHeight:0}),e=>e.code==='INVALID_ARGUMENT');
   await assert.rejects(resolveBirthday({light,firstScanHeight:1,signal:AbortSignal.abort()}),e=>e.code==='ABORTED');assert.equal(requests,1);
   await assert.rejects(resolveBirthday({light:{network,async getTreeState(){return {...tree(),point:{height:1,hash:network.genesisHash}};}},firstScanHeight:1}),e=>e.code==='PROTOCOL_MISMATCH');

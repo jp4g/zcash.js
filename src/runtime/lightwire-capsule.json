@@ -1,7 +1,7 @@
 {
   "format": "zcash-js-pure-codec-capsule/1",
   "profile": "lightwire",
-  "generatorSha256": "d084395143fba5c1d64d623ca16199d071eb84118190199125d070c4084d5daf",
+  "generatorSha256": "4b7630ce60aa970eaa078b929040bbbb2daceb93ffdac713d8a3a8a0753ca355",
   "lockSha256": "16dab52ae86e372f96139e4c7664a0229dcf4973673ebd8c73fe8745ed037321",
   "nativeReceipt": "bed0c283d44a449c162ce240f332d092b99175c695725f9736b79d19fb24924f",
   "inputs": {

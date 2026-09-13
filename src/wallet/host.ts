@@ -1,3 +1,4 @@
+import type { NativeProposalInput, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
 import type { AccountRecord, AccountsApi, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance, ZcashError } from '../../docs/api/public-api.js';
 import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
@@ -206,8 +207,8 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     if (!data.outcome.ok) {
       const e = data.outcome.error;
       if (!e || !walletErrorCodes.has(e.code) || e.retryable !== false || typeof e.message !== 'string'
-        || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync', 'authorization'].includes(e.stage)
-        || !['reopen', 'sync', 'none', 'correct-input', 'configure'].includes(e.recovery)) { crashed(); return; }
+        || !['validation', 'storage', 'runtime', 'account', 'address', 'query', 'sync', 'authorization', 'proposal'].includes(e.stage)
+        || !['reopen', 'sync', 'none', 'correct-input', 'configure', 'review-new-proposal'].includes(e.recovery)) { crashed(); return; }
     } else if (data.invalid) { crashed(); return; }
     if (data.outcome.ok && mnemonicCommand(job.command) && shared?.signers) {
       const token = (data.outcome.value as NativeCreatedAccount)?.signerToken;
@@ -228,6 +229,11 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
   shared?.wake.add(pump);
   port.start();
   return {
+    proposals: {
+      create: (args: NativeProposalInput & Op) => call<NativeProposalReview>('proposal_create',args),
+      get: (args: { operationId: string } & Op) => call<NativeProposalReview | null>('proposal_get',args),
+      list: (args: ProposalInventoryInput & Op) => call<ProposalInventory>('proposal_list',args),
+    },
     mnemonic: {
       create: (args: MnemonicAccountInput & Op) => call<NativeCreatedAccount>('account_create_mnemonic_signer', args),
       import: (args: MnemonicAccountInput & Op) => call<NativeCreatedAccount>('account_import_mnemonic_signer', args),

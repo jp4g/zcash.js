@@ -1,4 +1,4 @@
-import type { WalletClient, Signer } from '../../docs/api/public-api.js';
+import type { WalletClient, Signer, SignerCapabilities, PcztInspection } from '../../docs/api/public-api.js';
 import type { openWalletRuntime } from '../runtime/wallet.js';
 import type { walletAccounts } from './accounts.js';
 import { WalletProposals, pcztArtifactBinding } from './proposals.js';
@@ -12,6 +12,15 @@ import { failure } from '../errors.js';
 
 type Session=Awaited<ReturnType<typeof openWalletRuntime>>['session'];
 const mismatch=()=>failure('SIGNER_CAPABILITY_MISMATCH','authorization','reattach-signer','Signer cannot satisfy the retained transaction.');
+export function canAuthorize(capabilities:SignerCapabilities,info:PcztInspection,profile:string):boolean {
+  return capabilities.networks.includes(info.context.network.identity)&&info.pools.every(pool=>{
+    const circuit=pool==='sapling'?'sapling-groth16/1':pool==='ironwood'?'ironwood-post-nu6_3/1':undefined;
+    return capabilities.authorizations.some(role=>role.pool===pool&&role.txVersion===info.transactionVersion
+      &&role.branchIds.includes(info.context.branchId)&&role.pcztVersions.includes(info.pcztVersion)
+      &&(circuit===undefined?role.circuitVersions.length===0:role.circuitVersions.includes(circuit))
+      &&(role.proofState!=='required'||info.proofsComplete)&&role.requiredFields.every(field=>field===profile));
+  });
+}
 /** Public sign shape composed with the existing account and native artifact owners. */
 export function walletSign(proposals:WalletProposals,session:Session,accounts:Pick<ReturnType<typeof walletAccounts>,'attachedSigner'>):WalletClient['sign'] {
   return async args=>{
@@ -33,13 +42,7 @@ export function walletSign(proposals:WalletProposals,session:Session,accounts:Pi
       try {
         const info=await pczt.inspect({pczt:handle,signal:pending.signal});
         const profile=native?'zakura-native-role-input/1':'zakura-signer-full/1';
-        for(const pool of info.pools) {
-          const circuit=pool==='sapling'?'sapling-groth16/1':pool==='ironwood'?'ironwood-post-nu6_3/1':undefined;
-          if(!capabilities.authorizations.some(role=>role.pool===pool&&role.txVersion===info.transactionVersion
-            &&role.branchIds.includes(proposal.context.branchId)&&role.pcztVersions.includes(info.pcztVersion)
-            &&(circuit===undefined?role.circuitVersions.length===0:role.circuitVersions.includes(circuit))
-            &&(role.proofState!=='required'||info.proofsComplete)&&role.requiredFields.every(field=>field===profile)))throw mismatch();
-        }
+        if(!canAuthorize(capabilities,info,profile))throw mismatch();
         // Account IDs are hints; native viewing-key correspondence gates disclosure.
         if(native){
           const description=await native.describe();

@@ -22,7 +22,7 @@ test('no-eager gate restores globals and detects even swallowed accesses', async
   assert.deepEqual(Object.getOwnPropertyDescriptor(globalThis, 'WebAssembly'), before);
   const counts = await guarded(async () => {});
   assert.ok(Object.values(counts).every(n => n === 0));
-  const valid = { ok: true, viewing:Array.from({length:2},()=>({operations:7,independentAuthorities:3,cancelled:2,unknownReceivers:true})), publicClients:[{methods:11,cancelled:1,broadcastUnknown:1},{methods:11,cancelled:1,broadcastUnknown:1}], light:[{methods:11,cancelled:2,broadcastUnknown:1},{methods:11,cancelled:2,broadcastUnknown:1}], claims, eager: counts, precision: '9007199254740993', utf8: '€雪😀', negativeEager: 1, network: { modules: 2, instances: 2, fetches: 0, workers: 0, descriptors: 2, cancelled: 4 } };
+  const valid = { ok: true, birthdays:Array.from({length:2},()=>({nativeValidated:true,nonpalindromicGenesis:true,cancelled:2})), viewing:Array.from({length:2},()=>({operations:7,independentAuthorities:3,cancelled:2,unknownReceivers:true})), publicClients:[{methods:11,cancelled:1,broadcastUnknown:1},{methods:11,cancelled:1,broadcastUnknown:1}], light:[{methods:11,cancelled:2,broadcastUnknown:1},{methods:11,cancelled:2,broadcastUnknown:1}], claims, eager: counts, precision: '9007199254740993', utf8: '€雪😀', negativeEager: 1, network: { modules: 2, instances: 2, fetches: 0, workers: 0, descriptors: 2, cancelled: 4 } };
   assert.doesNotThrow(() => verifyResult(valid));
   assert.throws(() => verifyResult({ ...valid, eager: { ...counts, Worker: 1 } }));
   assert.throws(() => verifyResult({ ...valid, network: { ...valid.network, modules: 0 } }));

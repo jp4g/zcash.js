@@ -1,3 +1,4 @@
+import {signerSelector} from './signer-selector.js';
 import type { WalletClient, Signer, SignerCapabilities, PcztInspection } from '../../docs/api/public-api.js';
 import type { openWalletRuntime } from '../runtime/wallet.js';
 import type { walletAccounts } from './accounts.js';
@@ -49,8 +50,8 @@ export function walletSign(proposals:WalletProposals,session:Session,accounts:Pi
           if(await session.accounts.checkKey({accountId,viewingKey:description.viewingKey,signal:pending.signal})!=='ready')throw mismatch();
         }else{
           const account=await session.accounts.get({accountId,signal:pending.signal});
-          if(!account||account.accountIndex===null||!capabilities.exportableViewing.includes('ufvk'))throw mismatch();
-          const descriptor=await signer.getAccount({network:proposal.context.network,selector:{kind:'derived',accountIndex:account.accountIndex},signal:pending.signal});
+          if(!account||!capabilities.exportableViewing.includes('ufvk'))throw mismatch();
+          const descriptor=await signer.getAccount({network:proposal.context.network,selector:await signerSelector(session,account,pending.signal),signal:pending.signal});
           try {
             const key=await viewing.export({account:descriptor,format:'ufvk',acknowledge:'discloses-viewing-authority',signal:pending.signal});
             if(await session.accounts.checkKey({accountId,viewingKey:key,signal:pending.signal})!=='ready')throw mismatch();

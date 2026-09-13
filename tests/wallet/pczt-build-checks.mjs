@@ -1,4 +1,4 @@
-import {defineNetwork,pczt} from '../../dist/src/index.js';
+import {defineNetwork,pczt,viewing,accountFromViewingKey} from '../../dist/src/index.js';
 import {walletAccounts} from '../../dist/src/wallet/accounts.js';
 import {WalletProposals} from '../../dist/src/wallet/proposals.js';
 import {walletSign} from '../../dist/src/wallet/sign.js';
@@ -25,8 +25,15 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
     let signer,reopened,signerAccount,failed=false,accountsClosed=false;
     try {
       const birthday={network,source:'checkpoint',firstScanHeight:data.import.birthday.firstScanHeight,priorTreeState:hex(data.import.birthday.priorTreeState)};
-      const created=await accounts.api.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:fixture.accountIndex,birthday});
+      let created=await accounts.api.import({mnemonic:new TextEncoder().encode(fixture.mnemonic),accountIndex:fixture.accountIndex,birthday});
       signer=created.signer;
+      if(scope==='external') {
+        const descriptor=await signer.getAccount({network,selector:{kind:'derived',accountIndex:fixture.accountIndex}});
+        let key;try{key=await viewing.export({account:descriptor,format:'ufvk',acknowledge:'discloses-viewing-authority'});}finally{await descriptor.viewing.dispose();}
+        await accounts.api.remove({accountId:created.account.id,acknowledge:'deletes-local-history'});
+        created={...created,account:await accounts.api.import({viewingKey:key,birthday,enabledPools:['transparent','sapling','ironwood']})};
+        check(created.account.accountIndex===null,'external signer case uses actual UFVK-imported account');
+      }
       let revision=(await wallet.session.scan.plan({target:data.target})).revision;
       for(const batch of data.batches)revision=(await wallet.session.scan.ingest({...batch,revision,target:data.target,priorTreeState:hex(batch.priorTreeState),blocks:batch.blocks.map(hex)})).revision;
       const destination=await wallet.session.addresses.next({accountId:created.account.id,request:{format:'transparent'}});
@@ -102,10 +109,18 @@ export async function pcztBuildChecks(open,fixture,definition,provingOrigin) {
         let authorizations=0;
         const adapter={
           async getCapabilities(){adapter.authorize=()=>{throw Error('changed adapter method invoked');};return {...capability,authorizations:capability.authorizations.map(role=>({...role,requiredFields:['zakura-signer-full/1'],review:'device'}))};},
-          async getAccount(){return signerAccount;},
+          async getAccount({selector}){
+            const key=await viewing.export({account:signerAccount,format:'ufvk',acknowledge:'discloses-viewing-authority'});
+            const fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(key))),b=>b.toString(16).padStart(2,'0')).join('');
+            check(selector.kind==='fingerprint'&&selector.fingerprint===fingerprint,'external adapter receives canonical UFVK fingerprint');
+            return accountFromViewingKey({network,format:'ufvk',encoded:key,enabledPools:['transparent','sapling','ironwood']});
+          },
           async authorize(request){authorizations++;check(!new TextDecoder().decode(request.pczt).includes('zcash_client_backend:proposal_info'),'custom signer receives redacted view');return {requestId:request.requestId,pczt:authorization.pczt};},
         };
-        const signed=await walletSign(imports,reopened.session,{attachedSigner(){return adapter;}})({pczt:unsigned});
+        const attached=walletAccounts(reopened,network);
+        const binding=await attached.api.attachSigner({accountId:created.account.id,signer:adapter});
+        const signed=await walletSign(imports,reopened.session,attached)({pczt:unsigned});
+        await binding.dispose();
         check(authorizations===1&&signed.artifactId===imported.artifactId,'captured custom signer contribution is checked and retained');
       }
       let proved,finalized;

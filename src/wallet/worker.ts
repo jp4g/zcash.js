@@ -3,7 +3,7 @@ import { failure, isZcashError } from '../errors.js';
 import { WalletSession } from './session.js';
 import type { Completion, InitializedViews, InitializedSigners } from './session.js';
 
-export type WalletCommand = 'fused_send' | 'payment_get'|'payment_list'|'payment_reconcile'|'payment_observe'|'payment_attempt_begin'|'payment_attempt_finish'|'payment_recovery_position'|'pczt_finalize'|'finalized_get' | 'account_remove' | 'account_check_key' | 'account_import' | 'account_list' | 'account_get' | 'account_balance'
+export type WalletCommand = 'fused_send' | 'payment_get'|'payment_list'|'payment_reconcile'|'payment_observe'|'payment_attempt_begin'|'payment_attempt_finish'|'payment_recovery_position'|'pczt_finalize'|'finalized_get' | 'account_remove' | 'account_viewing_key' | 'account_check_key' | 'account_import' | 'account_list' | 'account_get' | 'account_balance'
   | 'account_import_mnemonic_signer' | 'account_create_mnemonic_signer' | 'signer_bind' | 'signer_unbind' | 'signer_describe' | 'signer_release' | 'signer_capabilities' | 'signer_authorize'
   | 'pczt_prove' | 'pczt_import' | 'pczt_build' | 'pczt_get_artifact' | 'proposal_lookup_intent' | 'proposal_create' | 'proposal_get' | 'proposal_list'
   | 'wallet_history' | 'wallet_transaction' | 'wallet_notes' | 'wallet_utxos'
@@ -79,7 +79,7 @@ export function installWalletWorker(owner: InitializedViews | undefined, port: M
     payment_get:session.payments.get,payment_list:session.payments.list,payment_reconcile:session.payments.reconcile,payment_observe:session.payments.observe,
     payment_attempt_begin:session.payments.begin,payment_attempt_finish:session.payments.finish,payment_recovery_position:session.payments.position,
     fused_send:session.fused.send,pczt_finalize:session.pczt.finalize,finalized_get:session.pczt.finalized,
-    account_remove: session.accounts.remove, account_check_key: session.accounts.checkKey,
+    account_viewing_key: session.accounts.viewingKey, account_remove: session.accounts.remove, account_check_key: session.accounts.checkKey,
     account_import: session.accounts.import, account_list: session.accounts.list, account_get: session.accounts.get,
     address_current: session.addresses.current, address_next: session.addresses.next,
     address_list: session.addresses.list, address_at: session.addresses.at,

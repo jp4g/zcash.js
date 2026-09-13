@@ -27,3 +27,19 @@ UFVK `accounts.import({ viewingKey, birthday })` returns an `AccountRecord`. Def
 `accountFromViewingKey` parses UFVK or UIVK into an opaque descriptor for standalone viewing/address work with explicit enabled pools. `viewing.toIncoming` reduces authority; `viewing.export` requires `acknowledge: 'discloses-viewing-authority'`. Dispose descriptor viewing handles. UIVK cannot determine full spentness and is excluded from wallet import. No raw spending-key export or persistent secret vault exists.
 
 `Signer.getCapabilities`, `getAccount` and `authorize` form the generic adapter boundary. Capability tuples negotiate network/pool/branch/transaction/circuit/PCZT versions, review mode and required field profiles. Account IDs and derivation metadata are routing hints; they never prove key correspondence. See [signing routes](signing.md) for disclosure and return validation.
+
+### External signer lookup for imported accounts
+
+When an account has no derivation index, attachment and signing request
+`getAccount({ network, selector: { kind: 'fingerprint', fingerprint } })`. The
+fingerprint is lowercase hexadecimal SHA-256 of the UTF-8 canonical encoded UFVK,
+with no prefix or terminator. The wallet reads the canonical key from Rust; adapters
+can canonicalize their existing UFVK through `accountFromViewingKey` and
+`viewing.export` before computing the same digest. Network remains explicit.
+
+The adapter resolves the fingerprint to its existing account handle. An adapter
+without lookup support or a matching account must reject the call (foreign errors
+become `SIGNER_REJECTED`). A fingerprint is only a lookup hint: the wallet still
+checks the returned viewing key against the native account before attachment or
+signing. Associations remain in memory; no persistent key map is added. Derived
+selectors and built-in memory signer association retain their existing behavior.

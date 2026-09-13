@@ -24,8 +24,11 @@ function member<T extends string>(value: unknown, choices: readonly T[]): T {
 }
 function list<T>(value: unknown, item: (value: unknown) => T): T[] {
   if (!Array.isArray(value)) throw invalidArgument();
-  if (value.length > 1024) throw limit();
-  return Array.from({length:value.length}, (_, index) => {
+  const property = Object.getOwnPropertyDescriptor(value, 'length');
+  if (!property || !Object.hasOwn(property, 'value') || !Number.isSafeInteger(property.value) || property.value < 0) throw invalidArgument();
+  const length: number = property.value;
+  if (length > 1024) throw limit();
+  return Array.from({length}, (_, index) => {
     const property = Object.getOwnPropertyDescriptor(value, String(index));
     if (!property || !Object.hasOwn(property, 'value')) throw invalidArgument();
     return item(property.value);

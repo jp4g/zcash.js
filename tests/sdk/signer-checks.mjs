@@ -16,7 +16,9 @@ export async function signerChecks(api) {
   check(adapter.count===0,'construction does not call adapter');
   adapter.authorize=()=>{throw Error('captured method replaced');};
   try {
-    const capabilities=await signer.getCapabilities();advertised.networks[0]='mutated';
+    let lengthReads=0;
+    advertised.networks=new Proxy(advertised.networks,{get(target,key,receiver){if(key==='length'){lengthReads++;return 0xffff_ffff;}return Reflect.get(target,key,receiver);}});
+    const capabilities=await signer.getCapabilities();check(lengthReads===0,'array length is admitted once through own data');advertised.networks[0]='mutated';
     check(capabilities.networks[0]==='signer-fixture'&&capabilities.maxPcztBytes===8*1024*1024,'owned unmodified advertisement');
     const returned=await signer.getAccount({network,selector:{kind:'derived',accountIndex:api.accountIndex(0)}});
     check(returned.viewing===account.viewing&&returned.components.length===account.components.length&&returned.enabledPools.length===3,'genuine shared handle with native metadata');

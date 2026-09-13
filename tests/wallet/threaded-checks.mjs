@@ -23,7 +23,10 @@ export async function threadedChecks(options,fixture,definition,WorkerType) {
   const diagnostics=[],owners=new Set(),children=[],terminated=new Set(),originalPost=WorkerType.prototype.postMessage,originalTerminate=WorkerType.prototype.terminate;
   let fault,triggered=false;
   WorkerType.prototype.postMessage=function(message,...rest){
-    if(message?.type==='initialize')owners.add(this);
+    if(message?.type==='initialize'){
+      if(fault==='child'&&triggered&&!message.workers)check([...owners,...children.map(row=>row.worker)].every(worker=>terminated.has(worker)),'failed domain termination completes before baseline initialization');
+      owners.add(this);
+    }
     if(message?.type==='compute-initialize'){
       check(message.memory?.buffer instanceof SharedArrayBuffer,'actual shared compute memory');
       children.push({worker:this,index:message.index});
@@ -34,7 +37,7 @@ export async function threadedChecks(options,fixture,definition,WorkerType) {
     }
     return Reflect.apply(originalPost,this,[message,...rest]);
   };
-  WorkerType.prototype.terminate=function(...args){terminated.add(this);return Reflect.apply(originalTerminate,this,args);};
+  WorkerType.prototype.terminate=function(...args){const result=Reflect.apply(originalTerminate,this,args);if(result&&typeof result.then==='function')return result.then(value=>{terminated.add(this);return value;});terminated.add(this);return result;};
   const configured=(name,threaded=true)=>{const input=options(name);return {...input,network,light,confirmations,observation:{pollIntervalMs:1000,maxBufferedUpdates:16},recovery:{mode:'offline'},runtime:{...input.runtime,...(!threaded?{threading:{mode:'baseline'}}:{}),onDiagnostic:value=>diagnostics.push(value)}};};
   let wallet,signer,descriptor;
   try {
@@ -70,5 +73,5 @@ export async function threadedChecks(options,fixture,definition,WorkerType) {
     check(same(effects[0],effects[1])&&streams===2,'baseline and threaded native effects match');
     check([...owners].every(worker=>terminated.has(worker)),'all native owners terminated');
     return {workerDestructions:terminated.size,threadedWallet:true,threadedScanParity:true,threadedSignerLifetime:true,threadedBootstrapCleanup:true,computeWorkers:children.length};
-  }finally{fault=undefined;try{await descriptor?.viewing.dispose();await signer?.dispose();await wallet?.close();}finally{WorkerType.prototype.postMessage=originalPost;WorkerType.prototype.terminate=originalTerminate;}}
+  }finally{fault=undefined;try{try{await descriptor?.viewing.dispose();}finally{try{await signer?.dispose();}finally{await wallet?.close();}}}finally{WorkerType.prototype.postMessage=originalPost;WorkerType.prototype.terminate=originalTerminate;}}
 }

@@ -107,9 +107,10 @@ try {
     } finally { await opened.close(); }
   }
   let emptyRevision;
+  const emptyOptions={...options('empty'),network:{...network,genesisHash:Array.from({length:32},(_,i)=>i.toString(16).padStart(2,'0')).join('')}};
   for(const reopen of [false,true]) {
-    const opened=await openWalletRuntime(options('empty'));
-    try {const revision=await emptyCompletionChecks(opened.session,fixture.scan,options('empty').network,reopen);if(reopen)assert.notEqual(revision,emptyRevision);else emptyRevision=revision;}
+    const opened=await openWalletRuntime(emptyOptions);
+    try {const revision=await emptyCompletionChecks(opened.session,fixture.scan,emptyOptions.network,reopen);if(reopen)assert.notEqual(revision,emptyRevision);else emptyRevision=revision;}
     finally{await opened.close();}
   }
   let scanned;

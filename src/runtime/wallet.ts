@@ -71,7 +71,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     || storage[name].includes('\0') || (!node && !/^[a-zA-Z0-9_-]{1,128}$/.test(storage.name))) throw invalidArgument();
   const network = bindNetworkDefinition(record(input.network, ['identity', 'genesisHash', 'parameters', 'parametersFormat']) as unknown as NetworkDefinition);
   const parameters = network.parameters.bytes;
-  const genesis = Uint8Array.from(network.genesisHash.match(/../g)!, hex => parseInt(hex, 16));
+  const genesis = Uint8Array.from(network.genesisHash.match(/../g)!.reverse(), hex => parseInt(hex, 16));
   const signal: AbortSignal | undefined = input.signal;
   let dependent: AbortSignal | undefined;
   if (signal !== undefined) {

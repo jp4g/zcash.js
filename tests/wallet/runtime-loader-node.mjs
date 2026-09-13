@@ -1,3 +1,4 @@
+import {threadedChecks} from './threaded-checks.mjs';
 import {publicWalletChecks,publicWalletResponses} from './public-wallet-checks.mjs';
 import {createWalletClient,createLightClient,defineNetwork,grpc} from '../../dist/src/index.js';
 import {saplingAssets} from '../../dist/src/wallet/proving-assets.js';
@@ -39,6 +40,11 @@ for (const file of manifest.files) {
   const bytes = await readFile(`${packet}/${file.url}`);
   assert.equal(sha(bytes), file.sha256); assets.set(file.url, bytes);
 }
+const threadedAssets=new Map();let threadedManifest;
+if(process.env.WALLET_THREADED_PACKAGE){
+  const bytes=await readFile(process.env.WALLET_THREADED_PACKAGE+'/manifest.json');threadedManifest=JSON.parse(bytes);assert.equal(threadedManifest.mode,'threaded');assert.equal(sha(await readFile(process.env.WALLET_THREADED_PACKAGE+'/build.json')),threadedManifest.buildSha256);threadedAssets.set('manifest.json',bytes);
+  for(const file of threadedManifest.files){const bytes=await readFile(process.env.WALLET_THREADED_PACKAGE+'/'+file.url);assert.equal(bytes.length,file.byteLength);assert.equal(sha(bytes),file.sha256);threadedAssets.set(file.url,bytes);}
+}
 const canonical = value => value && typeof value === 'object' ? Array.isArray(value)
   ? `[${value.map(canonical)}]` : `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`)}}` : JSON.stringify(value);
 const alteredWorker = Buffer.concat([assets.get('worker.mjs'), Buffer.from('\n// unreviewed closure\n')]);
@@ -56,9 +62,10 @@ const server = createServer({ key: await readFile(process.env.WALLET_TLS_KEY??`$
   if (req.headers.cookie || req.headers.authorization) unexpected.push('credentials');
   if(provingAssets.has(req.url)){res.writeHead(200,{'content-type':'application/octet-stream'});res.end(provingAssets.get(req.url));return;}
   const [, mode, name] = req.url.split('/');
-  if (!assets.has(name)) { unexpected.push(req.url); res.writeHead(404).end(); return; }
+  const selected=mode==='threaded'?threadedAssets:assets;
+  if (!selected.has(name)) { unexpected.push(req.url); res.writeHead(404).end(); return; }
   if (mode === 'stall') { res.writeHead(200); res.write('{'); stalled(); return; }
-  let bytes = assets.get(name);
+  let bytes = selected.get(name);
   if (mode === 'tamper' && name === 'wallet.mjs') bytes = Buffer.from('invalid executable');
   if (mode === 'unreviewed') bytes = name === 'manifest.json' ? alteredManifest : name === 'worker.mjs' ? alteredWorker : bytes;
   res.writeHead(200, { 'content-type': name.endsWith('.wasm') ? 'application/wasm' : name === 'manifest.json' ? 'application/json' : 'text/javascript' });
@@ -76,6 +83,15 @@ const options = (name, mode = 'good') => ({ network, storage: { kind: 'node-file
   maxQueuedJobs: 8, scanBatchSize: 10, maxPcztBytes: 1048576,
 } });
 try {
+  if(threadedManifest){
+    assert.equal(provingAssets.size,0,'threaded lane has no proofs');
+    const native=JSON.parse(await readFile(process.argv[3]+'/build.json')),bytes=await readFile(process.argv[3]+'/bundle/tests/views-fixture.json');assert.equal(sha(bytes),native.artifacts['tests/views-fixture.json']);
+    const fixture=JSON.parse(bytes);await publicWalletFixture(fixture,process.env.WALLET_PUBLIC_FIXTURE);
+    const input=name=>{const value=options('threaded-'+name);value.runtime.threading={mode:'prefer-threaded',artifact:{manifestUrl:origin+'/threaded/manifest.json',manifestSha256:sha(threadedAssets.get('manifest.json'))},workers:2,startupTimeoutMs:10000};return value;};
+    const result=await threadedChecks(input,fixture.pczt,network,Worker);
+    assert.deepEqual(unexpected,[]);assert.deepEqual((await readdir('/tmp')).filter(name=>name.startsWith('zcash-wallet-runtime-')&&!before.has(name)),[]);
+    console.log(JSON.stringify({pass:true,...result,root,requests:requests.length,threadedManifestSha256:sha(threadedAssets.get('manifest.json'))}));
+  }else{
   const threaded = { mode: 'prefer-threaded', artifact: { manifestUrl: `${origin}/threaded/manifest.json`, manifestSha256: sha(manifestBytes) }, workers: 2, startupTimeoutMs: 1000 };
   for (const [index, value] of [threaded, { ...threaded, workers: 0 }, { ...threaded, startupTimeoutMs: Infinity },
     { ...threaded, artifact: { ...threaded.artifact, manifestUrl: 'http://localhost/manifest.json' } },
@@ -277,4 +293,5 @@ try {
   assert.equal(requests.filter(path => path.startsWith('/good/')).length, provingAssets.size?258+Number(Boolean(supplementalFixture))*30:150, 'six pinned assets per owner, including startup recovery reopens; no execution refetch');
   if(provingAssets.size)assert.equal(requests.filter(path=>path.startsWith('/proving/')).length,8+Number(Boolean(supplementalFixture))*2,'public memory caches and persistent parameter cache suppresses repeated callback loads');
   console.log(JSON.stringify({ pass: true,supplementalFixture,...publicWalletResult,workerDispatchCrash, proving:provingAssets.size>0, shielding:true, idempotency:true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+}
 } finally { rpcServer?.forceShutdown();server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

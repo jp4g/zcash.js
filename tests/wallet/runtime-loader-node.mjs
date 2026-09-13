@@ -5,6 +5,7 @@ import {Server,ServerCredentials} from '@grpc/grpc-js';
 import {shieldingChecks} from './shielding-checks.mjs';
 import {accountsChecks} from './accounts-checks.mjs';
 import {pcztBuildChecks} from './pczt-build-checks.mjs';
+import {publicWalletFixture} from './public-wallet-fixture.mjs';
 import {provingFixture} from './proving-fixture.mjs';
 // Real TLS acquisition, reviewed executable bytes, actual worker/Rust filesystem wallet.
 import assert from 'node:assert/strict';
@@ -118,6 +119,7 @@ try {
   const fixtureBytes = await readFile(`${process.argv[3]}/bundle/tests/views-fixture.json`);
   assert.equal(sha(fixtureBytes), JSON.parse(nativeReceipt).artifacts['tests/views-fixture.json']);
   const fixture = JSON.parse(fixtureBytes);
+  const supplementalFixture=await publicWalletFixture(fixture,process.env.WALLET_PUBLIC_FIXTURE);
   const nativeBuild=JSON.parse(nativeReceipt);
   const signerBytes=await readFile(`${nativeBuild.work}/source/tests/signer-fixture.json`);
   assert.equal(sha(signerBytes),nativeBuild.sources['tests/signer-fixture.json']);
@@ -245,8 +247,9 @@ try {
       try{crashedWallet=await createWalletClient(crashOptions);}finally{Worker.prototype.postMessage=post;}
       assert.equal(initializations,1);assert.ok(captured instanceof Worker);
       const inventory=(await crashedWallet.operations.list()).items,finalized=inventory.filter(item=>item.steps.some(step=>step.txid!==null));
-      assert.equal(inventory.length,2);assert.equal(finalized.length,1);
-      const original=finalized[0],attempts=original.steps[0].attempts.length,beforeSend=responses.submitted().length;
+      assert.equal(inventory.length,2);assert.equal(finalized.length,2);
+      const ordered=[...finalized].sort((a,b)=>a.operationId.localeCompare(b.operationId)),untouched=ordered[1];
+      const original=ordered[0],attempts=original.steps[0].attempts.length,beforeSend=responses.submitted().length;
       afterSend=async()=>{await captured.terminate();terminated=true;};
       await assert.rejects(crashedWallet.broadcast({operationId:original.operationId}),error=>['WORKER_CRASHED','CLOSED'].includes(error.code));
       assert.equal(terminated,true,'native owner termination completed before server acknowledgment');assert.equal(afterSend,undefined);
@@ -254,12 +257,13 @@ try {
       await assert.rejects(crashedWallet.close(),error=>['WORKER_CRASHED','CLOSED'].includes(error.code));crashedWallet=undefined;
       recoveredWallet=await createWalletClient(crashOptions);
       const found=(await recoveredWallet.operations.list()).items,retained=found.filter(item=>item.steps.some(step=>step.txid!==null));
-      assert.equal(found.length,2);assert.equal(retained.length,1);assert.equal(recoveredWallet.recovery.operations,2);
-      const step=retained[0].steps[0];assert.equal(step.txid,original.steps[0].txid);assert.equal(step.exactBytesSha256,original.steps[0].exactBytesSha256);
+      assert.equal(found.length,2);assert.equal(retained.length,2);assert.equal(recoveredWallet.recovery.operations,2);
+      const interrupted=retained.find(item=>item.steps[0].txid===original.steps[0].txid),other=retained.find(item=>item.steps[0].txid===untouched.steps[0].txid);assert.ok(interrupted&&other);
+      const step=interrupted.steps[0];assert.equal(step.txid,original.steps[0].txid);assert.equal(step.exactBytesSha256,original.steps[0].exactBytesSha256);
       assert.equal(step.attempts.length,attempts+1);assert.equal(step.attempts.at(-1).outcome,'unknown');
-      assert.ok(found.filter(item=>item.steps.every(step=>step.txid===null)).every(item=>item.steps.every(step=>step.attempts.length===0)));
+      assert.deepEqual(other.steps.map(step=>({txid:step.txid,hash:step.exactBytesSha256,attempts:step.attempts.length})),untouched.steps.map(step=>({txid:step.txid,hash:step.exactBytesSha256,attempts:step.attempts.length})), 'other finalized operation survives interruption unchanged');
       const beforeRetry=responses.submitted().length;
-      const retried=await recoveredWallet.broadcast({operationId:retained[0].operationId});
+      const retried=await recoveredWallet.broadcast({operationId:interrupted.operationId});
       assert.deepEqual(responses.submitted().slice(beforeRetry),received,'explicit retry sends exactly the bytes received before worker death');
       assert.equal(retried.steps[0].attempts.length,attempts+2);assert.equal(retried.steps[0].attempts.at(-1).outcome,'acknowledged');workerDispatchCrash=true;
     }finally{
@@ -270,7 +274,7 @@ try {
   }
   assert.deepEqual((await readdir('/tmp')).filter(name => name.startsWith('zcash-wallet-runtime-') && !before.has(name)), [], 'owned executable directories removed');
   assert.deepEqual(unexpected, []);
-  assert.equal(requests.filter(path => path.startsWith('/good/')).length, provingAssets.size?258:150, 'six pinned assets per owner, including startup recovery reopens; no execution refetch');
-  if(provingAssets.size)assert.equal(requests.filter(path=>path.startsWith('/proving/')).length,8,'public memory caches and persistent parameter cache suppresses repeated callback loads');
-  console.log(JSON.stringify({ pass: true,...publicWalletResult,workerDispatchCrash, proving:provingAssets.size>0, shielding:true, idempotency:true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
+  assert.equal(requests.filter(path => path.startsWith('/good/')).length, provingAssets.size?258+Number(Boolean(supplementalFixture))*36:150, 'six pinned assets per owner, including startup recovery reopens; no execution refetch');
+  if(provingAssets.size)assert.equal(requests.filter(path=>path.startsWith('/proving/')).length,8+Number(Boolean(supplementalFixture))*2,'public memory caches and persistent parameter cache suppresses repeated callback loads');
+  console.log(JSON.stringify({ pass: true,supplementalFixture,...publicWalletResult,workerDispatchCrash, proving:provingAssets.size>0, shielding:true, idempotency:true, accountsApi:true, memorySigner:true, mnemonicAuthority:true, sharedOwner:true, memoryStorage:true, emptyCompleted:true, offlineSync:true, queries:true, inventory:true, pagination:true, watchShared:scanned.watchShared, publicSync:scanned.publicSync, enhancementPending:scanned.enhancementPending, rewoundTo:scanned.rewoundTo, enhanced:true, root, requests: requests.length, tls: 'fixture CA; normal verification', persistence: 'native FS close/reopen' }));
 } finally { rpcServer?.forceShutdown();server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

@@ -10,6 +10,8 @@ Test-first evidence: before changing declarations, `npm run docs:typecheck` exit
 
 ## Required real acceptance matrix
 
+Restore applicability (#123): this version has no public database backup/restore/import operation. The supported-explicit-restore branches of R07/R16 are therefore not applicable, rather than passed restore tests. Application-controlled copies/rollback retain the R12 limitation; ordinary open cannot detect them or invalidate their consent automatically. See [backup and restore scope](../api/wallet-runtime.md#backup-and-restore-scope). Mnemonic account import is not a database restore.
+
 Use deterministic synthetic databases, protocol responses and failure injection against the **real** wallet engine/host transport boundary, never a mock implementation presented as SDK evidence. Run durability cases independently on Node filesystem and browser OPFS, with actual worker/module destruction. Pin coherent Common 1.0.0 graph, schema, runtime assets, network/branch fixtures and protocol revisions. Fixtures are not permission for live requests, funds or deployments.
 
 | ID / gate | Synthetic setup and action | Required evidence before passing |

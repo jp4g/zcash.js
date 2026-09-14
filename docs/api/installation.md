@@ -1,6 +1,6 @@
 # Installation and import notation
 
-The repository builds a private SDK with actual synthetic Node filesystem and Firefox OPFS wallet qualification. It is not published. Keep `private: true`; these instructions install only a locally built tarball. See the [private delivery status](../planning/private-release-notes.md) for known limitations and the remaining security/privacy and dependency/license closeout.
+The repository builds a private SDK with actual synthetic Node filesystem and Firefox OPFS wallet qualification. It is not published. Keep `private: true`; these instructions install only a locally built tarball. See the [private delivery status](../planning/private-release-notes.md) for the conformance record and known limitations.
 
 ## Install a local package
 
@@ -20,7 +20,7 @@ To prepare that optional browser entry, set `WALLET_WEBPACK_OUTPUT` to an owned 
 
 ## Supply the verified wallet runtime
 
-The SDK tarball includes standalone codec capsules. Wallet execution additionally needs the matching runtime package; it is not downloaded from an SDK-operated service. For the accepted payment baseline, use the retained `package-wallet-payments-03` output with its corresponding native build 03 receipt. Copy **the entire package directory**, including `manifest.json` and every listed executable, unchanged to your application's HTTPS static asset directory. Preserve relative filenames and serve `.wasm` as `application/wasm`, JavaScript as `text/javascript`, and the manifest as JSON. Do not redirect asset requests.
+The SDK tarball includes standalone codec capsules. Wallet execution additionally needs the matching runtime package; it is not downloaded from an SDK-operated service. The current accepted baseline is `package-signer-fingerprint-02`, manifest SHA-256 `8388ccc38b861ef5da60eaa7ced46809afaea826dd8821769a117bc780a7f677`. The separately qualified threaded package is `package-current-threaded-wallet-03`, manifest SHA-256 `f43ebe1e2ff42017793fc138b7c080da3a54c0711c49451b0a929aee4a6db3e8`. Use the distributions with the accompanying LICENSE and notices described in [MIT distribution closeout](../planning/mit-distribution.md). Copy **the entire package directory**, including `manifest.json` and every listed executable, unchanged to your application's HTTPS static asset directory. Preserve relative filenames and serve `.wasm` as `application/wasm`, JavaScript as `text/javascript`, and the manifest as JSON. Do not redirect asset requests.
 
 Set `runtime.baseline.manifestUrl` to that manifest's HTTPS URL and `manifestSha256` to the SHA-256 of its exact bytes, obtained from the trusted package receipt (not from an untrusted server response). The loader verifies the manifest, supported profile and every executable before opening storage. A different SDK/runtime combination requires matching reviewed pins; changing the manifest hash alone cannot override compatibility.
 
@@ -54,7 +54,7 @@ The accepted baseline does not establish every browser or complete v1 acceptance
 The existing consumer test packs and installs into an isolated temporary application. Supply the accepted runtime directory and a local fixture HTTPS certificate/key trusted through `NODE_EXTRA_CA_CERTS`:
 
 ```sh
-WALLET_RUNTIME_PACKAGE=/absolute/path/package-wallet-payments-03 \
+WALLET_RUNTIME_PACKAGE=/absolute/path/package-signer-fingerprint-02 \
 WALLET_TLS_CERT=/absolute/path/server.crt \
 WALLET_TLS_KEY=/absolute/path/server.key \
 NODE_EXTRA_CA_CERTS=/absolute/path/fixture-ca.crt \

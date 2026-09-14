@@ -14,6 +14,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
   const confirmations={trusted:1,untrusted:1,allowZeroConfirmationShielding:false};
   const observation={pollIntervalMs:1000,maxBufferedUpdates:16};
   const common={network,confirmations,observation};
+  await publicAbandonChecks(options,seed,data,common);
   for(const mode of ['transfer','shield','tex',...(fixture.ironwoodFunding?['ironwood']:[])]) {
     const name=`public-${mode==='shield'?'transfer':mode}`;
     if(mode!=='shield')await seed(name,hex(data.database));
@@ -110,7 +111,7 @@ export async function publicWalletChecks(options,seed,fixture,definition,submitt
       }
     }finally{await wallet?.close();await authorityWallet?.close();await signer?.dispose();}
   }
-  return {localIronwood:fixture.ironwoodFunding===true,publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,allOperationsRecovery:true,twoFinalizedRecovery:true,publicForkReplay:true,retryBudget:true};
+  return {publicAbandon:true,localIronwood:fixture.ironwoodFunding===true,publicWallet:true,localTransfer:true,localShield:true,localTex:true,startupRecovery:true,allOperationsRecovery:true,twoFinalizedRecovery:true,publicForkReplay:true,retryBudget:true};
 }
 
 // Payload handler for the existing native gRPC / gRPC-Web test servers. Framing,
@@ -153,6 +154,44 @@ export async function publicWalletResponses(fixture,definition) {
   }};
 }
 
+async function publicAbandonChecks(options,seed,data,common) {
+  const name='public-abandon';await seed(name,hex(data.database));
+  const {proving,light,broadcaster,...base}=options(name);
+  const configured={...base,...common,recovery:{mode:'offline'},transactionPolicy:{spendPools:['sapling'],transparent:'disallow',changePool:'sapling',feeRule:'zip317-standard',confirmations:common.confirmations,expiry:{kind:'offset',blocks:40},lockExpiryBlocks:20,shieldingThreshold:10000n,freshness:{mode:'require-synced',maxLagBlocks:0}}};
+  const rejects=async(action,code)=>{try{await action();throw Error(`missing ${code}`);}catch(error){check(error.code===code,`abandon expected ${code}, got ${error.code??error.message}`);}};
+  let wallet;
+  try {
+    wallet=await createWalletClient({...configured,light});await wallet.sync({target:data.target});
+    const to=(await wallet.addresses.next({accountId:data.accountId,request:{format:'transparent'}})).address;
+    const intent={accountId:data.accountId,to,amount:10000n,idempotencyKey:'abandon-original'};
+    const original=await wallet.propose(intent),operationId=original.operationId;
+    await wallet.close();wallet=await createWalletClient(configured);
+    const canceled=new AbortController();canceled.abort();
+    await rejects(()=>wallet.operations.abandon({operationId,signal:canceled.signal}),'ABORTED');
+    check((await wallet.operations.get({operationId})).phase!=='abandoned','pre-admission cancellation retains proposal');
+    const controller=new AbortController(),post=MessagePort.prototype.postMessage;
+    MessagePort.prototype.postMessage=function(value,...rest){const result=Reflect.apply(post,this,[value,...rest]);if(value?.command==='payment_abandon')controller.abort();return result;};
+    try {await rejects(()=>wallet.operations.abandon({operationId,signal:controller.signal}),'ABORTED');}
+    finally {MessagePort.prototype.postMessage=post;}
+    await wallet.close();wallet=await createWalletClient({...configured,light});
+    const state=await wallet.operations.get({operationId});
+    check(state.phase==='abandoned'&&state.missing.length===0,'committed abandonment survives close and reopen');
+    check((await wallet.operations.abandon({operationId})).revision===state.revision,'repeated abandonment does not mutate revision');
+    check((await wallet.operations.list()).items.some(row=>row.operationId===operationId&&row.phase==='abandoned'),'abandoned operation remains discoverable');
+    const handle=await wallet.operations.resume({operationId}),events=handle.events();
+    check((await events.next()).value.phase==='abandoned'&&(await events.next()).done,'abandoned event stream terminates');
+    await rejects(()=>handle.wait(),'ROLE_PRECONDITION');await rejects(()=>handle.broadcast(),'ROLE_PRECONDITION');
+    await rejects(()=>wallet.propose(intent),'ROLE_PRECONDITION');
+    await rejects(()=>wallet.operations.abandon({operationId:'ff'.repeat(32)}),'OPERATION_NOT_FOUND');
+    await wallet.sync({target:data.target});
+    const replacement=await wallet.propose({...intent,idempotencyKey:'abandon-replacement'});
+    check(replacement.operationId!==operationId&&replacement.steps[0].inputs.length>0,'released funds support a new proposal');
+    await wallet.operations.abandon({operationId:replacement.operationId});
+    await rejects(()=>wallet.build({proposal:replacement}),'ROLE_PRECONDITION');
+    const built=await wallet.propose({...intent,idempotencyKey:'abandon-built'});await wallet.build({proposal:built});
+    await rejects(()=>wallet.operations.abandon({operationId:built.operationId}),'ROLE_PRECONDITION');
+  } finally {await wallet?.close();}
+}
 
 // Empty competing suffixes preserve the native funding commitments and full-tx evidence.
 // This checks public sync rewind/replay, not removal or re-mining of a funded note.

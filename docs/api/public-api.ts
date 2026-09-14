@@ -653,7 +653,7 @@ export interface PaymentState {
   readonly accountIds: NonEmpty<AccountId>;
   readonly durability: 'durable' | 'ephemeral';
   /** Journal presentation, NOT a linear proof/authorization pipeline. */
-  readonly phase: 'proposed' | 'awaitingAuthorization' | 'building' | 'ready' | 'observing' | 'needsAttention' | 'complete';
+  readonly phase: 'proposed' | 'awaitingAuthorization' | 'building' | 'ready' | 'observing' | 'needsAttention' | 'complete' | 'abandoned';
   readonly missing: readonly ('proposal' | 'artifact' | 'authority' | 'provingMaterial' | 'finalizedBytes')[];
   readonly steps: readonly {
     readonly index: number; readonly dependsOn: readonly number[]; readonly txid: TxId | null;
@@ -687,6 +687,11 @@ export interface PageArgs {
   readonly limit?: number; // default 50, maximum 200, positive integer
 }
 export interface OperationsApi {
+  /** Atomically retire an unbuilt proposal and release only its input locks.
+   * Local/offline and idempotent; any retained artifact or finalized transaction rejects.
+   * The retained operation and idempotency key cannot be reused to execute a spend.
+   */
+  abandon(args: { operationId: string } & Op): Promise<PaymentState>;
   /** Wallet-wide if accountId omitted; never selects a spending account. */
   list(args?: PageArgs & Op & { accountId?: AccountId }): Promise<OperationPage>;
   get(args: { operationId: string } & Op): Promise<PaymentState | null>;

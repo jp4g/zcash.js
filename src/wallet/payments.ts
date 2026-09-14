@@ -66,7 +66,7 @@ export class WalletPayments {
       if(retry){positive(retry.maxAttempts);positive(retry.minIntervalMs);}
       this.policy={mode:'online',timeoutMs:recovery.timeoutMs,...(retry?{rebroadcast:retry}:{})};
     }else throw invalidArgument();
-    this.operations=Object.freeze({get:args=>this.get(args),list:args=>this.list(args),resume:args=>this.resume(args)} satisfies OperationsApi);
+    this.operations=Object.freeze({abandon:args=>this.abandon(args),get:args=>this.get(args),list:args=>this.list(args),resume:args=>this.resume(args)} satisfies OperationsApi);
   }
   private readonly durability:PaymentState['durability'];
   private check(recovery=false){this.wallet.session.check();if(this.closing)throw failure('CLOSED','observation','none','Wallet payments are closed.');if(!recovery&&!this.ready)throw failure('RECOVERY_REQUIRED','observation','reopen','Payment recovery has not completed.');}
@@ -97,6 +97,14 @@ export class WalletPayments {
     for(const row of page.items){const next=sequence(row.sequence);id(row.operationId);if(next<=previous||next>high)throw protocol();previous=next;}return page;
   }
   get(args:{operationId:string}&Op):Promise<PaymentState|null>{const input=snapshot(args,['operationId','signal']),operationId=id(input.operationId);return this.run(input.signal,async signal=>{const value=await this.read(operationId,signal);return value?this.project(value):null;});}
+  private abandon(args:{operationId:string}&Op):Promise<PaymentState>{
+    const input=snapshot(args,['operationId','signal']),operationId=id(input.operationId);
+    return this.run(input.signal,async signal=>{
+      const value=await this.wallet.session.payments.abandon({operationId,signal});
+      if(value.state.operationId!==operationId||value.state.phase!=='abandoned')throw protocol();
+      return this.project(value);
+    });
+  }
   private async requirePayment(operationId:string,signal?:AbortSignal){const value=await this.read(operationId,signal);if(!value)throw missing();return value;}
   list(args:Parameters<OperationsApi['list']>[0]={}):ReturnType<OperationsApi['list']>{
     const input=snapshot(args,['cursor','limit','accountId','signal']),limit=positive(input.limit??50);if(limit>200)throw invalidArgument();
@@ -137,8 +145,10 @@ export class WalletPayments {
     try{working=this.wallet.session.reserveWorking(16*Math.min(this.wallet.session.pczt.maximum,2*1024*1024),async()=>{});return await this.submitLocked(operationId,signal,automatic,observed,origin);}finally{working?.();release();}
   }
   private async submitLocked(operationId:string,signal:AbortSignal,automatic:boolean,observed:NativePayment|undefined,origin:'broadcast'|'send'|'shield'):Promise<NativePayment>{
+    const current=observed??await this.wallet.session.payments.reconcile({operationId,wallTimeMs:Date.now(),signal});
+    if(current.state.phase==='abandoned')throw partial('ROLE_PRECONDITION',this.project(current));
     if(!this.broadcaster)throw failure('OBSERVATION_UNAVAILABLE','submission','configure','No submission route is configured.');
-    let value=observed??await this.observe(await this.wallet.session.payments.reconcile({operationId,wallTimeMs:Date.now(),signal}),this.light??this.broadcaster,signal);
+    let value=observed??await this.observe(current,this.light??this.broadcaster,signal);
     const sourceId=await this.broadcaster.verify(signal),routeBinding=await this.broadcaster.route();if(signal.aborted)throw failure('ABORTED','submission','none','Submission aborted.');
     this.project(value);
     if(!value.state.steps.length||value.state.steps.some(step=>step.txid===null))throw partial('NOT_FINALIZED',this.project(value));
@@ -182,6 +192,7 @@ export class WalletPayments {
         if(source)value=await this.observe(value,source,signal);
         const state=this.project(value);
         if(state.revision!==revision){if(queue.length>=this.observation.maxBufferedUpdates)throw resource();const release=this.wallet.session.reserveWorking(8*JSON.stringify(state).length,async()=>{});queue.push({state,release});revision=state.revision;wake?.();wake=undefined;}
+        if(state.phase==='abandoned')break;
         await pause(this.observation.pollIntervalMs,signal);
       }}catch(caught){if(!finished)error=caught;clear();}finally{finished=true;wake?.();wake=undefined;}
     });
@@ -201,6 +212,7 @@ export class WalletPayments {
     let iterator:AsyncIterableIterator<PaymentState>|undefined,last:PaymentState|undefined;
     try{
       caller.check();this.check();last=await this.run(dependent.signal,async signal=>this.project(await this.requirePayment(operationId,signal)));
+      if(last.phase==='abandoned')throw partial('ROLE_PRECONDITION',last);
       if(last.steps.some(step=>step.txid===null))throw partial('NOT_FINALIZED',last);
       if(!this.light&&!this.broadcaster)throw unavailable();
       iterator=this.events(operationId,{signal:dependent.signal});

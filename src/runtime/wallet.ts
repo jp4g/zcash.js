@@ -18,20 +18,20 @@ const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wa
 // Reviewed private producer + actual SDK bootstrap, not arbitrary same-profile JavaScript.
 // Updating this immutable executable closure requires reviewing the corresponding package.
 const reviewedAssets: Record<keyof typeof layout, string> = {
-  'wallet.mjs': 'e0b6be585f56d380b72cf40c70202b6d4f858b2a45f984786964cd8be8677a0c',
-  'worker.mjs': '5fdf64e5cd9499d26451232084b04dfa0315067b3912c74fbb0b2421ae7293f0',
-  'bindings_bg.wasm': '8597f2e825278e426260aa8b3e061a39fd4632df9d0ecbb860c7d3232276310a',
+  'wallet.mjs': 'ac9be94513f2b97d4d264e7f1db061935e73f9929f21d08addf02b4433587a9f',
+  'worker.mjs': '3e30e1eed005181582fcc3b287f4dd6494433390fb24c7df6d4f2e5033a2cdc6',
+  'bindings_bg.wasm': '0b33894e8e8787ce360434ec04c4aa2d96e4f0511291f8a48fcf04f1352ba0cf',
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
 };
 // Independently reviewed threaded producer and worker bootstrap closure.
 const reviewedThreadedAssets: Record<string, string> = {
-  'wallet.mjs': '34f004cadd435b702375ae3078fcfe913004bccb4b620fee0a16871c021e3e75',
-  'worker.mjs': '97ab121b9c43f6f407e30d7d0213cf11030783ce8dd4dae67235bc0b37ad6a6f',
-  'bindings_bg.wasm': '5668ed08d8dc6cc1e2bb72ad964e51cf4b5ba80ef3ff6f1dbe6091dce068284d',
+  'wallet.mjs': '893c2eec26ff96fc05ab85cbc99920b707721fb66f8abca2b94a8a5b2881ac6b',
+  'worker.mjs': '3e30e1eed005181582fcc3b287f4dd6494433390fb24c7df6d4f2e5033a2cdc6',
+  'bindings_bg.wasm': 'ec80085fcd075292245617e6a7befa46a7437b671f8725d5767ac52f7f919591',
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
-  'thread-bootstrap.mjs': '97ab121b9c43f6f407e30d7d0213cf11030783ce8dd4dae67235bc0b37ad6a6f',
+  'thread-bootstrap.mjs': '3e30e1eed005181582fcc3b287f4dd6494433390fb24c7df6d4f2e5033a2cdc6',
 };
 const policy = { ...walletProfile, mode: 'baseline' as const, maxManifestBytes: 16384,
   maxAssetBytes: 32 * 1024 * 1024, maxTotalAssetBytes: 40 * 1024 * 1024, maxFiles: 5, timeoutMs: 30000 };
@@ -333,7 +333,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
       if (ready?.type !== 'ready' || !identity || !sameRecord(expected, {
         contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
-      }) || !sameRecord(identity.memory, { initialPages: threaded ? 323 : 321, maximumPages: 4096, shared: threaded })) throw mismatch();
+      }) || !sameRecord(identity.memory, { initialPages: threaded ? 322 : 321, maximumPages: 4096, shared: threaded })) throw mismatch();
       poolReady = true;
       const authorityChannel = channels();
       let authority: ReturnType<typeof attachWalletWorker>;

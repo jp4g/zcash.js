@@ -3,7 +3,7 @@ import { failure, isZcashError } from '../errors.js';
 import { WalletSession } from './session.js';
 import type { Completion, InitializedViews, InitializedSigners } from './session.js';
 
-export type WalletCommand = 'fused_send' | 'payment_get'|'payment_list'|'payment_reconcile'|'payment_observe'|'payment_attempt_begin'|'payment_attempt_finish'|'payment_recovery_position'|'pczt_finalize'|'finalized_get' | 'account_remove' | 'account_viewing_key' | 'account_check_key' | 'account_import' | 'account_list' | 'account_get' | 'account_balance'
+export type WalletCommand = 'payment_abandon' | 'fused_send' | 'payment_get'|'payment_list'|'payment_reconcile'|'payment_observe'|'payment_attempt_begin'|'payment_attempt_finish'|'payment_recovery_position'|'pczt_finalize'|'finalized_get' | 'account_remove' | 'account_viewing_key' | 'account_check_key' | 'account_import' | 'account_list' | 'account_get' | 'account_balance'
   | 'account_import_mnemonic_signer' | 'account_create_mnemonic_signer' | 'signer_bind' | 'signer_unbind' | 'signer_describe' | 'signer_release' | 'signer_capabilities' | 'signer_authorize'
   | 'pczt_prove' | 'pczt_import' | 'pczt_build' | 'pczt_get_artifact' | 'proposal_lookup_intent' | 'proposal_create' | 'proposal_get' | 'proposal_list'
   | 'wallet_history' | 'wallet_transaction' | 'wallet_notes' | 'wallet_utxos'
@@ -15,7 +15,7 @@ export interface WalletReply {
   readonly invalid: boolean;
   readonly outcome: { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: ErrorInfo };
 }
-export const walletWrites = new Set<WalletCommand>(['fused_send','payment_reconcile','payment_observe','payment_attempt_begin','payment_attempt_finish','payment_recovery_position','pczt_finalize','pczt_prove', 'pczt_import', 'pczt_build', 'account_remove', 'proposal_create','account_import', 'account_import_mnemonic_signer', 'account_create_mnemonic_signer', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
+export const walletWrites = new Set<WalletCommand>(['payment_abandon','fused_send','payment_reconcile','payment_observe','payment_attempt_begin','payment_attempt_finish','payment_recovery_position','pczt_finalize','pczt_prove', 'pczt_import', 'pczt_build', 'account_remove', 'proposal_create','account_import', 'account_import_mnemonic_signer', 'account_create_mnemonic_signer', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
 export const mnemonicCommand = (command: unknown) => command === 'account_import_mnemonic_signer' || command === 'account_create_mnemonic_signer';
 /** Only SDK-owned plain structured-clone secret buffers reach this cleanup. */
 export function clearMnemonic(args: any): void {
@@ -76,7 +76,7 @@ function errorInfo(error: unknown, command: WalletCommand): { error: ErrorInfo; 
 export function installWalletWorker(owner: InitializedViews | undefined, port: MessagePort, ownerInvalid: () => boolean = () => false, signers?: InitializedSigners): void {
   const session = owner ? new WalletSession(owner) : undefined;
   const calls: Partial<Record<WalletCommand, (args: any) => unknown>> = session ? {
-    payment_get:session.payments.get,payment_list:session.payments.list,payment_reconcile:session.payments.reconcile,payment_observe:session.payments.observe,
+    payment_abandon:session.payments.abandon,payment_get:session.payments.get,payment_list:session.payments.list,payment_reconcile:session.payments.reconcile,payment_observe:session.payments.observe,
     payment_attempt_begin:session.payments.begin,payment_attempt_finish:session.payments.finish,payment_recovery_position:session.payments.position,
     fused_send:session.fused.send,pczt_finalize:session.pczt.finalize,finalized_get:session.pczt.finalized,
     account_viewing_key: session.accounts.viewingKey, account_remove: session.accounts.remove, account_check_key: session.accounts.checkKey,

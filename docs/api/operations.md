@@ -56,6 +56,12 @@ Parents dispatch before children. Startup never first-dispatches an unattempted 
 
 Same idempotency key plus same canonical intent finds existing work; a different intent yields `IDEMPOTENCY_CONFLICT`. Lost responses are recovered from the database, never by repeating an amount. Signers, closures and heap handles are not persisted. Memory storage is ephemeral and cannot recover a destroyed database.
 
+## Abandon an unbuilt proposal
+
+Call `wallet.operations.abandon({ operationId })` to release that proposal's input reservations immediately. This local operation needs neither a signer nor a network connection and works after reopening a stale proposal. It returns terminal `phase: 'abandoned'`; repeating it leaves the revision unchanged.
+
+Only proposals with no retained PCZT (including unsigned/exported artifacts), finalized transaction or submission attempt are eligible. Otherwise it rejects with `ROLE_PRECONDITION`; an unknown operation rejects with `OPERATION_NOT_FOUND`. The operation and its idempotency key remain recorded and cannot execute again. Create a new proposal with a new key to spend the released funds. `get` and `list` retain the abandoned state, `events` emits it and finishes, and `wait`/`broadcast` reject with `ROLE_PRECONDITION`.
+
 ## Atomicity, cancellation and qualification
 
 Allocate operation identity with/before locks; commit reviewed artifacts and fused local/extraction wallet effects plus exact outbox association in validated atomic transactions. A crash must leave either the prior state or complete associated state, never dispatchable orphan bytes. Recovery cannot infer that a rolled-back partial build completed. Migrations preserve provenance or disable automatic retry for records lacking it. Do not claim that the restricted extension API can enclose every backend call without proving each composition and both real VFS flush/rollback paths.

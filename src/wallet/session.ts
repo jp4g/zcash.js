@@ -108,6 +108,7 @@ export class WalletSession {
   }
 
   readonly payments = {
+    abandon:(args:{operationId:string})=>this.invoke<NativePayment>('payment_abandon',args),
     get:(args:{operationId:string})=>this.invoke<NativePayment|null>('payment_get',args),
     list:(args:PaymentInventoryInput)=>this.invoke<PaymentInventory>('payment_list',args),
     reconcile:(args:PaymentReconcile)=>this.invoke<NativePayment>('payment_reconcile',args),

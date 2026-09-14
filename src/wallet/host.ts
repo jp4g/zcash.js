@@ -270,6 +270,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
     check() { if(stopped || closing) throw closedError(); },
     fused:{send:(args:NativeFusedInput&Op)=>call<NativeFused>('fused_send',args)},
     payments: {
+      abandon:(args:{operationId:string}&Op)=>call<NativePayment>('payment_abandon',args),
       start(operationId:string){if(stopped||closing)throw closedError();if(submissions.has(operationId))throw failure('STORAGE_BUSY','submission','none','Submission is already active.');if(submissions.size>=maxQueuedJobs)throw limitError();submissions.add(operationId);return()=>{submissions.delete(operationId);};},
       get:(args:{operationId:string}&Op)=>call<NativePayment|null>('payment_get',args),
       list:(args:PaymentInventoryInput&Op)=>call<PaymentInventory>('payment_list',args),

@@ -122,7 +122,7 @@ export async function createWalletClient(args:WalletOptions):Promise<WalletClien
         list:call(accountOwner.api.list,true),get:call(accountOwner.api.get),remove:call(accountOwner.api.remove),attachSigner:call(accountOwner.api.attachSigner),detachSigner:call(accountOwner.api.detachSigner)}),
       addresses:Object.freeze({current:call(runtimeOwner.session.addresses.current),next:call(runtimeOwner.session.addresses.next),list:call(runtimeOwner.session.addresses.list),at:call(runtimeOwner.session.addresses.at)}),
       pczt:Object.freeze({export:call(proposals.export.bind(proposals)),import:call(proposals.import.bind(proposals))}),
-      operations:Object.freeze({get:call(paymentOwner.operations.get),list:call(paymentOwner.operations.list,true),resume:call(paymentOwner.operations.resume)}),
+      operations:Object.freeze({abandon:call(paymentOwner.operations.abandon),get:call(paymentOwner.operations.get),list:call(paymentOwner.operations.list,true),resume:call(paymentOwner.operations.resume)}),
       propose:call(propose),send:call(execute.send),shield:call(execute.shield),build:call(args=>proposals.build(args)),prove:call(args=>proposals.prove(args)),
       sign:call(walletSign(proposals,runtimeOwner.session,accountOwner)),finalize:call(args=>paymentOwner.finalize(args)),broadcast:call(args=>paymentOwner.broadcast(args)),
       getBalance:call(args=>runtimeOwner.session.getBalance({...snapshot(args,['accountId','signal']),confirmations})),

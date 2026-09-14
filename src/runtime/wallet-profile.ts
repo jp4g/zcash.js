@@ -4,8 +4,8 @@ import type { ArtifactManifest } from '../../docs/api/public-api.js';
 export const walletProfile = {
   contractRevision: 'zakura-private-wallet/1', abiVersion: 'checked-bindgen-0.2.128/1',
   schemas: {
-    operations: { walletViews: '6', walletSigner: '2', walletProposals: '2', walletPczt: '4', walletPayments: '1', walletFused: '1', walletScan: '1', walletSync: '2', walletEnhancement: '2', walletQueries: '2', consensusContext: '1', decodeTransaction: '1' },
-    protobuf: 'not-used', networkParameters: 'zcash-js-network/1', database: 'wallet-storage/6',
+    operations: { walletViews: '6', walletSigner: '2', walletProposals: '2', walletPczt: '4', walletPayments: '2', walletFused: '1', walletScan: '1', walletSync: '2', walletEnhancement: '2', walletQueries: '2', consensusContext: '1', decodeTransaction: '1' },
+    protobuf: 'not-used', networkParameters: 'zcash-js-network/1', database: 'wallet-storage/7',
     hostServices: { nodeFilesystem: 'linux-flock/1', browserOpfs: 'sync-access-handle/1', storage: 'scalar-vfs/1' },
   },
 } as const;

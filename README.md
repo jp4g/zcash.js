@@ -28,4 +28,4 @@ This is the documentation deliverable for [issue #1](https://github.com/jp4g/zca
 
 ## License
 
-Project-owned code is [MIT licensed](LICENSE). Bundled dependencies retain their own licenses; keep the accompanying [third-party notices](licenses/README.md) when redistributing JavaScript/WASM artifacts.
+Project-owned code is [MIT licensed](https://github.com/jp4g/zcash.js/blob/main/LICENSE). Bundled dependencies retain their own licenses; keep the accompanying [third-party notices](https://github.com/jp4g/zcash.js/blob/main/licenses/README.md) when redistributing JavaScript/WASM artifacts.

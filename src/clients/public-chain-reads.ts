@@ -1,4 +1,5 @@
-import { nodeEvents, nodeIsProxy } from './owned-plumbing.js';
+import { bridgeSignal } from '../abort.js';
+import { copyRecord } from './owned-plumbing.js';
 import type { BlockHeader, BlockSelector, ChainTip, HttpTransport, Op } from '../../docs/api/public-api.js';
 import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
@@ -7,79 +8,8 @@ import { blockHash } from '../primitives.js';
 
 type ChainReadSource = { readonly transport: HttpTransport; readonly sourceId: string };
 
-// Capture native operations before any caller callback. Never give readRpc the caller object.
-const NativeController = AbortController;
-const nativeSignal = Object.getOwnPropertyDescriptor(AbortController.prototype, 'signal')!.get!;
-const nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
-const nativeAbort = AbortController.prototype.abort;
-const nativeAny = AbortSignal.any.bind(AbortSignal);
-const nativeAdd = EventTarget.prototype.addEventListener;
-const nativeRemove = EventTarget.prototype.removeEventListener;
-const nodeRuntime = typeof globalThis === 'object'
-  && typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string';
-
-async function bridge(original?: AbortSignal) {
-  if (original === undefined) return { signal: undefined, close() {} };
-  try {
-    if (nodeRuntime) {
-      if (nodeIsProxy(original)) throw invalidArgument();
-    }
-    // Browser Web IDL branding rejects proxies; Node additionally needs isProxy.
-    nativeAborted.call(original);
-    const controller = new NativeController();
-    const signal: AbortSignal = nativeSignal.call(controller);
-    Object.defineProperties(signal, {
-      aborted: { get: () => nativeAborted.call(signal) },
-      addEventListener: { value: nativeAdd.bind(signal) },
-      removeEventListener: { value: nativeRemove.bind(signal) },
-    });
-    if (nodeRuntime) {
-      const { addAbortListener } = nodeEvents();
-      // Node's helper reads public properties. Give it a native signal with
-      // trusted forwarding operations, never the caller's overrides.
-      const view: AbortSignal = nativeSignal.call(new NativeController());
-      Object.defineProperties(view, {
-        aborted: { get: () => nativeAborted.call(original) },
-        addEventListener: { value: (type: string, listener: EventListener, options: AddEventListenerOptions) =>
-          // Keep the resistant listener after synthetic events; only native
-          // cancellation consumes the operation, and finally always detaches it.
-          nativeAdd.call(original, type, listener, { ...options, once: false }) },
-        removeEventListener: { value: nativeRemove.bind(original) },
-      });
-      const subscription = addAbortListener(view, () => {
-        if (nativeAborted.call(original)) nativeAbort.call(controller);
-      });
-      if (nativeAborted.call(original)) nativeAbort.call(controller);
-      return { signal, close: () => subscription[(Symbol as SymbolConstructor & { readonly dispose: symbol }).dispose]() };
-    }
-    // Web IDL uses native state, not public overrides. Dependency propagation
-    // does not rely on delivery of an abort event on the caller's signal.
-    const dependent = nativeAny([original]);
-    const onAbort = () => nativeAbort.call(controller);
-    nativeAdd.call(dependent, 'abort', onAbort);
-    if (nativeAborted.call(dependent)) nativeAbort.call(controller);
-    return { signal, close: () => nativeRemove.call(dependent, 'abort', onAbort) };
-  } catch { throw invalidArgument(); }
-}
-
-// Copy only admitted data descriptors; never reread caller properties after validation.
-function input<T extends object>(value: T, keys: readonly string[]): T {
-  try {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)
-      || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
-    const snapshot = Object.create(null);
-    for (const key of Reflect.ownKeys(value)) {
-      if (typeof key !== 'string' || !keys.includes(key)) throw invalidArgument();
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw invalidArgument();
-      snapshot[key] = descriptor.value;
-    }
-    return snapshot;
-  } catch { throw invalidArgument(); }
-}
-
 function validateSource(source: ChainReadSource): ChainReadSource {
-  const snapshot = input(source, ['transport', 'sourceId']);
+  const snapshot = copyRecord(source, ['transport', 'sourceId']);
   if (typeof snapshot.sourceId !== 'string' || snapshot.sourceId.trim().length === 0) throw invalidArgument();
   return snapshot;
 }
@@ -104,7 +34,7 @@ function hash(value: unknown) {
 /** Internal component; the composing client owns network handshake and source binding. */
 export async function getTip(source: ChainReadSource, args: Op = {}): Promise<ChainTip> {
   const { transport, sourceId } = validateSource(source);
-  const owned = await bridge(input(args, ['signal']).signal);
+  const owned = await bridgeSignal(copyRecord(args, ['signal']).signal, true);
   const { signal } = owned;
   try {
     const value = await readRpc(transport, 'getblockchaininfo', [], signal);
@@ -117,7 +47,7 @@ export async function getTip(source: ChainReadSource, args: Op = {}): Promise<Ch
 /** Resolve once, then pin the raw request to that identity even if the height reorganizes. */
 export async function getBlockHeader(source: ChainReadSource, args: BlockSelector & Op): Promise<BlockHeader | null> {
   const { transport, sourceId } = validateSource(source);
-  args = input(args, ['height', 'hash', 'signal']);
+  args = copyRecord(args, ['height', 'hash', 'signal']);
   const { height, hash: requestedHash } = args;
   if (Object.hasOwn(args, 'height') === Object.hasOwn(args, 'hash')) throw invalidArgument();
   let selector: string;
@@ -125,7 +55,7 @@ export async function getBlockHeader(source: ChainReadSource, args: BlockSelecto
     if (typeof height !== 'number' || !Number.isInteger(height) || height < 0 || height > 0xffff_ffff) throw invalidArgument();
     selector = String(height);
   } else selector = blockHash(requestedHash!);
-  const owned = await bridge(args.signal);
+  const owned = await bridgeSignal(args.signal, true);
   const { signal } = owned;
   try {
     let value;

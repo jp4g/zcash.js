@@ -34,6 +34,8 @@ async function probe(mode) {
     if (String(path).endsWith('/cmdline')) return browserAlive && String(path).includes('/124/') ? 'firefox\0-profile\0/owned/run/profile\0' : 'driver\0';
     if (String(path).startsWith('/proc/')) {
       const pid = Number(String(path).split('/')[2]);
+      // A process can exit between enumerating /proc and reading its stat file.
+      if (pid === 128) throw Object.assign(Error('exited'), { code: 'ESRCH' });
       if (mode.startsWith('profile-chain') && ((pid === 125 && descendantAlive) || pid === 126 || pid === 127)) {
         const fields = Array(22).fill('0'); fields[0] = 'S'; fields[1] = pid === 125 ? '124' : '1';
         fields[2] = String(pid); fields[19] = pid === 127 ? '100' : '458';
@@ -53,7 +55,7 @@ async function probe(mode) {
   };
   const fs = { mkdir: async () => {}, mkdtemp: async () => '/owned/run', readFile: async p => read(p),
     writeFile: async (p, b) => writes.set(p, b), mkdirSync() {}, mkdtempSync: () => '/owned/run',
-    readFileSync: read, writeFileSync: (p, b) => { writes.set(p, b); if (process.env.LIFECYCLE_CHILD_RECEIPT && p.endsWith('receipt.json')) writeFileSync(process.env.LIFECYCLE_CHILD_RECEIPT, b); }, readdirSync: () => [...(alive ? ['123'] : []), ...(browserAlive ? ['124'] : []), ...(mode.startsWith('profile-chain') ? [...(descendantAlive ? ['125'] : []), '126', '127'] : [])] };
+    readFileSync: read, writeFileSync: (p, b) => { writes.set(p, b); if (process.env.LIFECYCLE_CHILD_RECEIPT && p.endsWith('receipt.json')) writeFileSync(process.env.LIFECYCLE_CHILD_RECEIPT, b); }, readdirSync: () => ['128', ...(alive ? ['123'] : []), ...(browserAlive ? ['124'] : []), ...(mode.startsWith('profile-chain') ? [...(descendantAlive ? ['125'] : []), '126', '127'] : [])] };
   const deps = { fs, crypto, assert: { default: assert }, options: { firefoxOptions: () => ({ args: ['-headless'] }) }, child: {
     spawn() {
       spawnCount++;

@@ -1,3 +1,4 @@
+import { signalAborted, admitSignal } from '../abort.js';
 import type { BlockSelector, Network, TreeState, ChainTip, CompactBlock, HeightRange, CustomLightTransport, Op } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { blockHash } from '../primitives.js';
@@ -14,27 +15,6 @@ interface Lightwire {
 const revision = 'lightwire:80575dbe59a9bf2e6b79e2391eb78679c453f1a0477292eb97ea3b58bb6c8b10:d8d0c8aaa5ceec7d5dcc188ef25b04011df2ec0254901620fce982fc13aeb32d';
 const protocol = () => failure('PROTOCOL_MISMATCH', 'query', 'configure', 'Invalid light-chain response or schema revision.');
 const transportFailure = () => failure('TRANSPORT_ERROR', 'transport', 'configure', 'Light-chain request failed.');
-const signalAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
-
-// Node's JS AbortSignal getter accepts proxies, unlike WebIDL. Reuse the accepted
-// transport's host intrinsic policy, without a Node import in browser modules.
-const unsupportedSignalProxy = (() => {
-  try { signalAborted.call(new Proxy(new AbortController().signal, {})); }
-  catch { return () => false; }
-  const host = globalThis as typeof globalThis & { process?: {
-    getBuiltinModule?: (name: string) => { types: { isProxy: (value: unknown) => boolean } };
-  } };
-  return host.process?.getBuiltinModule?.('node:util').types.isProxy ?? (() => true);
-})();
-
-function admitSignal(signal: AbortSignal | undefined): void {
-  if (signal === undefined) return;
-  try {
-    if (unsupportedSignalProxy(signal) || Object.getPrototypeOf(signal) !== AbortSignal.prototype
-      || Object.hasOwn(signal, 'aborted') || Object.hasOwn(signal, 'reason')) throw invalidArgument();
-    signalAborted.call(signal);
-  } catch { throw invalidArgument(); }
-}
 
 export function admit(transport: CustomLightTransport, args: Op, keys: readonly string[]): string {
   try {

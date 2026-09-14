@@ -46,7 +46,7 @@ async function runFirefox() {
     if (!Number.isSafeInteger(pid) || pid <= 0) return null;
     try { const fields = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ').at(-1).split(' ');
       return { pid, parent: Number(fields[1]), group: Number(fields[2]), start: fields[19], state: fields[0] }; }
-    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    catch (error) { if (error.code === 'ENOENT' || error.code === 'ESRCH') return null; throw error; }
   };
   const alive = owned => { const now = owned && identity(owned.pid); return !!now && now.start === owned.start && now.state !== 'Z'; };
   const members = new Map();
@@ -129,6 +129,7 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
 </script>`],
       ['/light-transparent-reads-browser.mjs', readFileSync(new URL('./light-transparent-reads-browser.mjs', import.meta.url))],
       ['/grpc-web-fixtures.mjs', readFileSync(new URL('./grpc-web-fixtures.mjs', import.meta.url))],
+      ['/src/abort.js', readFileSync(new URL('../../dist/src/abort.js', import.meta.url))],
       ['/src/clients/grpc-web.js', readFileSync(build + '/src/clients/grpc-web.js')],
       ['/src/clients/grpc-status.js', readFileSync(build + '/src/clients/grpc-status.js')],
       ['/src/clients/light-transparent-reads.js', readFileSync(build + '/src/clients/light-transparent-reads.js')],

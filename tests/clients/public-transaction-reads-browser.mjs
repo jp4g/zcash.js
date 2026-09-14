@@ -81,7 +81,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   async function identity(pid) {
     try { const stat = (await readFile(`/proc/${pid}/stat`, 'utf8')).split(') ').at(-1).split(' ');
       return { pid, start: stat[19], state: stat[0] }; }
-    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    catch (error) { if (error.code === 'ENOENT' || error.code === 'ESRCH') return null; throw error; }
   }
   async function request(route, method = 'GET', body, cleanup = false) {
     const response = await fetch(endpoint + route, { method, headers: { 'content-type': 'application/json' },

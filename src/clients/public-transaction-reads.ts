@@ -1,4 +1,5 @@
-import { nodeEvents, nodeIsProxy } from './owned-plumbing.js';
+import { bridgeSignal, signalAborted } from '../abort.js';
+import { copyRecord } from './owned-plumbing.js';
 import type { HttpTransport, Op, PublicTransaction, TxId, Inclusion, TransactionObservation } from '../../docs/api/public-api.js';
 import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
@@ -6,75 +7,9 @@ import { JsonNumber, protocolError } from '../json.js';
 import { txId, blockHash } from '../primitives.js';
 import { getBlock } from './public-block-reads.js';
 
-// Local native cancellation/descriptor binding follows the accepted chain reads.
-const NativeController = AbortController;
-const nativeSignal = Object.getOwnPropertyDescriptor(AbortController.prototype, 'signal')!.get!;
-const nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
-const nativeAbort = AbortController.prototype.abort;
-const nativeAny = AbortSignal.any.bind(AbortSignal);
-const nativeAdd = EventTarget.prototype.addEventListener;
-const nativeRemove = EventTarget.prototype.removeEventListener;
-const nodeRuntime = typeof globalThis === 'object'
-  && typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string';
-
-async function bridge(original?: AbortSignal) {
-  if (original === undefined) return { signal: undefined, close() {} };
-  try {
-    if (nodeRuntime) {
-      if (nodeIsProxy(original)) throw invalidArgument();
-    }
-    // Browser Web IDL branding rejects proxies; Node additionally needs isProxy.
-    nativeAborted.call(original);
-    const controller = new NativeController();
-    const signal: AbortSignal = nativeSignal.call(controller);
-    if (nodeRuntime) {
-      const { addAbortListener } = nodeEvents();
-      // Node's helper reads public properties. Give it a native signal with
-      // trusted forwarding operations, never the caller's overrides.
-      const view: AbortSignal = nativeSignal.call(new NativeController());
-      Object.defineProperties(view, {
-        aborted: { get: () => nativeAborted.call(original) },
-        addEventListener: { value: (type: string, listener: EventListener, options: AddEventListenerOptions) =>
-          // Keep the resistant listener after synthetic events; only native
-          // cancellation consumes the operation, and finally always detaches it.
-          nativeAdd.call(original, type, listener, { ...options, once: false }) },
-        removeEventListener: { value: nativeRemove.bind(original) },
-      });
-      const subscription = addAbortListener(view, () => {
-        if (nativeAborted.call(original)) nativeAbort.call(controller);
-      });
-      if (nativeAborted.call(original)) nativeAbort.call(controller);
-      return { signal, close: () => subscription[(Symbol as SymbolConstructor & { readonly dispose: symbol }).dispose]() };
-    }
-    // Web IDL uses native state, not public overrides. Dependency propagation
-    // does not rely on delivery of an abort event on the caller's signal.
-    const dependent = nativeAny([original]);
-    const onAbort = () => nativeAbort.call(controller);
-    nativeAdd.call(dependent, 'abort', onAbort);
-    if (nativeAborted.call(dependent)) nativeAbort.call(controller);
-    return { signal, close: () => nativeRemove.call(dependent, 'abort', onAbort) };
-  } catch { throw invalidArgument(); }
-}
-
-// Copy only admitted data descriptors; never reread caller properties after validation.
-function input<T extends object>(value: T, keys: readonly string[]): T {
-  try {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)
-      || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
-    const snapshot = Object.create(null);
-    for (const key of Reflect.ownKeys(value)) {
-      if (typeof key !== 'string' || !keys.includes(key)) throw invalidArgument();
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw invalidArgument();
-      snapshot[key] = descriptor.value;
-    }
-    return snapshot;
-  } catch { throw invalidArgument(); }
-}
-
 
 function checkAbort(signal?: AbortSignal): void {
-  if (signal && nativeAborted.call(signal)) throw failure('ABORTED', 'transport', 'none', 'Request aborted.');
+  if (signal && signalAborted.call(signal)) throw failure('ABORTED', 'transport', 'none', 'Request aborted.');
 }
 function integer(value: unknown, minimum: number, maximum: number): number {
   if (!(value instanceof JsonNumber) || !/^(?:0|-?[1-9][0-9]*)$/.test(value.text)) throw protocolError();
@@ -93,15 +28,15 @@ export async function getTransaction(
   } },
   args: { readonly txid: TxId } & Op,
 ): Promise<PublicTransaction | null> {
-  source = input(source, ['transport', 'sourceId']);
-  context = input(context, ['txid', 'decodeTransaction']);
-  args = input(args, ['txid', 'signal']);
+  source = copyRecord(source, ['transport', 'sourceId']);
+  context = copyRecord(context, ['txid', 'decodeTransaction']);
+  args = copyRecord(args, ['txid', 'signal']);
   const { transport, sourceId } = source;
   const { decodeTransaction } = context;
   const requested = txId(args.txid);
   if (typeof sourceId !== 'string' || !sourceId.trim() || context.txid !== requested
     || typeof decodeTransaction !== 'function') throw invalidArgument();
-  const owned = await bridge(args.signal);
+  const owned = await bridgeSignal(args.signal);
   const { signal } = owned;
   try {
     checkAbort(signal);

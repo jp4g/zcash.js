@@ -3,6 +3,8 @@
 import { fixture, result, sourceId, hashA, hashB, genesis, regtestGenesis, blockOne, transportOptions } from './public-chain-reads-fixtures.mjs';
 
 export async function runBrowser() {
+  const { boundaryChecks } = await import('/boundary-checks.mjs');
+  await boundaryChecks({ ...await import('/src/abort.js'), ...await import('/src/clients/owned-plumbing.js') });
   const checks = [];
   const check = (ok, label) => { if (!ok) throw Error(label); checks.push(label); };
   const rejects = async (promise, code) => {
@@ -211,7 +213,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   async function identity(pid) {
     try { const stat = (await readFile(`/proc/${pid}/stat`, 'utf8')).split(') ').at(-1).split(' ');
       return { pid, parent: Number(stat[1]), group: Number(stat[2]), start: stat[19], state: stat[0] }; }
-    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    catch (error) { if (error.code === 'ENOENT' || error.code === 'ESRCH') return null; throw error; }
   }
   async function request(route, method = 'GET', body, cleanup = false) {
     const response = await fetch(endpoint + route, { method, headers: { 'content-type': 'application/json' },
@@ -229,6 +231,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     ]);
     const { addBuildAssets } = await import('../support/build-assets.mjs');
     await addBuildAssets(assets);
+    assets.set('/boundary-checks.mjs', await readFile(new URL('../support/boundary-checks.mjs', import.meta.url)));
     assets.set('/state', JSON.stringify({ rawAbort: false }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     server = await fixture((call, req, res) => {

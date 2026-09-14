@@ -102,7 +102,7 @@ export async function run() {
       const deadline=performance.now()+3000;
       while(performance.now()<deadline) {
         const state=await(await fetch('/fixture-state')).json();
-        if(state.lightRequests.slice(previous).some(r=>r.method===method&&r.mode===mode))return;
+        if(state.lightRequests.slice(previous).some(r=>r.method===method&&r.mode===mode&&!(method==='GetBlockRange'&&r.request==='0a02080112020801')))return;
         await new Promise(resolve=>setTimeout(resolve,10));
       }
       throw Error('light dispatch timeout');

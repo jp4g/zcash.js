@@ -20,6 +20,7 @@ export async function threadedChecks(options,fixture,definition,WorkerType) {
   const light=createLightClient({network,transport:{kind:'custom-lightwallet',sourceId:'threaded-native-fixture',protocolRevision:revision,
     async unary({method,request:bytes}){try{if(method==='GetTreeState'&&encoded(bytes)===priorRequest)return priorTreeState;const result=responses.response(method,bytes);check(result.payload,'known native fixture read');return result.payload;}catch(error){console.error('threaded fixture unary',method,encoded(bytes),String(error));throw error;}},
     async *stream({method,request:bytes,signal}){
+      if(method==='GetBlockRange'&&encoded(bytes)==='0a02080112020801'){yield responses.response(method,bytes).payload;return;}
       if(method==='GetTaddressTransactions'){
         const funding=(await wallet.listUtxos({accountId})).items.find(row=>row.txid===data.txid);
         check(funding?.address&&encoded(bytes)===request(method,{address:funding.address,range:{start:{height:String(data.target.height)},end:{height:String(data.target.height)}}}),'exact native funding address history');

@@ -20,6 +20,7 @@ export async function runBrowser() {
     threading: { mode: 'baseline' }, maxMemoryBytes: 512 * 1024 * 1024, maxQueuedBytes: 65536, maxQueuedJobs: 8, scanBatchSize: 10, maxPcztBytes: 65536 },
     storage: { kind: 'browser-opfs', name },
     network: { identity: 'synthetic-regtest', genesisHash: '03'.repeat(32), parametersFormat: 'zcash-js-network/1', parameters } };
+  if(fixture.storageLegacy) return (await import('./opfs-browser.mjs')).opfsChecks(options.network,fixture);
   if(threadedManifestSha256){
     if(!isSecureContext||!crossOriginIsolated||typeof SharedArrayBuffer==='undefined')throw Error('isolated threaded fixture required');
     options.runtime.threading={mode:'prefer-threaded',artifact:{manifestUrl:new URL('/threaded/manifest.json',location.href).href,manifestSha256:threadedManifestSha256},workers:2,startupTimeoutMs:10000};

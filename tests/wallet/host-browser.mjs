@@ -87,6 +87,14 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     const fixtureBytes = await readFile(`${packet}/bundle/tests/views-fixture.json`);
     assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'), packetBuild.artifacts['tests/views-fixture.json']);
     const nativeFixture = JSON.parse(fixtureBytes);
+    let storageLegacy;
+    if(process.env.WALLET_STORAGE_LEGACY){
+      const bytes=await readFile(process.env.WALLET_STORAGE_LEGACY);
+      report.storageLegacySha256=createHash('sha256').update(bytes).digest('hex');
+      storageLegacy=JSON.parse(bytes).find(item=>item.viewOnly===true);
+      assert.ok(storageLegacy?.legacyDatabase&&storageLegacy.queries.length,'native legacy fixture');
+      assert.ok(process.env.WALLET_THREADED_PACKAGE&&process.env.WALLET_LOADER,'storage faults exercise both packages');
+    }
     const {publicWalletFixture}=await import('./public-wallet-fixture.mjs');
     report.supplementalFixture=await publicWalletFixture(nativeFixture,process.env.WALLET_PUBLIC_FIXTURE);
     const {provingFixture}=await import('./proving-fixture.mjs');
@@ -139,6 +147,10 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       for(const file of manifest.files){const bytes=await readFile(threadedPacket+'/'+file.url);assert.equal(bytes.length,file.byteLength);assert.equal(createHash('sha256').update(bytes).digest('hex'),file.sha256);assets.set('/threaded/'+file.url,bytes);}
     }
     if (process.env.WALLET_LOADER) {
+      if(storageLegacy){
+        for(const name of ['opfs-browser','opfs-faults'])assets.set(`/tests/wallet/${name}.mjs`,await readFile(new URL(`./${name}.mjs`,import.meta.url)));
+        assets.set('/qualification/wallet-durability/quota-pressure.mjs',await readFile(new URL('../../qualification/wallet-durability/quota-pressure.mjs',import.meta.url)));
+      }
       assets.set('/tests/wallet/threaded-checks.mjs',await readFile(new URL('./threaded-checks.mjs',import.meta.url)));
       assets.set('/tests/wallet/public-wallet-checks.mjs', await readFile(new URL('./public-wallet-checks.mjs', import.meta.url)));
       assets.set('/tests/wallet/accounts-checks.mjs', await readFile(new URL('./accounts-checks.mjs', import.meta.url)));
@@ -171,7 +183,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     }
     if(crash){const bytes=await readFile(process.env.WALLET_CRASH_DATABASE);report.crashDatabaseSha256=createHash('sha256').update(bytes).digest('hex');assets.set('/crash-wallet.db',bytes);}
     for(const [name,bytes] of provingAssets)assets.set(name,bytes);
-    assets.set('/fixture.json', JSON.stringify({ crash,webpack:Boolean(process.env.WALLET_WEBPACK_OUTPUT),proving:provingAssets.size>0, shielding:nativeFixture.shielding, pczt:nativeFixture.pczt, signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
+    assets.set('/fixture.json', JSON.stringify({ storageLegacy,crash,webpack:Boolean(process.env.WALLET_WEBPACK_OUTPUT),proving:provingAssets.size>0, shielding:nativeFixture.shielding, pczt:nativeFixture.pczt, signer:signerFixture, import: nativeFixture.import, scan: nativeFixture.scan, enhancement:nativeFixture.enhancement,history:nativeFixture.history }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     for (const [name, bytes] of assets) {
       const path = `${runRoot}/assets${name === '/' ? '/index.html' : name}`;
@@ -229,7 +241,12 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       else { assert.ok(Date.now() < until, 'driver startup deadline'); await pause(30); }
     }
     const options = firefoxOptions();
-    if (process.env.WALLET_FIREFOX_PROFILE) options.args.push('-profile', process.env.WALLET_FIREFOX_PROFILE);
+    if(storageLegacy)options.prefs={...options.prefs,'dom.quotaManager.temporaryStorage.fixedLimit':32768};
+    if(storageLegacy){
+      const profile=`${runRoot}/profile`;await mkdir(profile);
+      for(const name of ['cert9.db','key4.db','pkcs11.txt'])await writeFile(`${profile}/${name}`,await readFile(`${process.env.WALLET_FIREFOX_PROFILE}/${name}`));
+      options.args.push('-profile',profile);
+    } else if (process.env.WALLET_FIREFOX_PROFILE) options.args.push('-profile', process.env.WALLET_FIREFOX_PROFILE);
     const value = await request('/session', 'POST', { capabilities: { alwaysMatch: {
       browserName: 'firefox', acceptInsecureCerts: false, 'moz:firefoxOptions': options } } });
     session = value.sessionId; report.capabilities = value.capabilities;
@@ -266,7 +283,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     if(process.env.WALLET_LOADER&&provingAssets.size){for(const key of ['publicWallet','localTransfer','localShield','localTex','startupRecovery','allOperationsRecovery','twoFinalizedRecovery','publicForkReplay','retryBudget',...(report.supplementalFixture?['localIronwood']:[])])assert.equal(answer.value[key],true);assert.ok(server.calls.length>0&&server.calls.every(call=>call.closed),'all native gRPC-Web responses closed');}
     if(crash){assert.equal(createHash('sha256').update(await readFile(process.env.WALLET_CRASH_DATABASE)).digest('hex'),report.crashDatabaseSha256,'source database snapshot unchanged');for(const flag of ['browserDispatchCrash','unknownAttempt','exactRetry','draftUntouched'])assert.equal(answer.value[flag],true);assert.ok(server.calls.every(call=>call.closed));}
     if(process.env.WALLET_LOADER&&!crash&&!threadedPacket){assert.equal(answer.value.offlineSync,true);assert.equal(answer.value.memoryStorage,true);assert.equal(answer.value.publicSync,true);assert.equal(answer.value.emptyCompleted,true);assert.equal(answer.value.queries,true);assert.equal(answer.value.inventory,true);assert.equal(answer.value.pagination,true);assert.equal(answer.value.watchShared,true);assert.equal(answer.value.enhancementPending,true);assert.equal(answer.value.rewoundTo,99);assert.equal(answer.value.enhanced,true);}
-    if(threadedPacket){for(const key of ['threadedWallet','threadedScanParity','threadedSignerLifetime','threadedBootstrapCleanup'])assert.equal(answer.value[key],true);assert.ok(answer.value.workerDestructions>answer.value.computeWorkers&&answer.value.computeWorkers>=4);}else assert.equal(answer.value.workerDestructions, crash?1:process.env.WALLET_LOADER ? (provingAssets.size?40+Number(Boolean(report.supplementalFixture))*5:24)+Number(Boolean(process.env.WALLET_WEBPACK_OUTPUT)) : 2);
+    if(storageLegacy){assert.equal(answer.value.storageFaults,true);assert.deepEqual(answer.value.results.map(r=>r.mode),['runtime','threaded']);for(const result of answer.value.results){assert.equal(result.quota.nativeQuota,true);assert.equal(result.write.paused,true);assert.equal(result.migration.paused,true);}}
+    else if(threadedPacket){for(const key of ['threadedWallet','threadedScanParity','threadedSignerLifetime','threadedBootstrapCleanup'])assert.equal(answer.value[key],true);assert.ok(answer.value.workerDestructions>answer.value.computeWorkers&&answer.value.computeWorkers>=4);}else assert.equal(answer.value.workerDestructions, crash?1:process.env.WALLET_LOADER ? (provingAssets.size?40+Number(Boolean(report.supplementalFixture))*5:24)+Number(Boolean(process.env.WALLET_WEBPACK_OUTPUT)) : 2);
     report.status = 'passed';
   } catch (error) {
     if (report.interruptedBy) report.status = 'interrupted';

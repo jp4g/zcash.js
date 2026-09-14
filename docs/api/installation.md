@@ -47,7 +47,7 @@ try { await wallet.getSyncStatus(); } finally { await wallet.close(); }
 
 In a browser, use `{ kind: 'browser-opfs', name: 'my-wallet' }` storage in a supported secure context and serve the same verified assets with your application. Browser gRPC requires a permitted gRPC-Web endpoint. Applications supply network identity, endpoints and any proving assets; the offline example performs no sync or submission. Proving needs larger configured memory/queue limits and canonical assets, as described in [signing](signing.md). Caller-owned signers and clients remain caller-owned after wallet close.
 
-The accepted baseline does not establish healthy threaded support, every browser, or complete v1 acceptance. Account/signer/finalization gaps #97 and #102 remain explicit. Never use synthetic fixture network definitions with real funds.
+The accepted baseline does not establish every browser or complete v1 acceptance. Signer selection (#97) and current threaded integration (#107) are now qualified separately; already-finalized transparent PCZT inputs (#102) remain deferred. Never use synthetic fixture network definitions with real funds.
 
 ## Reproduce the installed-wallet check
 
@@ -99,3 +99,13 @@ The example tsconfig uses strict checking and `noEmit`. Its exact `zcash.js` pat
 Webpack 5.110.3's installed-package bundle was exercised by the existing Firefox wallet harness with accepted runtime package 03. The non-proving run passed public OPFS open/read/close through the bundled entry (`webpackWallet: true`), alongside the existing baseline workflows: 25 workers destroyed, 82,379 ms, and complete browser/driver/server cleanup. Receipt: `/home/jack/zcash-webpack-consumer-firefox-01-logs/firefox-GKpMPc.json`, SHA-256 `5f611b75666c2f1b382dc99dfb6209c74a60c95201b5b866742dc6d9c463b625`. The tested bundle-02 SHA-256 is `1665d7e443af7c512c6bada546b17c307e99799900e4b780a30d30cbaed994bc`.
 
 This qualifies the tested browser bundle and unchanged external runtime asset path. It does not establish Webpack Node/CJS output, threaded execution, a proving workload through the Webpack bundle, or complete v1 acceptance.
+
+## Current OPFS fault recovery (#116)
+
+The existing Firefox wallet host now accepts `WALLET_STORAGE_LEGACY` pointing to the JSON emitted by the native `native_policy_legacy_marks_migrate_on_open` test with `WALLET_LEGACY_FIXTURE`. Use it with `WALLET_LOADER=1`, both `WALLET_RUNTIME_PACKAGE` and `WALLET_THREADED_PACKAGE`, the corresponding `WALLET_NATIVE_BUILD`, and the host's existing build/TLS/profile settings. This lane creates a fresh profile carrying only the test trust store and sets a 32 MiB quota limit. It does not modify the runtime packages or install product fault hooks.
+
+Both accepted packages passed real storage exhaustion, worker termination after a journal flush and database write, and termination during opening migration. Fresh owners verified rollback, address allocation retry, native balance/scan expectations and repeated migration reopen. Firefox returned a native `NS_ERROR_FILE_NO_DEVICE_SPACE` on the filler growth probe and a journal short write (0 of 4096 bytes), not a wallet `QuotaExceededError`. Forty owner/compute workers were terminated; browser, driver and server cleanup passed.
+
+Source-bound receipt: `/home/jack/zcash-opfs-closeout-logs/firefox-CxfelD.json`, SHA-256 `2903cff4aac2b5930386951eb4e486a4dd8efba808f2b43ecec75f05e954e937`, numeric exit 0. Its asset hashes bind the test sources and both accepted manifests: baseline `8388ccc38b861ef5da60eaa7ced46809afaea826dd8821769a117bc780a7f677`, threaded `f43ebe1e2ff42017793fc138b7c080da3a54c0711c49451b0a929aee4a6db3e8`.
+
+The native fixture receipt is `/home/jack/zakura-opfs-closeout-scratch/REPORT.md`; its single existing migration test passed with numeric exit 0. The generated `legacy-03.json` hash is `33393c0de6ecede656b37463ce5c42b4c1e78f5f51ea3b41b183f6a10361a411`, matching the browser receipt. These checks supplement the existing public Node/browser E2E and dispatch-recovery evidence; they do not replace it or qualify other browsers.

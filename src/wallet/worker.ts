@@ -1,5 +1,6 @@
 import type { ErrorCode, ErrorInfo } from '../../docs/api/public-api.js';
-import { failure, isZcashError } from '../errors.js';
+import { copyRecord } from '../clients/owned-plumbing.js';
+import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { WalletSession } from './session.js';
 import type { Completion, InitializedViews, InitializedSigners } from './session.js';
 
@@ -18,8 +19,9 @@ export interface WalletReply {
 export const walletWrites = new Set<WalletCommand>(['payment_abandon','fused_send','payment_reconcile','payment_observe','payment_attempt_begin','payment_attempt_finish','payment_recovery_position','pczt_finalize','pczt_prove', 'pczt_import', 'pczt_build', 'account_remove', 'proposal_create','account_import', 'account_import_mnemonic_signer', 'account_create_mnemonic_signer', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
 export const mnemonicCommand = (command: unknown) => command === 'account_import_mnemonic_signer' || command === 'account_create_mnemonic_signer';
 /** Only SDK-owned plain structured-clone secret buffers reach this cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-export function clearMnemonic(args: any): void {
+export function clearMnemonic(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  const args = value as Record<string, unknown>;
   for (const key of ['mnemonic', 'passphrase']) if (args?.[key] instanceof Uint8Array) args[key].fill(0);
 }
 
@@ -73,11 +75,24 @@ function errorInfo(error: unknown, command: WalletCommand): { error: ErrorInfo; 
   return { error: { code, stage, recovery, retryable: false, message: 'Wallet operation failed.' }, invalid };
 }
 
+function signerToken(value: unknown): number {
+  const { token } = copyRecord(value, ['token']);
+  if (typeof token !== 'number') throw invalidArgument();
+  return token;
+}
+function signerAuthorization(value: unknown): import('./session.js').NativeSignerAuthorization {
+  const dto = copyRecord(value, ['token', 'format', 'parameters', 'genesis', 'height', 'branch', 'bytes', 'maximum']);
+  if (typeof dto.token !== 'number' || typeof dto.format !== 'string'
+    || !(dto.parameters instanceof Uint8Array) || !(dto.genesis instanceof Uint8Array) || !(dto.bytes instanceof Uint8Array)
+    || typeof dto.height !== 'number' || typeof dto.branch !== 'number' || typeof dto.maximum !== 'number') throw invalidArgument();
+  return { token: dto.token, format: dto.format, parameters: dto.parameters, genesis: dto.genesis,
+    height: dto.height, branch: dto.branch, bytes: dto.bytes, maximum: dto.maximum };
+}
+
 /** Called only after the packaged worker initializes its actual Rust storage owner. */
 export function installWalletWorker(owner: InitializedViews | undefined, port: MessagePort, ownerInvalid: () => boolean = () => false, signers?: InitializedSigners): void {
   const session = owner ? new WalletSession(owner) : undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-  const calls: Partial<Record<WalletCommand, (args: any) => unknown>> = session ? {
+  const calls: Partial<Record<WalletCommand, (...args: never[]) => unknown>> = session ? {
     payment_abandon:session.payments.abandon,payment_get:session.payments.get,payment_list:session.payments.list,payment_reconcile:session.payments.reconcile,payment_observe:session.payments.observe,
     payment_attempt_begin:session.payments.begin,payment_attempt_finish:session.payments.finish,payment_recovery_position:session.payments.position,
     fused_send:session.fused.send,pczt_finalize:session.pczt.finalize,finalized_get:session.pczt.finalized,
@@ -97,23 +112,29 @@ export function installWalletWorker(owner: InitializedViews | undefined, port: M
     proposal_lookup_intent: session.proposals.lookup, proposal_create: session.proposals.create, proposal_get: session.proposals.get, proposal_list: session.proposals.list,
     signer_bind: session.signers.bind, signer_unbind: session.signers.unbind,
   } : {
-    signer_capabilities: args => signers!.capabilities(args.token),
-    signer_authorize: args => signers!.authorize(args.token, args.format, args.parameters, args.genesis, args.height, args.branch, args.bytes, args.maximum),
-    signer_describe: args => signers!.describe(args.token), signer_release: args => signers!.release(args.token), close: () => {},
+    signer_capabilities: (args: unknown) => signers!.capabilities(signerToken(args)),
+    signer_authorize: (args: unknown) => {
+      const dto = signerAuthorization(args);
+      return signers!.authorize(dto.token, dto.format, dto.parameters, dto.genesis, dto.height, dto.branch, dto.bytes, dto.maximum);
+    },
+    signer_describe: (args: unknown) => signers!.describe(signerToken(args)),
+    signer_release: (args: unknown) => signers!.release(signerToken(args)), close: () => {},
   };
   let lastId = 0, closed = false;
-  port.onmessage = async ({ data }) => {
+  port.onmessage = async ({ data: raw }: MessageEvent<unknown>) => {
+    const data = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;
     let command: WalletCommand = 'close';
     try {
-      if (!data || !Number.isSafeInteger(data.id) || data.id <= lastId
-        || !Object.hasOwn(calls, data.command) || typeof data.args !== 'object' || data.args === null
+      if (!data || typeof data.id !== 'number' || !Number.isSafeInteger(data.id) || data.id <= lastId
+        || typeof data.command !== 'string' || !Object.hasOwn(calls, data.command) || typeof data.args !== 'object' || data.args === null
         || Array.isArray(data.args) || Object.keys(data).sort().join(',') !== 'args,command,id') {
         throw failure('INVALID_ARGUMENT', 'validation', 'correct-input', 'Invalid wallet request.');
       }
-      lastId = data.id; command = data.command;
+      lastId = data.id; command = data.command as WalletCommand;
       if (closed) throw failure('CLOSED', 'runtime', 'none', 'Wallet session is closed.');
       if (command === 'close') closed = true;
-      const value = await (calls[command] as (args: object) => Promise<unknown>)(data.args);
+      // Session methods own command-specific validation; the router admits only the envelope.
+      const value: unknown = await Reflect.apply(calls[command]!, calls, [data.args]);
       port.postMessage({ id: data.id, completion: walletWrites.has(command) ? 'committed' : 'none',
         invalid: false, outcome: { ok: true, value } } satisfies WalletReply);
     } catch (error) {
@@ -121,7 +142,7 @@ export function installWalletWorker(owner: InitializedViews | undefined, port: M
       info.invalid ||= ownerInvalid();
       if (info.invalid) closed = true;
       const completion = session ? typeof error === 'object' && error !== null ? session.completion(error) ?? 'unknown' : 'unknown' : info.invalid ? 'unknown' : 'none';
-      port.postMessage({ id: data?.id, completion, invalid: info.invalid, outcome: { ok: false, error: info.error } } satisfies WalletReply);
+      port.postMessage({ id: data?.id, completion, invalid: info.invalid, outcome: { ok: false, error: info.error } });
     } finally {
       if (mnemonicCommand(data?.command)) clearMnemonic(data?.args);
     }

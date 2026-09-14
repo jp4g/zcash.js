@@ -1,4 +1,3 @@
-import type { NetworkDefinition } from '../docs/api/public-api.js';
 import { invalidArgument } from './errors.js';
 import { blockHash } from './primitives.js';
 
@@ -34,10 +33,11 @@ export function parseNetworkParameters(input: Uint8Array, parametersFormat: stri
 }
 
 /** Owned registration input and exact equality key, not a host token or digest. */
-export function bindNetworkDefinition(definition: NetworkDefinition) {
+export function bindNetworkDefinition(definition: unknown) {
   if (!definition || typeof definition !== 'object' || Reflect.ownKeys(definition).some(key => !['identity', 'genesisHash', 'parameters', 'parametersFormat'].includes(String(key)))) throw invalidArgument();
-  const { identity, genesisHash, parametersFormat, parameters: input } = definition;
-  if (typeof identity !== 'string' || identity.length === 0) throw invalidArgument();
+  const { identity, genesisHash, parametersFormat, parameters: input } = definition as Record<string, unknown>;
+  if (typeof identity !== 'string' || identity.length === 0 || typeof genesisHash !== 'string'
+    || typeof parametersFormat !== 'string' || !(input instanceof Uint8Array)) throw invalidArgument();
   const checkedGenesis = blockHash(genesisHash);
   const parameters = parseNetworkParameters(input, parametersFormat);
   const binding = JSON.stringify([identity, checkedGenesis, parametersFormat, new TextDecoder().decode(parameters.bytes)]);

@@ -1,6 +1,8 @@
 import type { NetworkDefinition, Op, RuntimeOptions, WalletStorage, WasmArtifact, ZcashError } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { bindNetworkDefinition } from '../network-parameters.js';
+import { admitSignal } from '../abort.js';
+import { copyRecord } from '../clients/owned-plumbing.js';
 import { operation } from '../clients/light-chain-reads.js';
 import type { WalletQueueBudget } from '../wallet/host.js';
 import { attachWalletWorker } from '../wallet/host.js';
@@ -36,19 +38,47 @@ const reviewedThreadedAssets: Record<string, string> = {
 const policy = { ...walletProfile, mode: 'baseline' as const, maxManifestBytes: 16384,
   maxAssetBytes: 32 * 1024 * 1024, maxTotalAssetBytes: 40 * 1024 * 1024, maxFiles: 5, timeoutMs: 30000 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-function record(value: unknown, keys: string[]): Record<string, any> {
-  try {
-    if (!value || typeof value !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw 0;
-    const owned = Object.create(null);
-    for (const key of Reflect.ownKeys(value)) {
-      if (typeof key !== 'string' || !keys.includes(key)) throw 0;
-      const property = Object.getOwnPropertyDescriptor(value, key);
-      if (!property || !Object.hasOwn(property, 'value')) throw 0;
-      owned[key] = property.value;
-    }
-    return owned;
-  } catch { throw invalidArgument(); }
+function record(value: unknown, keys: string[]): Record<string, unknown> {
+  return copyRecord(value, keys);
+}
+function positive(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) throw invalidArgument();
+  return value;
+}
+function artifact(value: unknown): WasmArtifact {
+  const fields = record(value, ['manifestUrl', 'manifestSha256']);
+  if (typeof fields.manifestUrl !== 'string' || typeof fields.manifestSha256 !== 'string') throw invalidArgument();
+  const result = { manifestUrl: fields.manifestUrl, manifestSha256: fields.manifestSha256 };
+  artifactEndpoint(result);
+  return result;
+}
+function runtimeOptions(value: unknown): RuntimeOptions {
+  const fields = record(value, ['baseline', 'threading', 'maxMemoryBytes', 'maxQueuedBytes', 'maxQueuedJobs', 'scanBatchSize', 'maxPcztBytes', 'onDiagnostic']);
+  const raw = record(fields.threading, ['mode', 'artifact', 'workers', 'startupTimeoutMs']);
+  let threading: RuntimeOptions['threading'];
+  if (raw.mode === 'baseline' && Object.keys(raw).length === 1) threading = { mode: 'baseline' };
+  else if (raw.mode === 'prefer-threaded' && Object.keys(raw).length === 4) {
+    threading = { mode: raw.mode, artifact: artifact(raw.artifact), workers: positive(raw.workers), startupTimeoutMs: positive(raw.startupTimeoutMs) };
+    if (threading.workers > 8) throw resource();
+  } else throw invalidArgument();
+  const diagnostic = fields.onDiagnostic;
+  if (diagnostic !== undefined && typeof diagnostic !== 'function') throw invalidArgument();
+  return { baseline: artifact(fields.baseline), threading,
+    maxMemoryBytes: positive(fields.maxMemoryBytes), maxQueuedBytes: positive(fields.maxQueuedBytes),
+    maxQueuedJobs: positive(fields.maxQueuedJobs), scanBatchSize: positive(fields.scanBatchSize), maxPcztBytes: positive(fields.maxPcztBytes),
+    ...(diagnostic === undefined ? {} : { onDiagnostic: event => Reflect.apply(diagnostic, fields, [event]) }) };
+}
+function walletStorage(value: unknown): WalletStorage {
+  const storage = record(value, ['kind', 'path', 'name']);
+  if (storage.kind !== 'memory' && storage.kind !== (node ? 'node-filesystem' : 'browser-opfs')) throw unavailable();
+  if (storage.kind === 'memory') {
+    if (Object.keys(storage).length !== 1) throw invalidArgument();
+    return { kind: 'memory' };
+  }
+  const name = storage[node ? 'path' : 'name'];
+  if (Object.keys(storage).length !== 2 || typeof name !== 'string' || !name.length
+    || name.includes('\0') || (!node && !/^[a-zA-Z0-9_-]{1,128}$/.test(name))) throw invalidArgument();
+  return node ? { kind: 'node-filesystem', path: name } : { kind: 'browser-opfs', name };
 }
 
 /** Browser capabilities only; this does not qualify a threaded artifact. */
@@ -61,27 +91,10 @@ export function browserThreadingPrerequisites(): boolean {
 /** Internal baseline construction. The returned session is not the complete WalletClient. */
 export async function openWalletRuntime(options: { runtime: RuntimeOptions; storage: WalletStorage; network: NetworkDefinition } & Op) {
   const input = record(options, ['runtime', 'storage', 'network', 'signal']);
-  const runtime = record(input.runtime, ['baseline', 'threading', 'maxMemoryBytes', 'maxQueuedBytes', 'maxQueuedJobs', 'scanBatchSize', 'maxPcztBytes', 'onDiagnostic']);
-  const baseline = record(runtime.baseline, ['manifestUrl', 'manifestSha256']);
-  const threading = record(runtime.threading, ['mode', 'artifact', 'workers', 'startupTimeoutMs']);
-  if (!['baseline', 'prefer-threaded'].includes(threading.mode)) throw invalidArgument();
-  if (threading.mode === 'baseline') {
-    if (Object.keys(threading).length !== 1) throw invalidArgument();
-  } else {
-    if (Object.keys(threading).length !== 4) throw invalidArgument();
-    threading.artifact = record(threading.artifact, ['manifestUrl', 'manifestSha256']);
-    artifactEndpoint(threading.artifact as WasmArtifact);
-    for (const key of ['workers', 'startupTimeoutMs']) {
-      if (!Number.isSafeInteger(threading[key]) || threading[key] <= 0) throw invalidArgument();
-    }
-  }
-  if (threading.mode === 'prefer-threaded' && threading.workers > 8) throw resource();
+  const runtime = runtimeOptions(input.runtime);
+  const { baseline, threading } = runtime;
   const threaded = threading.mode === 'prefer-threaded' && (node || browserThreadingPrerequisites());
-  runtime.threading = threading;
   const fallback = threading.mode === 'prefer-threaded' && !node && !browserThreadingPrerequisites();
-  for (const key of ['maxMemoryBytes', 'maxQueuedBytes', 'maxQueuedJobs', 'scanBatchSize', 'maxPcztBytes']) {
-    if (!Number.isSafeInteger(runtime[key]) || runtime[key] <= 0) throw invalidArgument();
-  }
   // Reserve native maximum, verified inventory + executable staging copies, one
   // WASM initialization copy, manifest working space, and admitted payload/control
   // records. This bounds owned-allocation admission, not the engine/process RSS.
@@ -90,26 +103,20 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
   const nativeScratchBytes = 64 * 1024 * 1024;
   const reserved = nativeScratchBytes + 4096 * 65536 + 2 * policy.maxTotalAssetBytes + policy.maxAssetBytes
     + 4 * policy.maxManifestBytes + runtime.maxQueuedBytes + 8192 * runtime.maxQueuedJobs
-    + (threaded ? threading.workers * policy.maxAssetBytes : 0)
+    + (threaded && threading.mode === 'prefer-threaded' ? threading.workers * policy.maxAssetBytes : 0)
     + 8192 * 1024; // Native lifetime signer ceiling: one retained token/cleanup control each.
   if (!Number.isSafeInteger(reserved) || runtime.maxMemoryBytes < reserved) throw resource();
-  if (runtime.onDiagnostic !== undefined && typeof runtime.onDiagnostic !== 'function') throw invalidArgument();
-  const storage = record(input.storage, ['kind', 'path', 'name']);
-  if (storage.kind !== 'memory' && storage.kind !== (node ? 'node-filesystem' : 'browser-opfs')) throw unavailable();
-  const name = node ? 'path' : 'name';
-  if (storage.kind === 'memory') { if (Object.keys(storage).length !== 1) throw invalidArgument(); }
-  else if (Object.keys(storage).length !== 2 || typeof storage[name] !== 'string' || !storage[name].length
-    || storage[name].includes('\0') || (!node && !/^[a-zA-Z0-9_-]{1,128}$/.test(storage.name))) throw invalidArgument();
-  const network = bindNetworkDefinition(record(input.network, ['identity', 'genesisHash', 'parameters', 'parametersFormat']) as unknown as NetworkDefinition);
+  const storage = walletStorage(input.storage);
+  const network = bindNetworkDefinition(record(input.network, ['identity', 'genesisHash', 'parameters', 'parametersFormat']));
   const parameters = network.parameters.bytes;
   const genesis = Uint8Array.from(network.genesisHash.match(/../g)!.reverse(), hex => parseInt(hex, 16));
-  const signal: AbortSignal | undefined = input.signal;
+  const signal = input.signal;
+  admitSignal(signal);
 
-  artifactEndpoint(baseline as WasmArtifact);
   const pending = operation(signal);
   try { pending.check(); } catch (error) { pending.close(); throw error; }
   // Same immutable executable and limits share authority; no key migration across owners.
-  const key = JSON.stringify([baseline.manifestUrl, baseline.manifestSha256, threading.mode, threading.artifact?.manifestUrl, threading.artifact?.manifestSha256, threading.workers, threading.startupTimeoutMs,
+  const key = JSON.stringify([baseline.manifestUrl, baseline.manifestSha256, threading.mode, ...(threading.mode === 'prefer-threaded' ? [threading.artifact.manifestUrl, threading.artifact.manifestSha256, threading.workers, threading.startupTimeoutMs] : []),
     runtime.maxMemoryBytes, runtime.maxQueuedBytes, runtime.maxQueuedJobs, runtime.scanBatchSize, runtime.maxPcztBytes]);
   let entry = owners.get(key);
   if (!entry) {
@@ -119,9 +126,9 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     const forget = () => {
       if (owners.get(key) === created) owners.delete(key);
     };
-    entry.ready = createOwner((threaded ? threading.artifact : baseline) as WasmArtifact, runtime, runtime.maxMemoryBytes-reserved, controller.signal, forget, threaded).catch(async error => {
+    entry.ready = createOwner(threaded && threading.mode === 'prefer-threaded' ? threading.artifact : baseline, runtime, runtime.maxMemoryBytes-reserved, controller.signal, forget, threaded).catch(async error => {
       if (!threaded || controller.signal.aborted || !error || typeof error !== 'object' || !bootstrapFailures.has(error)) { forget(); throw error; }
-      return createOwner(baseline as WasmArtifact, runtime, runtime.maxMemoryBytes-reserved, controller.signal, forget, false).catch(error => { forget(); throw error; });
+      return createOwner(baseline, runtime, runtime.maxMemoryBytes-reserved, controller.signal, forget, false).catch(error => { forget(); throw error; });
     });
     owners.set(key, entry);
   }
@@ -148,7 +155,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     pending.check();
     try { runtime.onDiagnostic?.(Object.freeze(owner.identity.mode === 'threaded' ? {code:'THREADED_SELECTED',reason:'ready'} : fallback ? { code: 'THREADED_FALLBACK', reason: 'prerequisiteMissing' } : threaded ? {code:'THREADED_FALLBACK',reason:'bootstrapFailed'} : { code: 'BASELINE_SELECTED', reason: 'requested' })); } catch { /* Diagnostics do not own startup. */ }
     pending.check();
-    opening = owner.open(storage as WalletStorage, network.parametersFormat, parameters, genesis, release);
+    opening = owner.open(storage, network.parametersFormat, parameters, genesis, release);
     const timed = new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(timeout()), 30000); });
     opened = await pending.wait(Promise.race([opening, timed]));
     pending.check();
@@ -190,14 +197,11 @@ type Owner = Awaited<ReturnType<typeof createOwner>>;
 const bootstrapFailures = new WeakSet<object>();
 const owners = new Map<string, { refs: number; wallets: number; controller: AbortController; ready: Promise<Owner> }>();
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>, provingCapacity: number, signal: AbortSignal, forget: () => void, threaded = false) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-  let worker: { postMessage(value: unknown, transfer: any[]): void; terminate(): unknown } | undefined;
+async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, provingCapacity: number, signal: AbortSignal, forget: () => void, threaded = false) {
+  let worker: { postMessage(value: unknown, transfer: Transferable[]): void; terminate(): unknown } | undefined;
   const children: typeof worker[] = [];
   const childEvents: (() => void)[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-  let spawnChild: ((index: number, pool: any) => void) | undefined;
+  let spawnChild: ((index: number, pool: { module: WebAssembly.Module; memory: WebAssembly.Memory }) => void) | undefined;
   let admitted = false, executionStarted = false, poolReady = false;
   let poolStarted = false;
   const loaded = new Set<number>();
@@ -206,8 +210,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
   let removeAssets = () => {}, removeEvents = () => {};
   let destroying: Promise<void> | undefined, stopped: ZcashError | undefined;
   let nextId = 0;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-  const waiting = new Map<number, { resolve(value: any): void; reject(error: unknown): void }>();
+  const waiting = new Map<number, { resolve(value: Record<string, unknown>): void; reject(error: unknown): void }>();
   const destroy = () => destroying ??= Promise.resolve().then(async () => {
     if (admitted) forget();
     try {
@@ -228,35 +231,37 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
   const check = () => { if (signal.aborted) throw cancelled(); if (stopped) throw stopped; };
   const onAbort = () => stop(cancelled());
   signal.addEventListener('abort', onAbort, {once:true});
-  const timer = setTimeout(() => stop(timeout()), threaded ? runtime.threading.startupTimeoutMs : 30000);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-  const request = (value: unknown, transfer: any[] = []) => new Promise<any>((resolve, reject) => {
+  const workers = runtime.threading.mode === 'prefer-threaded' ? runtime.threading.workers : 0;
+  const timer = setTimeout(() => stop(timeout()), threaded && runtime.threading.mode === 'prefer-threaded' ? runtime.threading.startupTimeoutMs : 30000);
+  const request = (value: object, transfer: Transferable[] = []) => new Promise<Record<string, unknown>>((resolve, reject) => {
     if (nextId >= Number.MAX_SAFE_INTEGER) { reject(resource()); return; }
     const id = ++nextId;
-    try { check(); waiting.set(id, {resolve,reject}); worker!.postMessage({ ...(value as object), id }, transfer); }
+    try { check(); waiting.set(id, {resolve,reject}); worker!.postMessage({ ...value, id }, transfer); }
     catch (error) { waiting.delete(id); reject(error); }
   });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-  const message = (data: any) => {
+  const message = (raw: unknown) => {
     if (stopped) return;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { stop(mismatch()); return; }
+    const data = raw as Record<string, unknown>;
+    if (typeof data.id !== 'number' || !Number.isSafeInteger(data.id)) { stop(mismatch()); return; }
     if (threaded && data?.type === 'pool') {
       if (poolStarted || !waiting.has(data.id) || !(data.module instanceof WebAssembly.Module) || !(data.memory instanceof WebAssembly.Memory) || !(data.memory.buffer instanceof SharedArrayBuffer)) { stop(mismatch()); return; }
       poolStarted = true;
-      try { for (let i = 0; i < runtime.threading.workers; i++) spawnChild!(i, data); } catch { stop(unavailable()); }
+      try { for (let i = 0; i < workers; i++) spawnChild!(i, { module: data.module, memory: data.memory }); } catch { stop(unavailable()); }
       return;
     }
     const pending = waiting.get(data?.id);
     if (!pending) { stop(mismatch()); return; }
     waiting.delete(data.id);
     if (data?.type === 'failure') {
-      const codes = ['STORAGE_ERROR', 'STORAGE_BUSY', 'NETWORK_MISMATCH', 'INVALID_ARGUMENT', 'RESOURCE_LIMIT', 'PROTOCOL_MISMATCH', 'RUNTIME_UNAVAILABLE'];
-      const code = ['SCHEMA_MISMATCH', 'VIEWING_SCHEMA_REQUIRED'].includes(data.code) ? 'MIGRATION_REQUIRED' : data.code;
-      pending.reject(code === 'MIGRATION_REQUIRED' || codes.includes(code)
-        ? failure(code, code.startsWith('STORAGE') || code === 'MIGRATION_REQUIRED' ? 'storage' : 'runtime', 'configure', 'Wallet startup failed.') : unavailable());
+      const codes = ['STORAGE_ERROR', 'STORAGE_BUSY', 'NETWORK_MISMATCH', 'INVALID_ARGUMENT', 'RESOURCE_LIMIT', 'PROTOCOL_MISMATCH', 'RUNTIME_UNAVAILABLE'] as const;
+      const code = (data.code === 'SCHEMA_MISMATCH' || data.code === 'VIEWING_SCHEMA_REQUIRED') ? 'MIGRATION_REQUIRED' : data.code;
+      const known = code === 'MIGRATION_REQUIRED' ? code : codes.find(value => value === code);
+      pending.reject(known ? failure(known, known.startsWith('STORAGE') || known === 'MIGRATION_REQUIRED' ? 'storage' : 'runtime', 'configure', 'Wallet startup failed.') : unavailable());
     } else {
       if (data?.type === 'ready') {
         poolReady = true;
-        if (threaded && (!poolStarted || loaded.size !== runtime.threading.workers)) { pending.reject(mismatch()); stop(mismatch()); return; }
+        if (threaded && (!poolStarted || loaded.size !== workers)) { pending.reject(mismatch()); stop(mismatch()); return; }
       }
       pending.resolve(data);
     }
@@ -275,14 +280,14 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
       void _format; void _files;
       const urls: Record<string, string> = {};
       let channels: () => MessageChannel;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-      const childMessage = (index: number, data: any) => {
+      const childMessage = (index: number, raw: unknown) => {
         if (stopped) return;
+        const data = raw && typeof raw === 'object' ? raw as Record<string, unknown> : undefined;
         if (data?.type !== 'compute-loaded' || data.index !== index || loaded.has(index)) {
           stop(failure('WORKER_CRASHED','runtime','reopen','Wallet compute worker failed.')); return;
         }
         loaded.add(index);
-        if (loaded.size === runtime.threading.workers) {
+        if (loaded.size === workers) {
           try { worker!.postMessage({type:'pool-build'}, []); } catch { stop(unavailable()); }
         }
       };
@@ -305,8 +310,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
         spawnChild = (index, pool) => {
           const child = new threads.Worker(new URL(urls['thread-bootstrap.mjs']!));
           children.push(child);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-          const receive = (data: any) => childMessage(index, data);
+          const receive = (data: unknown) => childMessage(index, data);
           child.on('message',receive); child.on('error',crash); child.on('messageerror',crash); child.on('exit',crash);
           childEvents.push(() => {child.off('message',receive);child.off('error',crash);child.off('messageerror',crash);child.off('exit',crash);});
           child.postMessage({type:'compute-initialize',moduleUrl:urls['wallet.mjs'],module:pool.module,memory:pool.memory,index});
@@ -337,13 +341,16 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
       }
       const wasm = verified.copyFile('bindings_bg.wasm');
       const ready = await request({ type: 'initialize', moduleUrl: urls['wallet.mjs'], wasm, expected,
-        maxMemoryBytes: runtime.maxMemoryBytes, ...(threaded?{workers:runtime.threading.workers}:{}) }, [wasm.buffer]);
+        maxMemoryBytes: runtime.maxMemoryBytes, ...(threaded ? { workers } : {}) }, [wasm.buffer]);
       check();
-      const identity: WalletRuntimeIdentity = ready?.identity;
+      const rawIdentity = ready.identity;
+      if (!rawIdentity || typeof rawIdentity !== 'object') throw mismatch();
+      const identity = rawIdentity as Record<string, unknown>;
       if (ready?.type !== 'ready' || !identity || !sameRecord(expected, {
         contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
       }) || !sameRecord(identity.memory, { initialPages: threaded ? 322 : 321, maximumPages: 4096, shared: threaded })) throw mismatch();
+      const validatedIdentity: WalletRuntimeIdentity = { ...expected, memory: { initialPages: threaded ? 322 : 321, maximumPages: 4096, shared: threaded } };
       poolReady = true;
       const authorityChannel = channels();
       let authority: ReturnType<typeof attachWalletWorker>;
@@ -356,7 +363,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
       } catch (error) { authorityChannel.port1.close(); authorityChannel.port2.close(); throw error; }
       admitted = true;
       return {
-        token: Object.freeze({}), identity: Object.freeze(identity), check, destroy, signers: authority.signers,
+        token: Object.freeze({}), identity: Object.freeze(validatedIdentity), check, destroy, signers: authority.signers,
         invalidate: () => { stop(failure('WORKER_CRASHED','runtime','reopen','Native authority cleanup failed.')); return destroy(); },
         async open(storage: WalletStorage, parametersFormat: string, parameters: Uint8Array, genesis: Uint8Array, release: () => Promise<void>): Promise<OpenedWallet> {
           check();

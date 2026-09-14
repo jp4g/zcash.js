@@ -15,18 +15,25 @@ function field(object:object,key:string):unknown {
     if(descriptor){if(!('value'in descriptor))throw invalidArgument();return descriptor.value;}
   }
 }
-function point(value:ChainPoint):ChainPoint {
+function point(value:unknown):ChainPoint {
   const p=snapshot(value,['height','hash']);
-  if(!Number.isInteger(p.height)||p.height<0||p.height>0xffffffff)throw protocol();
+  if(typeof p.height !== 'number'||typeof p.hash !== 'string'||!Number.isInteger(p.height)||p.height<0||p.height>0xffffffff)throw protocol();
   try{return {height:p.height,hash:blockHash(p.hash)};}catch{throw protocol();}
 }
 function sourceId(value:unknown):string {if(typeof value!=='string'||!value.length||value.length>256)throw protocol();return value;}
+function checkedHash(value: unknown) {
+  if (typeof value !== 'string') throw protocol();
+  return blockHash(value);
+}
+function observationState(value: unknown): TransactionObservation['state'] {
+  if (value === 'notSeen' || value === 'mempool' || value === 'mined' || value === 'offMainChain' || value === 'unknown') return value;
+  throw protocol();
+}
 const same=(a:ChainPoint,b:ChainPoint)=>a.height===b.height&&a.hash===b.hash;
 
 /** Captured client methods; private route identity is never inferred from display sourceId. */
 export class PaymentSource {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-  private readonly methods:Record<string,Function>={};
+  private readonly methods:Record<string, (...args: never[]) => unknown>={};
   private readonly bound:ReturnType<typeof networkBinding>;
   private readonly endpoint:string|null;
   private readonly protocolName:string;
@@ -41,10 +48,10 @@ export class PaymentSource {
     this.endpoint=(registered??light)?.endpoint??null;this.protocolName=registered?'zcash-json-rpc/1':'lightwalletd-v0.5.0';
     for(const name of ['getTip','getTreeState','getTransaction','broadcastTransaction','getTransactionStatus']){
       const method=field(client,name);if(method===undefined&&name==='getTransactionStatus')continue;
-      if(typeof method!=='function')throw invalidArgument();this.methods[name]=method;
+      if(typeof method!=='function')throw invalidArgument();this.methods[name]=(...args: never[]) => Reflect.apply(method, this.client, args);
     }
   }
-  private call<T>(method:string,args:object):Promise<T>{return Promise.resolve().then(()=>Reflect.apply(this.methods[method]!,this.client,[args]));}
+  private call(method:string,args:object):Promise<unknown>{return Promise.resolve().then(()=>Reflect.apply(this.methods[method]!,this.client,[args]));}
   async route():Promise<string|null>{
     if(this.endpoint===null)return null;
     const bytes=new TextEncoder().encode(JSON.stringify([this.protocolName,this.endpoint,this.bound.definition.binding]));
@@ -52,70 +59,72 @@ export class PaymentSource {
   }
   private async tree(height:number,signal:AbortSignal):Promise<ChainPoint & {sourceId:string}>{
     if(!Number.isInteger(height)||height<0||height>0xffffffff)throw protocol();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-    const value=snapshot(await this.call<any>('getTreeState',{height,signal}),['network','point','sapling','ironwood','encoded','sourceId','observedAt']);
+    const value=snapshot(await this.call('getTreeState',{height,signal}),['network','point','sapling','ironwood','encoded','sourceId','observedAt']);
     if(networkBinding(value.network).definition.binding!==this.bound.definition.binding)throw mismatch();
     const p=point(value.point);if(p.height!==height)throw protocol();
     const bytes=ownBytes(value.encoded,protocol,protocol,65536);
-    let decoded:{height:string;hash:string};try{decoded=initialize().decodeResponse('GetTreeState',bytes) as typeof decoded;}catch{throw protocol();}
+    let decoded: unknown;
+    try { decoded = initialize().decodeResponse('GetTreeState', bytes); } catch { throw protocol(); }
+    if (!decoded || typeof decoded !== 'object' || !('height' in decoded) || !('hash' in decoded)) throw protocol();
     if(decoded.height!==String(p.height)||decoded.hash!==p.hash)throw protocol();return {...p,sourceId:sourceId(value.sourceId)};
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-  async verify(signal:AbortSignal):Promise<string>{const pending=operation(signal);try{pending.check();if(this.registered){const tip=snapshot(await pending.wait(this.call<any>('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);point({height:tip.height,hash:tip.hash});return sourceId(tip.sourceId);}const tree=await pending.wait(this.tree(0,pending.signal));if(tree.hash!==this.network.genesisHash)throw mismatch();return tree.sourceId;}finally{pending.close();}}
+  async verify(signal:AbortSignal):Promise<string>{const pending=operation(signal);try{pending.check();if(this.registered){const tip=snapshot(await pending.wait(this.call('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);point({height:tip.height,hash:tip.hash});return sourceId(tip.sourceId);}const tree=await pending.wait(this.tree(0,pending.signal));if(tree.hash!==this.network.genesisHash)throw mismatch();return tree.sourceId;}finally{pending.close();}}
   async observe(id:TxId,signal:AbortSignal):Promise<TransactionObservation>{
     const pending=operation(signal);
     try{
       pending.check();const verifiedSource=await pending.wait(this.verify(pending.signal));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-      const before=snapshot(await pending.wait(this.call<any>('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);
+      const before=snapshot(await pending.wait(this.call('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);
       const tip=point({height:before.height,hash:before.hash}),source=sourceId(before.sourceId);
       if(source!==verifiedSource)throw protocol();
-      let evidence:TransactionObservation;
-      if(this.methods.getTransactionStatus)evidence=await pending.wait(this.call<TransactionObservation>('getTransactionStatus',{txid:id,signal:pending.signal}));
+      let evidence:unknown;
+      if(this.methods.getTransactionStatus)evidence=await pending.wait(this.call('getTransactionStatus',{txid:id,signal:pending.signal}));
       else{
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-        const result=await pending.wait(this.call<any>('getTransaction',{txid:id,signal:pending.signal}));
+        const result=await pending.wait(this.call('getTransaction',{txid:id,signal:pending.signal}));
         if(result===null)evidence={txid:id,state:'notSeen',inclusion:null,tip:null,priorInclusion:null,sourceId:source,observedAt:new Date().toISOString()};
         else{
           const transaction=snapshot(result,['txid','raw','observation','sourceId','observedAt']);
           if(transaction.txid!==id||transaction.sourceId!==source)throw protocol();
           evidence=transaction.observation;
           const raw=ownBytes(transaction.raw,protocol,protocol,2*1024*1024),observation=snapshot(evidence,['txid','state','inclusion','tip','priorInclusion','sourceId','observedAt']);
-          const height=observation.state==='mined'?snapshot(observation.inclusion!,['height','blockHash','confirmations']).height:null;
+          const height=observation.state==='mined'?snapshot(observation.inclusion,['height','blockHash','confirmations']).height:null;
+          if(height!==null&&(typeof height !== 'number'||!Number.isInteger(height)||height<0||height>0xffffffff))throw protocol();
           const heights=height===null?[0,...this.bound.definition.parameters.heights.filter(h=>h!==null)]:[height];
-          if(height!==null&&(!Number.isInteger(height)||height<0||height>0xffffffff))throw protocol();
           const branches=new Set(heights.map(h=>this.bound.codec.consensusContext(this.bound.definition.parametersFormat,this.bound.definition.parameters.bytes,h).branchId));
           let matches=false;for(const branch of branches){try{if(this.bound.codec.decodeTransaction(raw,branch).display===id){matches=true;break;}}catch{/* Existing native decoder tries registered branch contexts. */}}
           if(!matches)throw protocol();
         }
       }
       const value=snapshot(evidence,['txid','state','inclusion','tip','priorInclusion','sourceId','observedAt']);
-      if(value.txid!==id||sourceId(value.sourceId)!==source||!['notSeen','mempool','mined','offMainChain','unknown'].includes(value.state))throw protocol();
+      if(value.txid!==id||sourceId(value.sourceId)!==source)throw protocol();
+      const state = observationState(value.state);
       let inclusion:TransactionObservation['inclusion']=null,priorInclusion:TransactionObservation['priorInclusion']=null;
       if(value.priorInclusion!==null){
         const prior=snapshot(value.priorInclusion,['height','blockHash','confirmations']);
-        if(!Number.isInteger(prior.height)||prior.height<0||prior.height>0xffffffff)throw protocol();
-        if(prior.confirmations!==null&&(!Number.isSafeInteger(prior.confirmations)||prior.confirmations<0))throw protocol();
-        try{priorInclusion={height:prior.height,blockHash:prior.blockHash===null?null:blockHash(prior.blockHash),confirmations:null};}catch{throw protocol();}
+        if(typeof prior.height !== 'number'||!Number.isInteger(prior.height)||prior.height<0||prior.height>0xffffffff)throw protocol();
+        if(prior.confirmations!==null&&(typeof prior.confirmations !== 'number'||!Number.isSafeInteger(prior.confirmations)||prior.confirmations<0))throw protocol();
+        try{priorInclusion={height:prior.height,blockHash:prior.blockHash===null?null:checkedHash(prior.blockHash),confirmations:null};}catch{throw protocol();}
       }
       if(value.state==='mined'){
-        const claimed=snapshot(value.inclusion!,['height','blockHash','confirmations']),p=await pending.wait(this.tree(claimed.height,pending.signal));
+        const claimed=snapshot(value.inclusion,['height','blockHash','confirmations']);
+        if (typeof claimed.height !== 'number') throw protocol();
+        const p=await pending.wait(this.tree(claimed.height,pending.signal));
         if(p.sourceId!==source||p.height>tip.height||(p.height===tip.height&&p.hash!==tip.hash)||(claimed.blockHash!==null&&claimed.blockHash!==p.hash))throw protocol();
         inclusion={height:p.height,blockHash:p.hash,confirmations:tip.height-p.height+1};
       }else if(value.inclusion!==null)throw protocol();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-      const after=snapshot(await pending.wait(this.call<any>('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);
+      const after=snapshot(await pending.wait(this.call('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);
       if(after.sourceId!==source||!same(tip,point({height:after.height,hash:after.hash})))throw protocol();
-      pending.check();return {txid:txId(id),state:value.state,inclusion,tip,priorInclusion,sourceId:source,observedAt:new Date().toISOString()};
+      pending.check();return {txid:txId(id),state,inclusion,tip,priorInclusion,sourceId:source,observedAt:new Date().toISOString()};
     }finally{pending.close();}
   }
   async broadcast(bytes:Uint8Array,id:TxId,expectedSource:string,signal:AbortSignal):Promise<BroadcastReport>{
-    const reply=snapshot(await this.call<BroadcastReport>('broadcastTransaction',{bytes,signal}),['txid','outcome','diagnosticCode','sourceId','observedAt']);
-    if(reply.txid!==id||!['acknowledged','rejected','unknown'].includes(reply.outcome))throw protocol();
+    const reply=snapshot(await this.call('broadcastTransaction',{bytes,signal}),['txid','outcome','diagnosticCode','sourceId','observedAt']);
+    if(reply.txid!==id)throw protocol();
+    const outcome = reply.outcome;
+    if (outcome !== 'acknowledged' && outcome !== 'rejected' && outcome !== 'unknown') throw protocol();
     if(sourceId(reply.sourceId)!==expectedSource)throw protocol();
     if(reply.diagnosticCode!==null&&(typeof reply.diagnosticCode!=='string'||!/^[-a-zA-Z0-9_:]{1,128}$/.test(reply.diagnosticCode)))throw protocol();
     const diagnostic=reply.diagnosticCode===null?null:/^(grpc|rpc)-send:(-?[0-9]{1,10})$/.exec(reply.diagnosticCode);
     const diagnosticCode=diagnostic?`${diagnostic[1]!.toUpperCase()}_SEND_${diagnostic[2]!.replace('-','NEG_')}`:null;
-    return {...reply,diagnosticCode,observedAt:new Date().toISOString()};
+    return {txid:id,outcome,sourceId:expectedSource,diagnosticCode,observedAt:new Date().toISOString()};
   }
 }

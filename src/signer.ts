@@ -1,4 +1,4 @@
-import type { AccountDescriptor, Signer, SignerCapabilities, SigningResult } from '../docs/api/public-api.js';
+import type { Signer, SignerCapabilities } from '../docs/api/public-api.js';
 import { snapshot, ownBytes } from './clients/owned-plumbing.js';
 import { operation } from './clients/light-chain-reads.js';
 import { networkBinding } from './network.js';
@@ -34,16 +34,16 @@ function list<T>(value: unknown, item: (value: unknown) => T): T[] {
     return item(property.value);
   });
 }
-export function signerCapabilities(value: SignerCapabilities): SignerCapabilities {
+export function signerCapabilities(value: unknown): SignerCapabilities {
   let remaining = 65536;
   const charge = (size: number) => { if ((remaining -= size) < 0) throw limit(); };
   const string = (value: unknown) => { const result = text(value); charge(result.length * 2); return result; };
   const number = (value: unknown) => { charge(8); return uint(value); };
   const owned = snapshot(value, ['revision','networks','authorizations','accountDiscovery','exportableViewing','maxPcztBytes']);
-  if (!Number.isSafeInteger(owned.maxPcztBytes) || owned.maxPcztBytes <= 0) throw invalidArgument();
+  if (typeof owned.maxPcztBytes !== 'number' || !Number.isSafeInteger(owned.maxPcztBytes) || owned.maxPcztBytes <= 0) throw invalidArgument();
   return { revision:string(owned.revision), networks:list(owned.networks,string),
     authorizations:list(owned.authorizations, item => {
-      const row = snapshot(item as SignerCapabilities['authorizations'][number], ['pool','txVersion','branchIds','circuitVersions','pcztVersions','proofState','requiredFields','review']);
+      const row = snapshot(item, ['pool','txVersion','branchIds','circuitVersions','pcztVersions','proofState','requiredFields','review']);
       return { pool:member(row.pool,['transparent','sapling','ironwood']), txVersion:number(row.txVersion),
         branchIds:list(row.branchIds,number), circuitVersions:list(row.circuitVersions,string), pcztVersions:list(row.pcztVersions,number),
         proofState:member(row.proofState,['required','not-required','either']), requiredFields:list(row.requiredFields,string), review:member(row.review,['device','application']) };
@@ -57,15 +57,13 @@ function response<T>(read: () => T): T {
 /** Owned adapter transport only; returned PCZT bytes are not verified authorization.
  * The adapter owns cleanup of undelivered account results after cancellation. */
 export function createCustomSigner(adapter: Signer): Signer { return boundedSigner(adapter,Number.MAX_SAFE_INTEGER); }
-// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-const adapters=new WeakMap<Signer,{adapter:Signer;methods:Record<keyof Signer,Function>}>();
+const adapters=new WeakMap<Signer,{adapter:Signer;methods:Record<keyof Signer, (...args: never[]) => unknown>}>();
 /** Wallet admission must bound the original adapter response before any wrapper copies it. */
 export function boundedSigner(adapter: Signer, maximum: number): Signer {
   const captured=adapters.get(adapter);
   adapter=captured?.adapter??adapter;
   // Methods may be prototype data properties on a stateful device adapter.
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-  const methods = captured?.methods??{} as Record<keyof Signer, Function>;
+  const methods = captured?.methods??{} as Record<keyof Signer, (...args: never[]) => unknown>;
   try {
     if (!adapter || typeof adapter !== 'object') throw 0;
     for (const name of captured?[]:['getCapabilities','getAccount','authorize'] as const) {
@@ -80,12 +78,11 @@ export function boundedSigner(adapter: Signer, maximum: number): Signer {
       methods[name] = property.value;
     }
   } catch { throw invalidArgument(); }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-function-type -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-  async function invoke<T>(method: Function, args: object, signal: AbortSignal | undefined, read: (value: any) => T): Promise<T> {
+  async function invoke<T>(method: (...args: never[]) => unknown, args: object, signal: AbortSignal | undefined, read: (value: unknown) => T): Promise<T> {
     const pending = operation(signal);
     try {
       pending.check();
-      const value = await pending.wait(Reflect.apply(method, adapter, [{...args,signal:pending.signal}]));
+      const value: unknown = await pending.wait(Reflect.apply(method, adapter, [{...args,signal:pending.signal}]));
       pending.check();
       const result = response(() => read(value));
       pending.check();
@@ -113,7 +110,7 @@ export function boundedSigner(adapter: Signer, maximum: number): Signer {
         if (Object.keys(selector).length !== 2 || typeof selector.fingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(selector.fingerprint)) throw invalidArgument();
         selected = {kind:'fingerprint',fingerprint:selector.fingerprint};
       } else throw invalidArgument();
-      return invoke(methods.getAccount, {network:input.network,selector:selected}, input.signal, (value:AccountDescriptor) => {
+      return invoke(methods.getAccount, {network:input.network,selector:selected}, input.signal, value => {
         const account = checkedAccountDescriptor(value);
         if (networkBinding(account.network).definition.binding !== bound.definition.binding) throw protocol();
         return account;
@@ -121,7 +118,7 @@ export function boundedSigner(adapter: Signer, maximum: number): Signer {
     },
     async authorize(args) {
       const {request, signal} = signingRequest(args,maximum);
-      return invoke(methods.authorize, request, signal, (value:SigningResult) => {
+      return invoke(methods.authorize, request, signal, value => {
         const result = snapshot(value, ['requestId','pczt']);
         if (result.requestId !== request.requestId) throw protocol();
         return {requestId:result.requestId,pczt:ownBytes(result.pczt,protocol,limit,maximum)};

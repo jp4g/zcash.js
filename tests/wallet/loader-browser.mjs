@@ -1,3 +1,4 @@
+import {threadedChecks} from './threaded-checks.mjs';
 import {publicWalletChecks} from './public-wallet-checks.mjs';
 import {createLightClient,defineNetwork,grpc} from '../../dist/src/index.js';
 import {saplingAssets} from '../../dist/src/wallet/proving-assets.js';
@@ -11,7 +12,7 @@ export async function runBrowser() {
   const mark=name=>{globalThis.walletPhase=name;phases.push({name,elapsedMs:Math.round(performance.now()-started)});};
   globalThis.walletPhases=phases;mark('startup');
   const { openWalletRuntime } = await import('/dist/src/runtime/wallet.js');
-  const { manifestSha256 } = await (await fetch('/runtime-pin.json')).json();
+  const { manifestSha256,threadedManifestSha256 } = await (await fetch('/runtime-pin.json')).json();
   const fixture = await (await fetch('/fixture.json')).json();
   const name = `sdk-loader-${crypto.randomUUID()}`;
   const parameters = new TextEncoder().encode('{"encoding":"regtest","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}');
@@ -19,6 +20,12 @@ export async function runBrowser() {
     threading: { mode: 'baseline' }, maxMemoryBytes: 512 * 1024 * 1024, maxQueuedBytes: 65536, maxQueuedJobs: 8, scanBatchSize: 10, maxPcztBytes: 65536 },
     storage: { kind: 'browser-opfs', name },
     network: { identity: 'synthetic-regtest', genesisHash: '03'.repeat(32), parametersFormat: 'zcash-js-network/1', parameters } };
+  if(threadedManifestSha256){
+    if(!isSecureContext||!crossOriginIsolated||typeof SharedArrayBuffer==='undefined')throw Error('isolated threaded fixture required');
+    options.runtime.threading={mode:'prefer-threaded',artifact:{manifestUrl:new URL('/threaded/manifest.json',location.href).href,manifestSha256:threadedManifestSha256},workers:2,startupTimeoutMs:10000};
+    try{return await threadedChecks(suffix=>({...options,storage:{kind:'browser-opfs',name:name+'-threaded-'+suffix}}),fixture.pczt,options.network,globalThis.Worker);}
+    finally{for(const suffix of ['cancel','failed-child','baseline','parallel'])await(await navigator.storage.getDirectory()).removeEntry(name+'-threaded-'+suffix,{recursive:true}).catch(error=>{if(error.name!=='NotFoundError')throw error;});}
+  }
   if(fixture.crash)return browserDispatchCrash(options,fixture.crash);
   const check = (value, label) => { if (!value) throw Error(label); };
   const same = (a, b) => JSON.stringify(a, (_, v) => typeof v === 'bigint' ? String(v) : v) === JSON.stringify(b, (_, v) => typeof v === 'bigint' ? String(v) : v);

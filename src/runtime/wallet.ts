@@ -24,6 +24,15 @@ const reviewedAssets: Record<keyof typeof layout, string> = {
   'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
 };
+// Independently reviewed threaded producer and worker bootstrap closure.
+const reviewedThreadedAssets: Record<string, string> = {
+  'wallet.mjs': '34f004cadd435b702375ae3078fcfe913004bccb4b620fee0a16871c021e3e75',
+  'worker.mjs': '97ab121b9c43f6f407e30d7d0213cf11030783ce8dd4dae67235bc0b37ad6a6f',
+  'bindings_bg.wasm': '5668ed08d8dc6cc1e2bb72ad964e51cf4b5ba80ef3ff6f1dbe6091dce068284d',
+  'node-fs.mjs': 'e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e',
+  'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
+  'thread-bootstrap.mjs': '97ab121b9c43f6f407e30d7d0213cf11030783ce8dd4dae67235bc0b37ad6a6f',
+};
 const policy = { ...walletProfile, mode: 'baseline' as const, maxManifestBytes: 16384,
   maxAssetBytes: 32 * 1024 * 1024, maxTotalAssetBytes: 40 * 1024 * 1024, maxFiles: 5, timeoutMs: 30000 };
 
@@ -59,11 +68,15 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     if (Object.keys(threading).length !== 1) throw invalidArgument();
   } else {
     if (Object.keys(threading).length !== 4) throw invalidArgument();
-    artifactEndpoint(record(threading.artifact, ['manifestUrl', 'manifestSha256']) as unknown as WasmArtifact);
+    threading.artifact = record(threading.artifact, ['manifestUrl', 'manifestSha256']);
+    artifactEndpoint(threading.artifact as WasmArtifact);
     for (const key of ['workers', 'startupTimeoutMs']) {
       if (!Number.isSafeInteger(threading[key]) || threading[key] <= 0) throw invalidArgument();
     }
   }
+  if (threading.mode === 'prefer-threaded' && threading.workers > 8) throw resource();
+  const threaded = threading.mode === 'prefer-threaded' && (node || browserThreadingPrerequisites());
+  runtime.threading = threading;
   const fallback = threading.mode === 'prefer-threaded' && !node && !browserThreadingPrerequisites();
   for (const key of ['maxMemoryBytes', 'maxQueuedBytes', 'maxQueuedJobs', 'scanBatchSize', 'maxPcztBytes']) {
     if (!Number.isSafeInteger(runtime[key]) || runtime[key] <= 0) throw invalidArgument();
@@ -76,6 +89,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
   const nativeScratchBytes = 64 * 1024 * 1024;
   const reserved = nativeScratchBytes + 4096 * 65536 + 2 * policy.maxTotalAssetBytes + policy.maxAssetBytes
     + 4 * policy.maxManifestBytes + runtime.maxQueuedBytes + 8192 * runtime.maxQueuedJobs
+    + (threaded ? threading.workers * policy.maxAssetBytes : 0)
     + 8192 * 1024; // Native lifetime signer ceiling: one retained token/cleanup control each.
   if (!Number.isSafeInteger(reserved) || runtime.maxMemoryBytes < reserved) throw resource();
   if (runtime.onDiagnostic !== undefined && typeof runtime.onDiagnostic !== 'function') throw invalidArgument();
@@ -89,22 +103,24 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
   const parameters = network.parameters.bytes;
   const genesis = Uint8Array.from(network.genesisHash.match(/../g)!.reverse(), hex => parseInt(hex, 16));
   const signal: AbortSignal | undefined = input.signal;
-  // This qualified profile has no shared-memory executable. Only missing browser
-  // prerequisites select baseline; a capable host must not silently downgrade.
-  if (threading.mode === 'prefer-threaded' && !fallback) throw unavailable();
+
   artifactEndpoint(baseline as WasmArtifact);
   const pending = operation(signal);
   try { pending.check(); } catch (error) { pending.close(); throw error; }
   // Same immutable executable and limits share authority; no key migration across owners.
-  const key = JSON.stringify([baseline.manifestUrl, baseline.manifestSha256, threading.mode,
+  const key = JSON.stringify([baseline.manifestUrl, baseline.manifestSha256, threading.mode, threading.artifact?.manifestUrl, threading.artifact?.manifestSha256, threading.workers, threading.startupTimeoutMs,
     runtime.maxMemoryBytes, runtime.maxQueuedBytes, runtime.maxQueuedJobs, runtime.scanBatchSize, runtime.maxPcztBytes]);
   let entry = owners.get(key);
   if (!entry) {
     const controller = new AbortController();
     entry = { refs: 0, wallets: 0, controller, ready: undefined! };
     const created = entry;
-    entry.ready = createOwner(baseline as WasmArtifact, runtime, runtime.maxMemoryBytes-reserved, controller.signal, () => {
+    const forget = () => {
       if (owners.get(key) === created) owners.delete(key);
+    };
+    entry.ready = createOwner((threaded ? threading.artifact : baseline) as WasmArtifact, runtime, runtime.maxMemoryBytes-reserved, controller.signal, forget, threaded).catch(async error => {
+      if (!threaded || controller.signal.aborted || !error || typeof error !== 'object' || !bootstrapFailures.has(error)) { forget(); throw error; }
+      return createOwner(baseline as WasmArtifact, runtime, runtime.maxMemoryBytes-reserved, controller.signal, forget, false).catch(error => { forget(); throw error; });
     });
     owners.set(key, entry);
   }
@@ -129,7 +145,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     pending.check();
     const owner = await pending.wait(selected.ready);
     pending.check();
-    try { runtime.onDiagnostic?.(Object.freeze(fallback ? { code: 'THREADED_FALLBACK', reason: 'prerequisiteMissing' } : { code: 'BASELINE_SELECTED', reason: 'requested' })); } catch { /* Diagnostics do not own startup. */ }
+    try { runtime.onDiagnostic?.(Object.freeze(owner.identity.mode === 'threaded' ? {code:'THREADED_SELECTED',reason:'ready'} : fallback ? { code: 'THREADED_FALLBACK', reason: 'prerequisiteMissing' } : threaded ? {code:'THREADED_FALLBACK',reason:'bootstrapFailed'} : { code: 'BASELINE_SELECTED', reason: 'requested' })); } catch { /* Diagnostics do not own startup. */ }
     pending.check();
     opening = owner.open(storage as WalletStorage, network.parametersFormat, parameters, genesis, release);
     const timed = new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(timeout()), 30000); });
@@ -170,10 +186,17 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
 
 type OpenedWallet = { session: ReturnType<typeof attachWalletWorker>; close(): Promise<void> };
 type Owner = Awaited<ReturnType<typeof createOwner>>;
+const bootstrapFailures = new WeakSet<object>();
 const owners = new Map<string, { refs: number; wallets: number; controller: AbortController; ready: Promise<Owner> }>();
 
-async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>, provingCapacity: number, signal: AbortSignal, forget: () => void) {
+async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>, provingCapacity: number, signal: AbortSignal, forget: () => void, threaded = false) {
   let worker: { postMessage(value: unknown, transfer: any[]): void; terminate(): unknown } | undefined;
+  const children: typeof worker[] = [];
+  const childEvents: (() => void)[] = [];
+  let spawnChild: ((index: number, pool: any) => void) | undefined;
+  let admitted = false, executionStarted = false, poolReady = false;
+  let poolStarted = false;
+  const loaded = new Set<number>();
   const sessions = new Set<ReturnType<typeof attachWalletWorker>>();
   const budget: WalletQueueBudget = { jobs: 0, bytes: 0, active: false, wake: new Set(), signers: new Map(), proving: {capacity:provingCapacity,bytes:0,active:false} };
   let removeAssets = () => {}, removeEvents = () => {};
@@ -181,13 +204,16 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
   let nextId = 0;
   const waiting = new Map<number, { resolve(value: any): void; reject(error: unknown): void }>();
   const destroy = () => destroying ??= Promise.resolve().then(async () => {
-    forget();
-    try { await worker?.terminate(); }
-    finally { removeEvents(); removeAssets(); }
+    if (admitted) forget();
+    try {
+      const results = await Promise.allSettled([worker, ...children].map(async value => { await value?.terminate(); }));
+      if (results.some(result => result.status === 'rejected')) throw unavailable();
+    }
+    finally { removeEvents(); for (const remove of childEvents) remove(); removeAssets(); }
   });
   const stop = (error: ZcashError) => {
     if (stopped) return;
-    stopped = error; forget();
+    stopped = error; if (admitted) forget();
     for (const request of waiting.values()) request.reject(error);
     waiting.clear();
     for (const session of sessions) session.crashed();
@@ -197,7 +223,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
   const check = () => { if (signal.aborted) throw cancelled(); if (stopped) throw stopped; };
   const onAbort = () => stop(cancelled());
   signal.addEventListener('abort', onAbort, {once:true});
-  const timer = setTimeout(() => stop(timeout()), 30000);
+  const timer = setTimeout(() => stop(timeout()), threaded ? runtime.threading.startupTimeoutMs : 30000);
   const request = (value: unknown, transfer: any[] = []) => new Promise<any>((resolve, reject) => {
     if (nextId >= Number.MAX_SAFE_INTEGER) { reject(resource()); return; }
     const id = ++nextId;
@@ -206,6 +232,12 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
   });
   const message = (data: any) => {
     if (stopped) return;
+    if (threaded && data?.type === 'pool') {
+      if (poolStarted || !waiting.has(data.id) || !(data.module instanceof WebAssembly.Module) || !(data.memory instanceof WebAssembly.Memory) || !(data.memory.buffer instanceof SharedArrayBuffer)) { stop(mismatch()); return; }
+      poolStarted = true;
+      try { for (let i = 0; i < runtime.threading.workers; i++) spawnChild!(i, data); } catch { stop(unavailable()); }
+      return;
+    }
     const pending = waiting.get(data?.id);
     if (!pending) { stop(mismatch()); return; }
     waiting.delete(data.id);
@@ -214,58 +246,95 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
       const code = ['SCHEMA_MISMATCH', 'VIEWING_SCHEMA_REQUIRED'].includes(data.code) ? 'MIGRATION_REQUIRED' : data.code;
       pending.reject(code === 'MIGRATION_REQUIRED' || codes.includes(code)
         ? failure(code, code.startsWith('STORAGE') || code === 'MIGRATION_REQUIRED' ? 'storage' : 'runtime', 'configure', 'Wallet startup failed.') : unavailable());
-    } else pending.resolve(data);
+    } else {
+      if (data?.type === 'ready') {
+        poolReady = true;
+        if (threaded && (!poolStarted || loaded.size !== runtime.threading.workers)) { pending.reject(mismatch()); stop(mismatch()); return; }
+      }
+      pending.resolve(data);
+    }
     if (data.fatal === true) stop(unavailable());
   };
   try {
     check();
-    const verified = await acquireArtifacts(baseline, policy, signal);
+    const verified = await acquireArtifacts(baseline, {...policy, mode:threaded?'threaded':'baseline', maxFiles:threaded?6:5}, signal);
     try {
       check();
-      if (verified.manifest.files.length !== 5 || verified.manifest.files.some(file => !Object.hasOwn(layout, file.url)
-        || layout[file.url as keyof typeof layout] !== file.kind || reviewedAssets[file.url as keyof typeof layout] !== file.sha256)) throw mismatch();
+      const selectedLayout = threaded ? {...layout,'thread-bootstrap.mjs':'thread-bootstrap'} : layout;
+      const selectedAssets = threaded ? reviewedThreadedAssets : reviewedAssets;
+      if (verified.manifest.files.length !== (threaded?6:5) || verified.manifest.files.some(file => !Object.hasOwn(selectedLayout, file.url)
+        || (selectedLayout as Record<string,string>)[file.url] !== file.kind || selectedAssets[file.url as keyof typeof selectedAssets] !== file.sha256)) throw mismatch();
       const { format, files, ...expected } = verified.manifest;
       const urls: Record<string, string> = {};
       let channels: () => MessageChannel;
+      const childMessage = (index: number, data: any) => {
+        if (stopped) return;
+        if (data?.type !== 'compute-loaded' || data.index !== index || loaded.has(index)) {
+          stop(failure('WORKER_CRASHED','runtime','reopen','Wallet compute worker failed.')); return;
+        }
+        loaded.add(index);
+        if (loaded.size === runtime.threading.workers) {
+          try { worker!.postMessage({type:'pool-build'}, []); } catch { stop(unavailable()); }
+        }
+      };
       if (node) {
         const [fs, os, path, url, threads] = await Promise.all(['node:fs', 'node:os', 'node:path', 'node:url', 'node:worker_threads'].map(name => import(name)));
         check();
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'zcash-wallet-runtime-'));
         removeAssets = () => fs.rmSync(directory, { recursive: true, force: true });
-        for (const name of ['wallet.mjs', 'worker.mjs', 'node-fs.mjs']) {
+        for (const name of ['wallet.mjs', 'worker.mjs', 'node-fs.mjs', ...(threaded?['thread-bootstrap.mjs']:[])]) {
           const file = path.join(directory, name);
           fs.writeFileSync(file, verified.copyFile(name), { flag: 'wx', mode: 0o600 });
           urls[name] = url.pathToFileURL(file).href;
         }
         channels = () => new threads.MessageChannel();
+        executionStarted = true;
         const instance = new threads.Worker(new URL(urls['worker.mjs']!), { trackUnmanagedFds: true });
         worker = instance;
         const crash = () => stop(failure('WORKER_CRASHED', 'runtime', 'reopen', 'Wallet worker failed.'));
         instance.on('message', message); instance.on('messageerror', crash); instance.on('error', crash); instance.on('exit', crash);
+        spawnChild = (index, pool) => {
+          const child = new threads.Worker(new URL(urls['thread-bootstrap.mjs']!));
+          children.push(child);
+          const receive = (data: any) => childMessage(index, data);
+          child.on('message',receive); child.on('error',crash); child.on('messageerror',crash); child.on('exit',crash);
+          childEvents.push(() => {child.off('message',receive);child.off('error',crash);child.off('messageerror',crash);child.off('exit',crash);});
+          child.postMessage({type:'compute-initialize',moduleUrl:urls['wallet.mjs'],module:pool.module,memory:pool.memory,index});
+        };
         removeEvents = () => { instance.off('message', message); instance.off('messageerror', crash); instance.off('error', crash); instance.off('exit', crash); };
       } else {
         const created: string[] = [];
         removeAssets = () => { for (const url of created) URL.revokeObjectURL(url); };
-        for (const name of ['wallet.mjs', 'worker.mjs', 'opfs.mjs']) {
+        for (const name of ['wallet.mjs', 'worker.mjs', 'opfs.mjs', ...(threaded?['thread-bootstrap.mjs']:[])]) {
           urls[name] = URL.createObjectURL(new Blob([verified.copyFile(name) as Uint8Array<ArrayBuffer>], { type: 'text/javascript' }));
           created.push(urls[name]!);
         }
         channels = () => new MessageChannel();
+        executionStarted = true;
         const instance = new Worker(urls['worker.mjs']!, { type: 'module' }); worker = instance;
         instance.onmessage = event => message(event.data);
         instance.onerror = event => { event.preventDefault(); stop(unavailable()); };
         instance.onmessageerror = () => stop(mismatch());
+        spawnChild = (index, pool) => {
+          const child = new Worker(urls['thread-bootstrap.mjs']!,{type:'module'}); children.push(child);
+          child.onmessage = event => childMessage(index,event.data);
+          child.onerror = event => {event.preventDefault();stop(failure('WORKER_CRASHED','runtime','reopen','Wallet compute worker failed.'));};
+          child.onmessageerror = () => stop(mismatch());
+          childEvents.push(() => {child.onmessage=null;child.onerror=null;child.onmessageerror=null;});
+          child.postMessage({type:'compute-initialize',moduleUrl:urls['wallet.mjs'],module:pool.module,memory:pool.memory,index});
+        };
         removeEvents = () => { instance.onmessage = null; instance.onerror = null; instance.onmessageerror = null; };
       }
       const wasm = verified.copyFile('bindings_bg.wasm');
       const ready = await request({ type: 'initialize', moduleUrl: urls['wallet.mjs'], wasm, expected,
-        maxMemoryBytes: runtime.maxMemoryBytes }, [wasm.buffer]);
+        maxMemoryBytes: runtime.maxMemoryBytes, ...(threaded?{workers:runtime.threading.workers}:{}) }, [wasm.buffer]);
       check();
       const identity: WalletRuntimeIdentity = ready?.identity;
       if (ready?.type !== 'ready' || !identity || !sameRecord(expected, {
         contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
-      }) || !sameRecord(identity.memory, { initialPages: 321, maximumPages: 4096, shared: false })) throw mismatch();
+      }) || !sameRecord(identity.memory, { initialPages: threaded ? 323 : 321, maximumPages: 4096, shared: threaded })) throw mismatch();
+      poolReady = true;
       const authorityChannel = channels();
       let authority: ReturnType<typeof attachWalletWorker>;
       try {
@@ -275,6 +344,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
           {maxQueuedJobs:runtime.maxQueuedJobs,maxQueuedBytes:runtime.maxQueuedBytes,maxPcztBytes:runtime.maxPcztBytes},budget);
         sessions.add(authority);
       } catch (error) { authorityChannel.port1.close(); authorityChannel.port2.close(); throw error; }
+      admitted = true;
       return {
         token: Object.freeze({}), identity: Object.freeze(identity), check, destroy, signers: authority.signers,
         invalidate: () => { stop(failure('WORKER_CRASHED','runtime','reopen','Native authority cleanup failed.')); return destroy(); },
@@ -294,9 +364,11 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
       };
     } finally { verified.dispose(); }
   } catch (error) {
-    stop(isZcashError(error) ? error : unavailable());
-    await destroy().catch(() => {});
-    throw stopped;
+    const finalError = isZcashError(error) ? error : unavailable();
+    stop(finalError);
+    await destroy(); // Failed teardown must never admit a fresh fallback domain.
+    if (threaded && executionStarted && !poolReady && !signal.aborted && ['TIMEOUT','WORKER_CRASHED','RUNTIME_UNAVAILABLE'].includes(finalError.code)) bootstrapFailures.add(finalError);
+    throw finalError;
   } finally {
     clearTimeout(timer);
     // Lifetime cancellation remains connected after startup, until the last lease.

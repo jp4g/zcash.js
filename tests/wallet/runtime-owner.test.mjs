@@ -37,3 +37,38 @@ for (const failing of ['release','close','control','busy']) test(`shared owner i
   assert.equal(result.fatal,true);
   assert.equal(result.code,failing==='release'?'STORAGE_ERROR':'INVALID_ARGUMENT');
 });
+
+// Protocol only: actual shared Rust/TLS and scanner work require the native artifact.
+for (const buildFailure of [false,true]) test(`threaded owner pool build ${buildFailure?'failure retains initialization id':'gates readiness'}`, async t => {
+  const root=await mkdtemp(join(tmpdir(),'wallet-owner-pool-'));
+  const worker=new Worker(new URL('../../dist/src/runtime/wallet-worker.js',import.meta.url));
+  t.after(async()=>{await worker.terminate();await rm(root,{recursive:true,force:true});});
+  const identity={...walletProfile,mode:'threaded',buildSha256:'0'.repeat(64),dependencyGraphSha256:'1'.repeat(64),memory:{initialPages:321,maximumPages:4096,shared:true}};
+  const {memory,...expected}=identity;
+  await writeFile(join(root,'native.mjs'),`
+    export const runtimeIdentity=${JSON.stringify(identity)};
+    let prepared=false;
+    export function prepareThreaded(bytes,count){if(count!==2)throw Error('INVALID_ARGUMENT');prepared=true;return {module:new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0])),memory:new WebAssembly.Memory({initial:1,maximum:2,shared:true})};}
+    export function finishThreaded(){if(!prepared)throw Error('PROTOCOL_MISMATCH');${buildFailure?"throw Error('RUNTIME_UNAVAILABLE');":''}return {invalid:false};}
+  `);
+  const answers=[];worker.on('message',value=>answers.push(value));
+  const reply=async data=>{const answer=once(worker,'message',{signal:AbortSignal.timeout(5000)});worker.postMessage(data);return (await answer)[0];};
+  const pool=await reply({id:1,type:'initialize',moduleUrl:pathToFileURL(join(root,'native.mjs')).href,wasm:new Uint8Array([0]),expected,maxMemoryBytes:512*1024*1024,workers:2});
+  assert.equal(pool.type,'pool');assert.ok(pool.memory.buffer instanceof SharedArrayBuffer);
+  assert.equal(answers.some(value=>value.type==='ready'),false);
+  const ready=await reply({type:'pool-build'});assert.equal(ready.id,1);
+  if(buildFailure){assert.equal(ready.type,'failure');assert.equal(ready.code,'RUNTIME_UNAVAILABLE');assert.equal(ready.fatal,true);return;}
+  assert.equal(ready.type,'ready');
+  const duplicate=await reply({type:'pool-build'});assert.equal(duplicate.type,'failure');assert.equal(duplicate.fatal,true);
+});
+
+test('compute initialization failure never reports loaded', async t => {
+  const root=await mkdtemp(join(tmpdir(),'wallet-compute-init-'));
+  const worker=new Worker(new URL('../../dist/src/runtime/wallet-worker.js',import.meta.url));
+  t.after(async()=>{await worker.terminate();await rm(root,{recursive:true,force:true});});
+  await writeFile(join(root,'native.mjs'),`export function enterThreaded(){throw Error('RUNTIME_UNAVAILABLE')}`);
+  const answers=[];worker.on('message',value=>answers.push(value));
+  const answer=once(worker,'message',{signal:AbortSignal.timeout(5000)});
+  worker.postMessage({type:'compute-initialize',moduleUrl:pathToFileURL(join(root,'native.mjs')).href,module:new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0])),memory:new WebAssembly.Memory({initial:1,maximum:2,shared:true}),index:0});
+  assert.equal((await answer)[0].type,'failure');assert.equal(answers.some(value=>value.type==='compute-loaded'),false);
+});

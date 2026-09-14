@@ -25,7 +25,8 @@
   "type": "module",
   "files": [
     "dist",
-    "docs/planning/agnostic-implementation.md"
+    "docs/planning/agnostic-implementation.md",
+    "licenses"
   ],
   "exports": {
     ".": {
@@ -43,5 +44,6 @@
   "sideEffects": false,
   "dependencies": {
     "@grpc/grpc-js": "1.14.4"
-  }
+  },
+  "license": "MIT"
 }

@@ -1,6 +1,7 @@
+import { admitSignal, signalAborted as nativeAborted } from '../abort.js';
 import type { CustomLightTransport, LightClient, Op, NonEmpty } from '../../docs/api/public-api.js';
 import { txId } from '../primitives.js';
-import { ownBytes } from './owned-plumbing.js';
+import { ownBytes, copyRecord } from './owned-plumbing.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 
 type Family = 'main' | 'test' | 'regtest';
@@ -16,41 +17,16 @@ const revision = 'lightwire:80575dbe59a9bf2e6b79e2391eb78679c453f1a0477292eb97ea
 const protocol = () => failure('PROTOCOL_MISMATCH', 'query', 'configure', 'Invalid light-transparent response or schema revision.');
 const aborted = () => failure('ABORTED', 'query', 'none', 'Light-transparent read aborted.');
 const resource = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Light-transparent response limit exceeded.');
-const nativeAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
 function amount(value: unknown): bigint {
   if (typeof value !== 'string' || !/^(0|[1-9][0-9]{0,18})$/.test(value)) throw protocol();
   const result = BigInt(value);
   if (result > 9223372036854775807n) throw protocol();
   return result;
 }
-// Snapshot only data options. Accepted platform contract: ordinary records/arrays and native signals.
-function options(args: Addresses): Addresses {
-  try {
-    if (!args || ![Object.prototype, null].includes(Object.getPrototypeOf(args))) throw invalidArgument();
-    const result = Object.create(null);
-    for (const key of Reflect.ownKeys(args)) {
-      if (key !== 'addresses' && key !== 'signal') throw invalidArgument();
-      const d = Object.getOwnPropertyDescriptor(args, key)!;
-      if (!Object.hasOwn(d, 'value')) throw invalidArgument();
-      result[key] = d.value;
-    }
-    return result;
-  } catch { throw invalidArgument(); }
-}
 async function read<T>(addressCodec: AddressCodec, codec: Lightwire, transport: CustomLightTransport,
   family: Family, args: Addresses, method: Method, adapt: (dto: Record<string, unknown>, addresses: string[], get: <V>(action: () => V) => V) => T) {
-  const input = options(args), original = input.signal;
-  if (original !== undefined) {
-    try {
-      const host = globalThis as typeof globalThis & { process?: { versions?: { node?: string }; getBuiltinModule(name: string): unknown } };
-      if (host.process?.versions?.node) {
-        if ((host.process.getBuiltinModule('node:util') as typeof import('node:util')).types.isProxy(original)) throw invalidArgument();
-      }
-      if (Object.getPrototypeOf(original) !== AbortSignal.prototype || Object.hasOwn(original, 'aborted')
-        || Object.hasOwn(original, 'reason')) throw invalidArgument();
-      apply(nativeAborted, original, []);
-    } catch { throw invalidArgument(); }
-  }
+  const input = copyRecord(args, ['addresses', 'signal']), original = input.signal;
+  admitSignal(original);
   const controller = new AbortController();
   const dependent = original === undefined ? undefined : AbortSignal.any([original]);
   let reject!: (error: unknown) => void;

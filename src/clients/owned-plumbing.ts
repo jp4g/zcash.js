@@ -22,15 +22,8 @@ export function ownBytes(bytes: Uint8Array, protocol: () => Error, resourceLimit
 const resource = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Client input exceeds limit.');
 export function snapshot<T extends object>(args: T, keys: readonly string[], maximum = 4 * 1024 * 1024): T {
   try {
-    if (!args || typeof args !== 'object' || ![null, Object.prototype].includes(Object.getPrototypeOf(args))) throw invalidArgument();
-    const output = Object.create(null);
-    for (const key of Reflect.ownKeys(args)) {
-      if (typeof key !== 'string' || !keys.includes(key)) throw invalidArgument();
-      const field = Object.getOwnPropertyDescriptor(args, key);
-      if (!field || !Object.hasOwn(field, 'value')) throw invalidArgument();
-      output[key] = field.value;
-    }
-    if ('bytes' in output) output.bytes = ownBytes(output.bytes, invalidArgument, resource, maximum);
+    const output = recordFields(args, keys);
+    if ('bytes' in output) output.bytes = ownBytes(output.bytes as Uint8Array, invalidArgument, resource, maximum);
     if ('addresses' in output) {
       const values = output.addresses;
       if (!Array.isArray(values) || !values.length || values.length > 1000) throw invalidArgument();
@@ -42,14 +35,27 @@ export function snapshot<T extends object>(args: T, keys: readonly string[], max
       }
       output.addresses = copy;
     }
-    return output;
+    return output as T;
   } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
 }
 
-// Node >=20.19 exposes these builtins without putting Node imports in browser bundles.
-const nodeHost = (globalThis as typeof globalThis & { process?: { getBuiltinModule(name: string): {
-  types: { isProxy(value: unknown): boolean };
-  addAbortListener(signal: AbortSignal, callback: () => void): { [key: symbol]: () => void };
-} } }).process;
-export const nodeIsProxy = (value: unknown) => nodeHost!.getBuiltinModule('util').types.isProxy(value);
-export const nodeEvents = () => nodeHost!.getBuiltinModule('events');
+// Descriptor copying is shared; callers retain their existing error/ownership policies.
+function recordFields(value: object, keys: readonly string[]): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
+  const output = Object.create(null);
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string' || !keys.includes(key)) throw invalidArgument();
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw invalidArgument();
+    output[key] = descriptor.value;
+  }
+  return output;
+}
+
+/** Shallow data-only options; foreign errors are always sanitized as invalid input. */
+export function copyRecord<T extends object>(value: T, keys: readonly string[]): T {
+  try {
+    if (Array.isArray(value)) throw invalidArgument();
+    return recordFields(value, keys) as T;
+  } catch { throw invalidArgument(); }
+}

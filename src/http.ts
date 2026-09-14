@@ -1,3 +1,4 @@
+import { waitFor } from './abort.js';
 import type { HttpTransport, TransportOptions, ZcashError } from '../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from './errors.js';
 import { JsonNumber, parseJson, protocolError } from './json.js';
@@ -96,13 +97,10 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
   if (caller?.aborted) throw aborted();
   const controller = new AbortController();
   let stopped: ZcashError | undefined;
-  let rejectStop: (error: ZcashError) => void = () => {};
-  const stopPromise = new Promise<never>((_resolve, reject) => { rejectStop = reject; });
   const stop = (error: ZcashError) => {
     if (stopped) return;
     stopped = error;
     controller.abort();
-    rejectStop(error);
   };
   const onAbort = () => stop(aborted());
   caller?.addEventListener('abort', onAbort, { once: true });
@@ -110,7 +108,7 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
   const started = performance.now();
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let response: Response | undefined;
-  const bounded = <T>(promise: Promise<T>) => Promise.race([promise, stopPromise]);
+  const bounded = <T>(promise: Promise<T>) => waitFor(promise, controller.signal, () => stopped);
   try {
     const headers = new Headers({ 'content-type': 'application/json', accept: 'application/json' });
     if (state.options.headers) {
@@ -136,6 +134,7 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
     dispatched?.();
     const fetching = fetch(state.url, { method: 'POST', body, headers, signal: controller.signal,
       credentials: 'omit', redirect: 'error', cache: 'no-store' }).then(value => {
+      response = value;
       if (stopped) void value.body?.cancel().catch(() => {});
       return value;
     });

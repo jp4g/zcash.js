@@ -1,3 +1,4 @@
+import { signalAborted, unsupportedSignalProxy, waitFor } from '../abort.js';
 import type { LightUnaryMethod, LightStreamMethod, ZcashError } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { recordNotFound } from './grpc-status.js';
@@ -28,17 +29,6 @@ const offsetOf = Object.getOwnPropertyDescriptor(typedArray, 'byteOffset')!.get!
 const lengthOf = Object.getOwnPropertyDescriptor(typedArray, 'byteLength')!.get!;
 const bufferLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength')!.get!;
 const resizable = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'resizable')?.get;
-const signalAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')!.get!;
-const unsupportedSignalProxy = (() => {
-  // WebIDL rejects proxies intrinsically; Node's JS getter does not.
-  try { signalAborted.call(new Proxy(new AbortController().signal, {})); }
-  catch { return () => false; }
-  const host = globalThis as typeof globalThis & { process?: {
-    getBuiltinModule?: (name: string) => { types: { isProxy: (value: unknown) => boolean } };
-  } };
-  // No Node import in browsers. A host without a proxy-proof check fails closed.
-  return host.process?.getBuiltinModule?.('node:util').types.isProxy ?? (() => true);
-})();
 
 function record(value: unknown, keys?: readonly string[]): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || ![null, Object.prototype].includes(Object.getPrototypeOf(value))
@@ -168,17 +158,9 @@ function messages(url: string, args: Args<LightUnaryMethod | LightStreamMethod>,
     if (stopped) throw stopped;
   }
   async function bounded<T>(promise: Promise<T>): Promise<T> {
-    let onStop = () => {};
-    const interruption = new Promise<never>((_, reject) => {
-      onStop = () => reject(stopped ?? aborted());
-      controller.signal.addEventListener('abort', onStop, { once: true });
-      if (stopped) onStop();
-    });
-    try {
-      const value = await Promise.race([promise, interruption]);
-      check();
-      return value;
-    } finally { controller.signal.removeEventListener('abort', onStop); }
+    const value = await waitFor(promise, controller.signal, () => stopped ?? aborted());
+    check();
+    return value;
   }
   async function* run(): AsyncGenerator<Uint8Array> {
     try {

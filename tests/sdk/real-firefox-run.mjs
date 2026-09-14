@@ -54,7 +54,7 @@ async function identity(pid) {
   try {
     const fields = (await readFile(`/proc/${pid}/stat`, 'utf8')).split(') ').at(-1).split(' ');
     return { pid, start: fields[19], state: fields[0] };
-  } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  } catch (error) { if (error.code === 'ENOENT' || error.code === 'ESRCH') return null; throw error; }
 }
 async function alive(owned) {
   const current = owned && await identity(owned.pid);

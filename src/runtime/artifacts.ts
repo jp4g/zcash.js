@@ -1,3 +1,4 @@
+import { waitFor } from '../abort.js';
 /* eslint-disable no-control-regex -- Canonical encoding and URL validation intentionally match ASCII control characters. */
 import type { ArtifactFile, ArtifactManifest, WasmArtifact, ZcashError } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
@@ -172,15 +173,7 @@ export async function acquireArtifacts(artifact: WasmArtifact, supplied: Artifac
     if (remaining <= 0) stop(timeout());
     else timer = setTimeout(tick, Math.min(remaining, 2_147_483_647));
   };
-  // Remove each wait's listener when it settles. Repeated Promise.race against
-  // one unresolved stop promise would retain a reaction for every stream chunk.
-  const bounded = <T>(promise: Promise<T>): Promise<T> => new Promise((resolve, reject) => {
-    const onStop = () => reject(stopped);
-    promise.then(value => { controller.signal.removeEventListener('abort', onStop); resolve(value); },
-      error => { controller.signal.removeEventListener('abort', onStop); reject(error); });
-    if (stopped) reject(stopped);
-    else controller.signal.addEventListener('abort', onStop, { once: true });
-  });
+  const bounded = <T>(promise: Promise<T>) => waitFor(promise, controller.signal, () => stopped);
   const files = new Map<string, Uint8Array<ArrayBuffer>>();
   let manifestBytes: Uint8Array<ArrayBuffer> | undefined;
   const discard = () => { manifestBytes?.fill(0); for (const bytes of files.values()) bytes.fill(0); files.clear(); };
@@ -194,6 +187,7 @@ export async function acquireArtifacts(artifact: WasmArtifact, supplied: Artifac
       check();
       response = await bounded<Response>(fetch(url, { credentials: 'omit', redirect: 'error', cache: 'no-store',
         referrerPolicy: 'no-referrer', signal: controller.signal }).then(value => {
+        response = value;
         if (stopped) void value.body?.cancel().catch(() => {});
         return value;
       }));

@@ -15,3 +15,7 @@ Inputs are SDK `29aee5560f17c9c36ab3957d5519cb294fc47223`'s npm lock (unchanged 
 Metadata includes choices and licenses with distinct obligations (for example npm `MPL-2.0` and `CC-BY-4.0`, and Cargo alternatives). Nothing here selects an alternative or asserts that distributing notices alone satisfies it. Project license selection remains outside authorization.
 
 The extraction used only existing files and Node standard libraries; its retained script path/hash is in the inventory. No dependency install, producer modification, build or network audit was run. This narrows the missing inventory identified in the [private delivery notes](private-release-notes.md); notice reconciliation and the explicitly listed inputs remain open.
+
+## Subsequent distribution reconciliation
+
+The historical missing-notice observations above are resolved for the retained artifacts by [MIT distribution closeout](mit-distribution.md). Root LICENSE and the shipped `licenses/` directory contain the selected project license and original third-party notices; the original observational inventory is retained unchanged.

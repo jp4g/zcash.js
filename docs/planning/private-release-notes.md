@@ -23,10 +23,10 @@ Node log: `/tmp/final-wallet-gaps-node-05.log`, SHA-256 `731d191116fa8eff4e3d010
 - [#102](https://github.com/jp4g/zcash.js/issues/102) is explicitly deferred. Native import can retain verified finalized transparent scripts, but wallet finalization rejects already-finalized transparent inputs with `METHOD_NOT_SUPPORTED`. External signing that returns partial signatures and ordinary local sending remain in scope.
 - [#107](https://github.com/jp4g/zcash.js/issues/107) is implemented and qualified on actual Node and Firefox: current shared wallet startup, native scan parity, persistence/reopen, signer lifetime, cancellation and bootstrap cleanup. See the final threaded result in [wallet qualification](wallet-payments-qualification.md).
 
-- [#115](https://github.com/jp4g/zcash.js/issues/115) tracks third-party notice reconciliation and artifact license provenance; the factual inventory does not fulfill those obligations.
+- [#115](https://github.com/jp4g/zcash.js/issues/115) is reconciled for the retained SDK/runtime distribution: owned code is MIT, and the package carries the original permissive dependency notices. See [MIT distribution closeout](mit-distribution.md).
 - [#116](https://github.com/jp4g/zcash.js/issues/116) tracks current-artifact OPFS quota, interrupted-write and opening-migration qualification. Older fault receipts and current dispatch-interruption checks do not establish those results for the current runtime.
 
-#115 and #116 remain unresolved qualification obligations, not waivers or completed gates. The deferred [#10–#12](future-issues.md) scope is unchanged. These notes do not close the remaining frozen capability or conformance gates.
+#116 remains an unresolved qualification obligation, not waivers or completed gates. The deferred [#10–#12](future-issues.md) scope is unchanged. These notes do not close the remaining frozen capability or conformance gates.
 
 ## Security, privacy and provenance
 

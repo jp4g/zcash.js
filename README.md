@@ -25,3 +25,7 @@ Open **http://127.0.0.1:4173/**. For editing, run `npm run docs:dev` at the same
 - [Tracked future issues](docs/planning/future-issues.md) and retained research, available in collapsed site sections.
 
 This is the documentation deliverable for [issue #1](https://github.com/jp4g/zcash.js/issues/1), not completion of runtime/design qualification gates. The coherent locked Common 1.0.0 graph remains the implementation baseline; 1.1.0 migration is tracked separately. No license has been selected. See [CONTRIBUTING.md](CONTRIBUTING.md) for scope, validation and private-data reporting rules.
+
+## License
+
+Project-owned code is [MIT licensed](LICENSE). Bundled dependencies retain their own licenses; keep the accompanying [third-party notices](licenses/README.md) when redistributing JavaScript/WASM artifacts.

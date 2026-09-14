@@ -29,10 +29,12 @@ export class PaymentSource {
   private readonly bound:ReturnType<typeof networkBinding>;
   private readonly endpoint:string|null;
   private readonly protocolName:string;
+  private readonly registered:boolean;
   constructor(private readonly client:PublicClient|LightClient,private readonly network:Network){
     if(!client||typeof client!=='object')throw invalidArgument();
     this.bound=networkBinding(network);
     const registered=publicClientBinding(client as PublicClient),light=lightClientBinding(client as LightClient);
+    this.registered=Boolean(registered??light);
     const other=networkBinding((registered??light)?.network??field(client,'network') as Network);
     if(other.definition.binding!==this.bound.definition.binding)throw mismatch();
     this.endpoint=(registered??light)?.endpoint??null;this.protocolName=registered?'zcash-json-rpc/1':'lightwalletd-v0.5.0';
@@ -56,7 +58,7 @@ export class PaymentSource {
     let decoded:{height:string;hash:string};try{decoded=initialize().decodeResponse('GetTreeState',bytes) as typeof decoded;}catch{throw protocol();}
     if(decoded.height!==String(p.height)||decoded.hash!==p.hash)throw protocol();return {...p,sourceId:sourceId(value.sourceId)};
   }
-  async verify(signal:AbortSignal):Promise<string>{const pending=operation(signal);try{pending.check();const tree=await pending.wait(this.tree(0,pending.signal));if(tree.hash!==this.network.genesisHash)throw mismatch();return tree.sourceId;}finally{pending.close();}}
+  async verify(signal:AbortSignal):Promise<string>{const pending=operation(signal);try{pending.check();if(this.registered){const tip=snapshot(await pending.wait(this.call<any>('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);point({height:tip.height,hash:tip.hash});return sourceId(tip.sourceId);}const tree=await pending.wait(this.tree(0,pending.signal));if(tree.hash!==this.network.genesisHash)throw mismatch();return tree.sourceId;}finally{pending.close();}}
   async observe(id:TxId,signal:AbortSignal):Promise<TransactionObservation>{
     const pending=operation(signal);
     try{

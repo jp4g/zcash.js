@@ -10,17 +10,17 @@ export function varint(n) {
 }
 export const scalar = (field, n) => concat(varint(field * 8), varint(n));
 export const bytesField = (field, bytes) => concat(varint(field * 8 + 2), varint(bytes.length), bytes);
-// Fixture-only direct import of the accepted artifact, after exact source/build closure binding.
+// The two pinned native codecs are test fixtures, not production package exports.
 export async function acceptedArtifacts() {
- const {readFileSync}=await import('node:fs'); const {createHash}=await import('node:crypto');
- const root='/home/jack/zcash-light-transparent-reads-scratch';
- const provenance=JSON.parse(readFileSync(root+'/artifacts.json'));
- const assets=new Map();
- for(const [path,digest] of Object.entries(provenance)) {
-  const bytes=readFileSync(path); if(createHash('sha256').update(bytes).digest('hex')!==digest) throw Error('artifact hash mismatch');
-  assets.set(path.slice(root.length),bytes);
- }
- return {assets,provenance};
+  const { nativeFixture } = await import('../support/fixtures.mjs');
+  const assets = new Map();
+  const provenance = {};
+  for (const [name, prefix] of [['lightwire', 'codec'], ['address', 'address']]) {
+    const fixture = nativeFixture(name);
+    provenance[name] = fixture.provenance;
+    for (const [path, bytes] of fixture.assets) assets.set('/' + prefix + '/' + path, bytes);
+  }
+  return { assets, provenance };
 }
 export const token='t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs';
 export const utxoBytes=()=>bytesField(1,concat(bytesField(1,hash),scalar(2,2),bytesField(3,new Uint8Array([81])),scalar(4,9007199254740993n),scalar(5,7),bytesField(6,new TextEncoder().encode(token))));

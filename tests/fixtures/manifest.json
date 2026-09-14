@@ -1,0 +1,40 @@
+{
+  "provenance": {
+    "lightwire": {
+      "repository": "jp4g/zakura-wasm-bindings",
+      "commit": "84585f25f7fed6a897891f5fb5bc509c76dddd05",
+      "receiptSha256": "f0a385adffe4bdca50e39b951658f2d021ebb5011ceb00b6b78f63b988e3b5cc"
+    },
+    "address": {
+      "repository": "jp4g/zakura-wasm-bindings",
+      "commit": "89659c80b38690f3f5a590c8e19b38fcc355b96b",
+      "receiptSha256": "a5b377630be1496949b17a463767c48af99821c343db8caa0c50aca513a5cc4a"
+    },
+    "block-one.snap": {
+      "commit": "1e36d1bb6a8a9778a1bd316704b9c8cb75182de6",
+      "path": "crates/zakura-rpc/src/methods/tests/snapshots/get_block_verbose_height_verbosity_1@mainnet_10.snap"
+    },
+    "lightwalletd-service.go": {
+      "repository": "zcash/lightwalletd",
+      "path": "frontend/service.go",
+      "commit": "09593edbee4ee68d47e5a53f8ce1c83514c4e8e6"
+    }
+  },
+  "sha256": {
+    "address/codec.mjs": "7fe0288ceb9c3bf491243004ed2eadf961cc52af7accfdda99372f0a2d5229cd",
+    "address/receipt.json": "a5b377630be1496949b17a463767c48af99821c343db8caa0c50aca513a5cc4a",
+    "address/wasm/zakura_transparent_address.d.ts": "df087510c8c6ca4d25c3d15abd61b66b5cad76defd2e088ed9994c9081cfc5ee",
+    "address/wasm/zakura_transparent_address.js": "cc45d7dfdcef1f40cc919916d2233bcb378aef18a5f63e061160ba280e3e655d",
+    "address/wasm/zakura_transparent_address_bg.wasm": "61fca2e4a3a08e905737f5851016ecdaf5cefd49a0b9f594eaf9e9094c592737",
+    "address/wasm/zakura_transparent_address_bg.wasm.d.ts": "d7369f6c9e71110920ded0862fc6b404a507cbb22212e3df50b7e2d2f5bc95f7",
+    "block-one.snap": "e35a7ba66c2f581cd9654c06d87bedae8db0f8b30942b427b1d774f0616e57fe",
+    "lightwalletd-service.go": "61af8b2e81894b0abeaadd87490026715ca2958e3d5c7532e536a4169dde4062",
+    "lightwire/codec.mjs": "03ce82c6df4fb483b7d73e52a49988fd368cef33d1c1284c44378869a16f67da",
+    "lightwire/golden.json": "02be623702b03acf1f12a78f66f2b02e499b87de25746420b7fce48aa3d64021",
+    "lightwire/receipt.json": "f0a385adffe4bdca50e39b951658f2d021ebb5011ceb00b6b78f63b988e3b5cc",
+    "lightwire/wasm/zakura_lightwire.d.ts": "eb23fc6d6d74d168fcc2c03cd3efcfb1a98b323509e0b62fbec38e37229450e7",
+    "lightwire/wasm/zakura_lightwire.js": "ce88b2db6c2b24c7935b85c2d4f6d9d5e1739234d35c39510d92b7c781c4e043",
+    "lightwire/wasm/zakura_lightwire_bg.wasm": "4803d36718071fc1b114c1d0dce766b876da02234e3c2078979c5dc69ad37da9",
+    "lightwire/wasm/zakura_lightwire_bg.wasm.d.ts": "e6ad0679fbf83685f4d5793f4ed83c96043d0c6e944ff5f49068bceffe62787a"
+  }
+}

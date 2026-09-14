@@ -6,7 +6,7 @@
 
 ## Review locally
 
-From the repository root, with Node `>=22.12.0`:
+From the repository root, with Node `^22.13.0` or `>=24` (the ESLint development-tool requirement):
 
 ```sh
 npm ci

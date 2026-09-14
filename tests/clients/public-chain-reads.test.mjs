@@ -3,12 +3,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixture, result, sourceId, hashA, hashB, transportOptions } from './public-chain-reads-fixtures.mjs';
 
-const build = process.env.PUBLIC_CHAIN_READS_BUILD ?? '/home/jack/zcash-public-chain-reads-scratch/check/dist';
+import { buildRoot as build } from '../support/paths.mjs';
 const { http } = await import(`${build}/src/http.js`);
-const adapter = await import(`${build}/src/clients/public-chain-reads.js`).catch(error => {
-  if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error;
-  return {};
-});
+const adapter = await import(`${build}/src/clients/public-chain-reads.js`);
 async function local(t, respond, options = {}) {
   const server = await fixture(respond);
   t.after(() => server.close());

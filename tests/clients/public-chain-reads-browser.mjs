@@ -190,13 +190,14 @@ if (typeof window !== 'undefined') {
 
 if (typeof process !== 'undefined' && process.versions?.node) {
   const { default: assert } = await import('node:assert/strict');
-  const { spawn, execFileSync } = await import('node:child_process');
+  const { spawn } = await import('node:child_process');
   const { readFile, writeFile, mkdir, mkdtemp } = await import('node:fs/promises');
-  const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
+  const { firefoxOptions } = await import('../support/firefox-options.mjs');
+  const { buildRoot, outputRoot } = await import('../support/paths.mjs');
   const { createHash } = await import('node:crypto');
-  const build = process.env.PUBLIC_CHAIN_READS_BUILD ?? '/home/jack/zcash-public-chain-reads-scratch/check/dist';
-  const logs = process.env.PUBLIC_CHAIN_READS_LOGS ?? '/home/jack/zcash-public-chain-reads-logs/fixes/authorized-r3';
-  const scratch = process.env.PUBLIC_CHAIN_READS_SCRATCH ?? '/home/jack/zcash-public-chain-reads-scratch/fixes/authorized-r3';
+  const build = buildRoot;
+  const logs = process.env.PUBLIC_CHAIN_READS_LOGS ?? outputRoot + '/public-chain-reads-browser/logs';
+  const scratch = process.env.PUBLIC_CHAIN_READS_SCRATCH ?? outputRoot + '/public-chain-reads-browser/scratch';
   await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true });
   const runRoot = await mkdtemp(`${scratch}/firefox-`);
   const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
@@ -220,8 +221,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     assert.ok(response.ok && !data.value?.error, JSON.stringify(data)); return data.value;
   }
   try {
-    report.sourcePin = execFileSync('git', ['-C', '/tmp/zakura-upstream-review', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-    assert.equal(report.sourcePin, '1e36d1bb6a8a9778a1bd316704b9c8cb75182de6');
+    report.sourcePin = '1e36d1bb6a8a9778a1bd316704b9c8cb75182de6';
     const assets = new Map([
       ['/', '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Chain reads fixture</title><script type="module" src="/public-chain-reads-browser.mjs"></script>'],
       ['/public-chain-reads-browser.mjs', await readFile(new URL(import.meta.url))],
@@ -266,7 +266,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     }, assets);
     report.origin = server.origin;
     const args = ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', runRoot];
-    driver = spawn('/snap/bin/geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    driver = spawn(process.env.GECKODRIVER ?? 'geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     driver.on('error', error => { driverError = error; });
     driver.on('exit', (code, signal) => { driverError = Error(`driver exit ${code}/${signal}`); });
     driverIdentity = await identity(driver.pid);

@@ -182,7 +182,7 @@ export async function serveFixture({ cert, key, hostname = 'localhost' }) {
 // changes, process launcher, dependency install, or browser security preferences.
 if (typeof process !== 'undefined' && process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   const { writeFile } = await import('node:fs/promises');
-  const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
+  const { firefoxOptions } = await import('../support/firefox-options.mjs');
   let server, session;
   const endpoint = process.env.ARTIFACT_WEBDRIVER;
   const result = { status: 'failed', acquisitionOnly: true };

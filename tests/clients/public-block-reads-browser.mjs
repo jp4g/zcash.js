@@ -173,11 +173,12 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const { default: assert } = await import('node:assert/strict');
   const { spawn } = await import('node:child_process');
   const { readFile, writeFile, mkdir, mkdtemp } = await import('node:fs/promises');
-  const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
+  const { firefoxOptions } = await import('../support/firefox-options.mjs');
+  const { buildRoot, outputRoot } = await import('../support/paths.mjs');
   const { createHash } = await import('node:crypto');
-  const build = process.env.PUBLIC_BLOCK_READS_BUILD ?? '/home/jack/zcash-public-block-scratch/dist';
-  const logs = process.env.PUBLIC_BLOCK_LOGS ?? '/home/jack/zcash-public-block-logs';
-  const scratch = process.env.PUBLIC_BLOCK_SCRATCH ?? '/home/jack/zcash-public-block-scratch';
+  const build = buildRoot;
+  const logs = process.env.PUBLIC_BLOCK_LOGS ?? outputRoot + '/public-block-reads-browser/logs';
+  const scratch = process.env.PUBLIC_BLOCK_SCRATCH ?? outputRoot + '/public-block-reads-browser/scratch';
   await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true });
   const runRoot = await mkdtemp(`${scratch}/firefox-`);
   const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
@@ -219,8 +220,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   try {
     report.sourceCommit = process.env.PUBLIC_BLOCK_COMMIT ?? null;
     report.sourcePin = '1e36d1bb6a8a9778a1bd316704b9c8cb75182de6';
-    const snapshotPath = process.env.PUBLIC_BLOCK_SNAPSHOT ?? '/tmp/zakura-upstream-review/crates/zakura-rpc/src/methods/tests/snapshots/get_block_verbose_height_verbosity_1@mainnet_10.snap';
-    const snapshot = await readFile(snapshotPath, 'utf8');
+    const { readFixture } = await import('../support/fixtures.mjs');
+    const snapshot = readFixture('block-one.snap').toString('utf8');
     report.snapshotSha256 = createHash('sha256').update(snapshot).digest('hex');
     assert.equal(report.snapshotSha256, 'e35a7ba66c2f581cd9654c06d87bedae8db0f8b30942b427b1d774f0616e57fe');
     const assets = new Map([
@@ -284,7 +285,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     }, assets);
     report.origin = server.origin;
     const args = ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', runRoot];
-    driver = spawn('/snap/bin/geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    driver = spawn(process.env.GECKODRIVER ?? 'geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     driver.on('error', error => { driverError = error; });
     driver.on('exit', (code, signal) => { driverError = Error(`driver exit ${code}/${signal}`); });
     driverIdentity = await identity(driver.pid);

@@ -15,10 +15,11 @@ async function runFirefox() {
   const { readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync } = await import('node:fs');
   const { spawn } = await import('node:child_process');
   const { createHash } = await import('node:crypto');
-  const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
+  const { firefoxOptions } = await import('../support/firefox-options.mjs');
+  const { buildRoot, outputRoot } = await import('../support/paths.mjs');
   const assert = (await import('node:assert/strict')).default;
-  const logs = process.env.LIGHT_CHAIN_LOGS ?? '/home/jack/zcash-light-chain-logs';
-  const scratch = process.env.LIGHT_CHAIN_SCRATCH ?? '/home/jack/zcash-light-chain-scratch';
+  const logs = process.env.LIGHT_CHAIN_LOGS ?? outputRoot + '/light-chain-reads-browser/logs';
+  const scratch = process.env.LIGHT_CHAIN_SCRATCH ?? outputRoot + '/light-chain-reads-browser/scratch';
   const report = { ok: false, started: new Date().toISOString(), runnerPid: process.pid,
     node: process.versions.node, cleanup: { errors: [] }, trace: [], identities: {} };
   let watcher, profile, sessionRequested = false;
@@ -116,7 +117,7 @@ async function runFirefox() {
     mkdirSync(scratch, { recursive: true }); run = mkdtempSync(scratch + '/firefox-'); report.run = run;
     profile = run + '/profile'; mkdirSync(profile); report.profile = profile;
     const accepted = await acceptedArtifacts(); report.codec = accepted.provenance;
-    const build = process.env.LIGHT_CHAIN_BUILD; assert.ok(build, 'LIGHT_CHAIN_BUILD required');
+    const build = buildRoot;
     const assets = new Map([
       ['/', `<!doctype html><meta charset="utf-8"><title>gRPC-Web fixture</title><link rel="icon" href="data:,">
 <script type="module">
@@ -139,14 +140,14 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
     report.sources = {};
     for (const path of ['src/clients/light-chain-reads.ts', 'src/clients/grpc-web.ts', 'src/errors.ts', 'src/primitives.ts', 'tsconfig.json', 'package.json',
       'tests/clients/light-chain-reads-browser.mjs', 'tests/clients/light-chain-reads-checks.mjs', 'tests/clients/light-chain-reads-fixtures.mjs',
-      'qualification/browser-runtime/firefox-options.mjs']) {
+      'tests/support/firefox-options.mjs']) {
       report.sources[path] = hash(readFileSync(new URL('../../' + path, import.meta.url)));
     }
     trace('assets-read');
     await bounded(() => serveFixtures(assets, { signal: stop.signal, golden: accepted.golden, onCreate: owned => { fixture = owned; trace('server-created'); } }));
     report.origin = fixture.origin; trace('server-listening');
     stop.signal.throwIfAborted();
-    driver = spawn('/snap/bin/geckodriver', ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', run],
+    driver = spawn(process.env.GECKODRIVER ?? 'geckodriver', ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', run],
       { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     driver.on('error', error => { driverError = error; stop.abort(error); });
     driver.on('exit', (code, signal) => { driverError = Error(`driver exit ${code}/${signal}`); stop.abort(driverError); });

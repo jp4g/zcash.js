@@ -6,8 +6,9 @@ import { readFile, writeFile, mkdir, mkdtemp, readdir, rm } from 'node:fs/promis
 import { openSync, closeSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { outputRoot } from '../support/paths.mjs';
 import { bundle } from './real-firefox-build.mjs';
-import { firefoxOptions } from '../../qualification/browser-runtime/firefox-options.mjs';
+import { firefoxOptions } from '../support/firefox-options.mjs';
 import { sha, verifyAssets, verifyResult } from './real-firefox-support.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -18,9 +19,9 @@ for (let i = 0; i < argv.length; i++) {
   if (argv[i] !== '--prepare-only') assert.ok(argv[++i] && !argv[i].startsWith('--'), 'option requires value');
 }
 const option = (name, fallback) => argv.includes(name) ? argv[argv.indexOf(name) + 1] : fallback;
-const logs = resolve(option('--logs', '/home/jack/zcash-agnostic-browser-logs'));
-const scratch = resolve(option('--scratch', '/home/jack/zcash-agnostic-browser-scratch'));
-const geckodriver = resolve(option('--geckodriver', '/snap/bin/geckodriver'));
+const logs = resolve(option('--logs', join(outputRoot, 'sdk-firefox/logs')));
+const scratch = resolve(option('--scratch', join(outputRoot, 'sdk-firefox/scratch')));
+const geckodriver = option('--geckodriver', process.env.GECKODRIVER ?? 'geckodriver');
 await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true });
 const runRoot = await mkdtemp(join(scratch, 'real-firefox-'));
 const resultPath = join(logs, `${runRoot.split('/').at(-1)}.json`);
@@ -65,14 +66,13 @@ async function request(route, method = 'GET', body, cleanup = false) {
 }
 try {
   const sourceCommit = command('git', ['rev-parse', 'HEAD']);
-  const acceptedCommit = command('git', ['rev-parse', 'f604b60^{commit}']);
-  command('git', ['diff', '--exit-code', acceptedCommit, '--', 'src', 'tsconfig.json', 'package-lock.json']);
-  command('git', ['merge-base', '--is-ancestor', acceptedCommit, sourceCommit]);
   command(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.json']);
   const [pack] = JSON.parse(command('npm', ['pack', '--offline', '--cache', join(runRoot, 'npm-cache'), '--ignore-scripts', '--json', '--pack-destination', runRoot]));
   assert.ok(pack.files.every(file => !file.path.startsWith('qualification/') && !file.path.startsWith('tests/')));
   const consumer = join(runRoot, 'consumer');
   await mkdir(join(consumer, 'node_modules/zcash.js'), { recursive: true });
+  // Give the consumer its own package scope, so zcash.js cannot self-resolve to this repo.
+  await writeFile(join(consumer, 'package.json'), JSON.stringify({ name: 'zcash-browser-test-consumer', private: true, type: 'module' }));
   // Extract the locally packed archive directly; no package install or registry access.
   command('tar', ['-xzf', join(runRoot, pack.filename), '--strip-components=1', '-C', join(consumer, 'node_modules/zcash.js')]);
   const packageRoot = join(consumer, 'node_modules/zcash.js');
@@ -97,11 +97,11 @@ try {
     }
   }
   await collect(join(packageRoot, 'dist'), '/package/dist');
-  report.inputs = { sourceCommit, acceptedCommit, tarballSha256: sha(await readFile(join(runRoot, pack.filename))),
+  report.inputs = { sourceCommit, tarballSha256: sha(await readFile(join(runRoot, pack.filename))),
     manifest, files: Object.fromEntries([...assets].map(([name, bytes]) => [name, { sha256: sha(bytes), bytes: bytes.length }])),
     harness: Object.fromEntries(await Promise.all(['run', 'browser', 'support', 'build'].map(async name => [name,
       sha(await readFile(new URL(`./real-firefox-${name}.mjs`, import.meta.url)))]))),
-    optionsSha256: sha(await readFile(new URL('../../qualification/browser-runtime/firefox-options.mjs', import.meta.url))) };
+    optionsSha256: sha(await readFile(new URL('../support/firefox-options.mjs', import.meta.url))) };
   verifyAssets(report.inputs, assets);
   // Retain exactly served bytes for coordinator/reviewer inspection.
   for (const [name, bytes] of assets) {
@@ -190,7 +190,7 @@ try {
   }
 } catch (error) {
   report.error = { message: String(error), code: error.code, stack: error.stack };
-  if (['EPERM', 'EACCES'].includes(error.code)) report.hostCommand = 'npm run test:sdk:real-firefox -- --logs /home/jack/zcash-agnostic-browser-logs --scratch /home/jack/zcash-agnostic-browser-scratch --geckodriver /snap/bin/geckodriver';
+  if (['EPERM', 'EACCES'].includes(error.code)) report.hostCommand = 'npm run test:sdk:real-firefox';
 } finally {
   clearTimeout(deadline);
   const cleanupErrors = [];

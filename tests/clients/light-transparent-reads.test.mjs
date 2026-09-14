@@ -1,15 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
-import { createLightwire } from '/home/jack/zcash-light-transparent-reads-scratch/codec/codec.mjs';
-import { createTransparentAddressCodec } from '/home/jack/zcash-light-transparent-reads-scratch/address/codec.mjs';
+import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { buildRoot as build } from '../support/paths.mjs';
+import { nativeFixture, readFixture } from '../support/fixtures.mjs';
 import { revision, scalar } from './light-chain-reads-fixtures.mjs';
-const root = '/home/jack/zcash-light-transparent-reads-scratch';
-const wire = createLightwire(readFileSync(root+'/codec/wasm/zakura_lightwire_bg.wasm'));
-const address = createTransparentAddressCodec(readFileSync(root+'/address/wasm/zakura_transparent_address_bg.wasm'));
-const build = process.env.LIGHT_TRANSPARENT_BUILD ?? root+'/build';
-const path = build+'/src/clients/light-transparent-reads.js';
-const internal = existsSync(path) ? await import(path) : {};
+const lightwire = nativeFixture('lightwire');
+const transparent = nativeFixture('address');
+const { createLightwire } = await import(pathToFileURL(lightwire.directory + '/codec.mjs'));
+const { createTransparentAddressCodec } = await import(pathToFileURL(transparent.directory + '/codec.mjs'));
+const wire = createLightwire(lightwire.assets.get('wasm/zakura_lightwire_bg.wasm'));
+const address = createTransparentAddressCodec(transparent.assets.get('wasm/zakura_transparent_address_bg.wasm'));
+const internal = await import(`${build}/src/clients/light-transparent-reads.js`);
 const token = 't1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs';
 const transport = bytes => ({kind:'custom-lightwallet',sourceId:'fixture',protocolRevision:revision, unary(){return bytes;}});
 test('native unary balance preserves an exact int64 above Number precision',async()=>{
@@ -114,7 +116,7 @@ test('pinned source qualification documents the erased-error boundary',()=>{
 // Preserve the original source-derived false-empty witness; source parsing is test-only.
 test('pinned backend error branches erase unmatched errors before SDK adaptation',async()=>{
  const {createHash}=await import('node:crypto');
- const source=readFileSync('/home/jack/zcash-client-prerequisites-logs/lightwalletd-service.go','utf8');
+ const source=readFixture('lightwalletd-service.go').toString('utf8');
  assert.equal(createHash('sha256').update(source).digest('hex'),'61af8b2e81894b0abeaadd87490026715ca2958e3d5c7532e536a4169dde4062');
  for(const rpc of ['getaddressutxos','getaddressbalance']) {
   const start=source.indexOf('result, rpcErr := common.RawRequest(ctx, "'+rpc+'", params)');

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createServer } from 'node:http';
 import * as sdk from 'zcash.js';
 
-const internal = await import('../../dist/src/http.js').catch(() => ({}));
+const internal = await import('../../dist/src/http.js');
 const options = (extra = {}) => ({ sourceId: 'synthetic', timeoutMs: 1000,
   readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4096, ...extra });
 const call = (transport, signal) => internal.readRpc(transport, 'getblockchaininfo', [], signal);

@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixtureCodec, revision, hash, display, tipBytes, response, blockBytes, nextHash, scalar, bytesField, concat, frame, base64, trailer, media } from './light-chain-reads-fixtures.mjs';
+import { buildRoot as build } from '../support/paths.mjs';
 const { codec } = await fixtureCodec();
-const build = process.env.LIGHT_CHAIN_BUILD;
-assert.ok(build, 'LIGHT_CHAIN_BUILD must name external tsc output');
-const internal = await import(build + '/src/clients/light-chain-reads.js').catch(error => {
-  if (error.code === 'ERR_MODULE_NOT_FOUND') return {}; throw error;
-});
+const internal = await import(build + '/src/clients/light-chain-reads.js');
 const { createGrpcWebByteTransport } = await import(build + '/src/clients/grpc-web.js');
 const transport = () => ({ kind: 'custom-lightwallet', sourceId: 'fixture', protocolRevision: revision,
   ...createGrpcWebByteTransport('https://synthetic.invalid', { timeoutMs: 1000 }) });

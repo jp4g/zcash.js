@@ -1,9 +1,10 @@
+import { buildRoot as build, outputRoot } from '../support/paths.mjs';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { fixtureCodec, serveChainFixtures, base64, frame, service } from './light-chain-reads-fixtures.mjs';
 import { chainChecks } from './light-chain-reads-checks.mjs';
-const logs = process.env.LIGHT_CHAIN_LOGS ?? '/home/jack/zcash-light-chain-logs';
+const logs = process.env.LIGHT_CHAIN_LOGS ?? outputRoot + '/light-chain-network/logs';
 mkdirSync(logs, { recursive: true });
 const receipt = mkdtempSync(logs + '/node-network-') + '/receipt.json';
 const report = { ok: false, node: process.versions.node, started: new Date().toISOString(), receipt };
@@ -14,8 +15,6 @@ process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
 const deadline = setTimeout(() => stop.abort(Error('fixture deadline')), 30000);
 save();
 try {
-  const build = process.env.LIGHT_CHAIN_BUILD;
-  assert.ok(build, 'LIGHT_CHAIN_BUILD must name external tsc output');
   const accepted = await fixtureCodec(); report.codec = accepted.provenance;
   const hash = bytes => createHash('sha256').update(bytes).digest('hex');
   report.sources = {};

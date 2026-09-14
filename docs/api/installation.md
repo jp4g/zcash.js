@@ -65,7 +65,7 @@ This starts a loopback HTTPS asset server, opens and reopens an offline native f
 
 ## Review locally
 
-From the repository root, with Node `^20.19.0` or `>=22.12.0`:
+From the repository root, with Node `^22.13.0` or `>=24` (the ESLint development-tool requirement):
 
 ```sh
 npm ci

@@ -62,11 +62,12 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const { default: assert } = await import('node:assert/strict');
   const { spawn } = await import('node:child_process');
   const { readFile, writeFile, mkdir, mkdtemp } = await import('node:fs/promises');
-  const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
+  const { firefoxOptions } = await import('../support/firefox-options.mjs');
   const { createHash } = await import('node:crypto');
-  const build = process.env.PUBLIC_TRANSACTION_READS_BUILD ?? '/home/jack/zcash-public-transaction-scratch/implementation/dist';
-  const logs = process.env.PUBLIC_TRANSACTION_READS_LOGS ?? '/home/jack/zcash-public-transaction-logs';
-  const scratch = process.env.PUBLIC_TRANSACTION_READS_SCRATCH ?? '/home/jack/zcash-public-transaction-scratch';
+  const { buildRoot, outputRoot } = await import('../support/paths.mjs');
+  const build = buildRoot;
+  const logs = process.env.PUBLIC_TRANSACTION_READS_LOGS ?? `${outputRoot}/public-transaction-reads/logs`;
+  const scratch = process.env.PUBLIC_TRANSACTION_READS_SCRATCH ?? `${outputRoot}/public-transaction-reads/scratch`;
   await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true });
   const runRoot = await mkdtemp(`${scratch}/firefox-`);
   const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
@@ -101,9 +102,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       ['/public-transaction-reads-browser.mjs', await readFile(new URL(import.meta.url))],
       ['/public-chain-reads-fixtures.mjs', await readFile(new URL('./public-chain-reads-fixtures.mjs', import.meta.url))],
     ]);
-    for (const name of ['index', 'amounts', 'http', 'errors', 'json', 'primitives', 'clients/public-chain-reads', 'clients/public-block-reads', 'clients/public-transaction-reads']) {
-      assets.set(`/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
-    }
+    const { addBuildAssets } = await import('../support/build-assets.mjs');
+    await addBuildAssets(assets);
     for (const [name, bytes] of files) assets.set(`/packet/${name}`, bytes);
     assets.set('/vectors.json', JSON.stringify(vectors));
     assets.set('/state', JSON.stringify({ inflight: false }));
@@ -140,7 +140,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     }, assets);
     report.origin = server.origin;
     const args = ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', runRoot];
-    driver = spawn('/snap/bin/geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    driver = spawn(process.env.GECKODRIVER ?? 'geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     driver.on('error', error => { driverError = error; });
     driver.on('exit', (code, signal) => { driverError = Error(`driver exit ${code}/${signal}`); });
     driverIdentity = await identity(driver.pid);

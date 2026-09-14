@@ -1,8 +1,14 @@
 # Contributing
 
-`jp4g/zcash.js` is a private project in API planning and validation. There is no production SDK or SDK build/test workflow yet; the documentation website has its own tooling. Contributions follow the authorized qualification and gated implementation phase below.
+`jp4g/zcash.js` is a private project in API planning and validation. The SDK is experimental. Run `npm run check` for lint, the current build, and all Node tests; see `tests/README.md` for fixtures and browser/TLS prerequisites. The documentation website has additional checks. Contributions follow the authorized qualification and gated implementation phase below.
 
 Read the [decision log](docs/planning/decision-log.md), [API guide](docs/api/README.md), [namespace audit](docs/planning/api-namespace-audit.md) and [workplan](docs/planning/api-surface-workplan.md) before proposing changes. Preserve decided scope. A proposed signature is not an implemented export, a source symbol is not a runtime result, and a passing TypeScript check is not wallet qualification.
+
+## Branches and pull requests
+
+Before starting an issue, fetch origin and fast-forward local `main`. Create a
+fresh branch from that synced `main` and open a separate PR for the issue. Link
+the issue with `Closes #...` so it closes when the fix merges.
 
 ## Owner-authorized delivery phase and D26 slice
 

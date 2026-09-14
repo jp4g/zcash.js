@@ -6,7 +6,7 @@ See [local installation and runtime assets](docs/api/installation.md) for instal
 
 ## Local review site
 
-Use Node `^20.19.0` or `>=22.12.0`:
+For development, use Node `^22.13.0` or `>=24` (required by ESLint):
 
 ```sh
 npm ci
@@ -15,7 +15,21 @@ npm run docs:build
 npm run docs:preview
 ```
 
-Open **http://127.0.0.1:4173/**. For editing, run `npm run docs:dev` at the same address instead; only one server can own port 4173. The site uses base `/`. No Pages deployment is configured. The package remains private; local distribution qualification does not authorize publication or deployment.
+Open **http://127.0.0.1:4173/**. For editing, run `npm run docs:dev` at the same address instead; only one server can own port 4173. The site uses base `/`. GitHub Actions checks runtime lint/build/tests, declarations/examples, and the site; no Pages deployment is configured. Implemented exports are listed in [the implementation notes](docs/planning/agnostic-implementation.md); the API book also contains proposals that are not exported.
+
+## Development checks
+
+```sh
+npm ci
+npm run check
+```
+
+`check` runs ESLint, compiles the current source, and runs all Node test suites.
+Tests use committed, hash-verified native WASM fixtures; no Rust toolchain,
+external workspace, or blockchain provider is required. Generated test output
+stays under `.local/tests/` or the OS temporary directory.
+
+See `tests/README.md` for browser and optional TLS checks.
 
 ## Review contracts and evidence
 

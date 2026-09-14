@@ -14,7 +14,7 @@ export interface NativeFinalized {readonly operationId:string;readonly stepIndex
 export interface NativeFusedInput {readonly operationId:string;readonly proposalId:string;readonly reviewCommitment:string;readonly token:number;readonly spend:Uint8Array;readonly output:Uint8Array}
 export interface NativeFused {readonly operationId:string;readonly revision:string;readonly transactions:readonly (Omit<NativeFinalized,'stepIndex'|'artifactId'>&{readonly stepIndex:number;readonly artifactId:string|null})[]}
 
-import type {ErrorInfo,Network,ObservationOptions,OperationsApi,PendingPayment,PaymentConfirmation,Op,RecoveryPolicy,RecoveryReport,WalletOptions,WalletClient,NonEmpty,ConfirmedTransaction} from '../../docs/api/public-api.js';
+import type {ErrorInfo,ObservationOptions,OperationsApi,PendingPayment,PaymentConfirmation,Op,RecoveryPolicy,RecoveryReport,WalletOptions,WalletClient,NonEmpty,ConfirmedTransaction} from '../../docs/api/public-api.js';
 import type {openWalletRuntime} from '../runtime/wallet.js';
 import {failure,invalidArgument,isZcashError} from '../errors.js';
 import {snapshot} from '../clients/owned-plumbing.js';

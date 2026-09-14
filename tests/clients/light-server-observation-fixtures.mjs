@@ -332,23 +332,10 @@ export function response(mode) {
   return base64(concat(data, trailer()));
 }
 
-// Verifies the complete accepted receipt inventory before any executable asset import.
+// Verify the pinned artifact inventory before any executable fixture import.
 export async function acceptedArtifacts() {
-  const { readFile, mkdir, copyFile } = await import('node:fs/promises');
-  const { createHash } = await import('node:crypto');
-  const assert = (await import('node:assert/strict')).default;
-  const source = '/home/jack/zakura-wasm-bindings/lightwire';
-  const build = '/home/jack/zakura-lightwire-scratch/fixes/r1/build';
-  const sha = value => createHash('sha256').update(value).digest('hex');
-  const receiptBytes = await readFile(build + '/receipt.json');
-  assert.equal(sha(receiptBytes), 'f0a385adffe4bdca50e39b951658f2d021ebb5011ceb00b6b78f63b988e3b5cc');
-  const receipt = JSON.parse(receiptBytes);
-  for (const [path, hash] of Object.entries(receipt.source)) assert.equal(sha(await readFile(source + '/' + path)), hash, path);
-  const assets = new Map();
-  for (const [path, hash] of Object.entries(receipt.artifacts)) {
-    const data = await readFile(build + '/' + path); assert.equal(sha(data), hash, path); assets.set(path, data);
-  }
-  return { assets, provenance: { receipt: sha(receiptBytes), source: receipt.source, artifacts: receipt.artifacts } };
+  const { nativeFixture } = await import('../support/fixtures.mjs');
+  return nativeFixture('lightwire');
 }
 
 // Node's native fetch can also consume this bounded fixture without opening a socket.

@@ -6,6 +6,8 @@ import { EventEmitter } from 'node:events';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import * as crypto from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 const source = await readFile(new URL('./grpc-web-browser.mjs', import.meta.url), 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
@@ -96,9 +98,10 @@ async function probe(mode) {
     if (['session-hang', 'SIGINT', 'SIGTERM'].includes(mode)) return new Promise(() => {});
     throw Error('injected session');
   };
+  deps.paths = { buildRoot: '/candidate/dist', outputRoot: '/candidate/.local/tests' };
   let runner = source.slice(source.indexOf('async function runFirefox()'), source.lastIndexOf("if (typeof window"));
   for (const [name, key] of [['node:fs/promises', 'fs'], ['node:fs', 'fs'], ['node:child_process', 'child'],
-    ['node:crypto', 'crypto'], ['node:assert/strict', 'assert'], ['../../qualification/browser-runtime/firefox-options.mjs', 'options']]) {
+    ['node:crypto', 'crypto'], ['../support/paths.mjs', 'paths'], ['node:assert/strict', 'assert'], ['../support/firefox-options.mjs', 'options']]) {
     runner = runner.replaceAll(`await import('${name}')`, `deps.${key}`);
   }
   runner = runner.replaceAll('import.meta.url', "'file:///candidate/tests/clients/grpc-web-browser.mjs'")
@@ -123,7 +126,7 @@ for (const mode of ['asset', 'listen', 'listen-hang', 'spawn', 'startup', 'sessi
     assert.equal(got.report?.ok, false, 'current run failure receipt');
     assert.ok(got.report.run && got.report.started);
     assert.equal(got.writes.get('/historical/firefox.json'), '{"ok":true}', 'preserve historical evidence');
-    assert.ok(!got.writes.has('/home/jack/zcash-grpc-web-logs/firefox.json'), 'no reusable success path');
+    assert.ok(!got.writes.has('/candidate/.local/tests/grpc-web-browser/logs/firefox.json'), 'no reusable success path');
     if (mode !== 'asset') assert.equal(got.closed, 1, 'close acquired fixture exactly once');
     if (!['asset', 'listen', 'listen-hang', 'spawn'].includes(mode)) assert.ok(got.killed.some(([pid, signal]) => pid === -123 && signal === 'SIGTERM'), 'kill owned detached group');
     if (['delete-hang', 'group-kill-fails'].includes(mode)) {
@@ -187,7 +190,7 @@ for (const mode of ['late-session', 'lost-session']) test(`mock out-of-group bro
 });
 
 test('mock failed teardown with real retained handle exits child CLI after failed receipt', () => {
-  const receipt = mkdtempSync('/tmp/grpc-web-liveness-') + '/receipt.json';
+  const receipt = mkdtempSync(join(tmpdir(), 'grpc-web-liveness-')) + '/receipt.json';
   const prefix = readFileSync(new URL(import.meta.url), 'utf8').split("for (const mode of ['asset'")[0]
     .replace("new URL('./grpc-web-browser.mjs', import.meta.url)", JSON.stringify(new URL('./grpc-web-browser.mjs', import.meta.url).pathname));
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', prefix + "\nconst got = await probe('close-hang'); process.exitCode = got.proc.exitCode;"],

@@ -1,13 +1,11 @@
+import { readFixture } from '../support/fixtures.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixture, result, sourceId, transportOptions, blockOne } from './public-chain-reads-fixtures.mjs';
 
-const build = process.env.PUBLIC_BLOCK_READS_BUILD ?? '/home/jack/zcash-public-block-scratch/dist';
+import { buildRoot as build } from '../support/paths.mjs';
 const { http } = await import(`${build}/src/http.js`);
-const adapter = await import(`${build}/src/clients/public-block-reads.js`).catch(error => {
-  if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error;
-  return {};
-});
+const adapter = await import(`${build}/src/clients/public-block-reads.js`);
 // The single txid is verbatim from the pinned verbosity-1 block-one snapshot.
 const txids = ['851bf6fbf7a976327817c738c489d7fa657752445430922d94c983c0b9ed4609'];
 const block = { ...blockOne.verbose, nTx: 1, tx: txids };
@@ -209,9 +207,7 @@ test('pre-aborted operation does not call transport callbacks', async () => {
 });
 
 test('verbatim pinned verbosity-1 snapshot composes with A block-one header bytes', async t => {
-  const { readFile } = await import('node:fs/promises');
-  const file = process.env.PUBLIC_BLOCK_SNAPSHOT ?? '/tmp/zakura-upstream-review/crates/zakura-rpc/src/methods/tests/snapshots/get_block_verbose_height_verbosity_1@mainnet_10.snap';
-  const snapshot = (await readFile(file, 'utf8')).split('---\n').at(-1);
+  const snapshot = readFixture('block-one.snap').toString('utf8').split('---\n').at(-1);
   const f = await local(t, call => call.method === 'getblock' ? `"result":${snapshot}` : reply(call));
   const value = await adapter.getBlock(f.source, { height: 1 });
   assert.deepEqual(value.txids, txids); assert.equal(Buffer.from(value.raw).toString('hex'), blockOne.raw);

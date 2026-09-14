@@ -1,7 +1,7 @@
 import type { CustomLightTransport, GrpcTransport, LightClient, Network, Op } from '../docs/api/public-api.js';
 import { networkBinding } from './network.js';
 import { grpcAdapter, grpcBinding } from './grpc.js';
-import { failure, invalidArgument, isZcashError } from './errors.js';
+import { failure, invalidArgument } from './errors.js';
 import { snapshot } from './clients/owned-plumbing.js';
 import { ownCustomLightTransport } from './clients/custom-light.js';
 import * as chain from './clients/light-chain-reads.js';

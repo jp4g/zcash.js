@@ -39,7 +39,7 @@ export async function run() {
     sdk = await import('/package/dist/src/index.js');
     bundled = await import('/bundle.mjs');
     for (const api of [sdk, bundled.sdk]) {
-      check(Object.keys(api).sort().join(',') === 'accountFromViewingKey,accountIndex,addresses,blockHash,createCustomSigner,createLightClient,createPublicClient,defineNetwork,diversifierIndex,formatZec,grpc,http,isZcashError,parseZec,pczt,resolveBirthday,txId,viewing', 'root exports');
+      check(Object.keys(api).sort().join(',') === 'accountFromViewingKey,accountIndex,addresses,blockHash,createCustomSigner,createLightClient,createPublicClient,createWalletClient,createZcashClient,defineNetwork,diversifierIndex,formatZec,grpc,http,isZcashError,parseZec,pczt,resolveBirthday,txId,viewing', 'root exports');
       check(api.parseZec('9007199254740993.00000001') === 900719925474099300000001n, 'amount parse');
       check(api.formatZec(900719925474099300000001n) === '9007199254740993.00000001', 'amount format');
       check(api.txId('a'.repeat(64)) === 'a'.repeat(64) && api.blockHash('b'.repeat(64)) === 'b'.repeat(64), 'hash IDs');
@@ -60,7 +60,7 @@ export async function run() {
   check(negativeEager === 1, 'negative eager gate must reject');
   let unsupported = false;
   try { await import('/negative-unsupported.mjs'); } catch (error) { unsupported = error instanceof SyntaxError; }
-  check(unsupported, 'unimplemented named import must reject in Firefox');
+  check(unsupported, 'nonexistent named import must reject in Firefox');
   const network = await networks([sdk, bundled.sdk]);
   const transport = bundled.sdk.http(`${location.origin}/rpc`, policy);
   const read = (mode, signal, t = transport) => bundled.readRpc(t, 'getblockhash', [mode, 7, true, '€'], signal);

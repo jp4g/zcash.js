@@ -57,12 +57,14 @@ function response<T>(read: () => T): T {
 /** Owned adapter transport only; returned PCZT bytes are not verified authorization.
  * The adapter owns cleanup of undelivered account results after cancellation. */
 export function createCustomSigner(adapter: Signer): Signer { return boundedSigner(adapter,Number.MAX_SAFE_INTEGER); }
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
 const adapters=new WeakMap<Signer,{adapter:Signer;methods:Record<keyof Signer,Function>}>();
 /** Wallet admission must bound the original adapter response before any wrapper copies it. */
 export function boundedSigner(adapter: Signer, maximum: number): Signer {
   const captured=adapters.get(adapter);
   adapter=captured?.adapter??adapter;
   // Methods may be prototype data properties on a stateful device adapter.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
   const methods = captured?.methods??{} as Record<keyof Signer, Function>;
   try {
     if (!adapter || typeof adapter !== 'object') throw 0;
@@ -78,6 +80,7 @@ export function boundedSigner(adapter: Signer, maximum: number): Signer {
       methods[name] = property.value;
     }
   } catch { throw invalidArgument(); }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-function-type -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
   async function invoke<T>(method: Function, args: object, signal: AbortSignal | undefined, read: (value: any) => T): Promise<T> {
     const pending = operation(signal);
     try {

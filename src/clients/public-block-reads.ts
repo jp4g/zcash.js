@@ -48,9 +48,9 @@ async function bindSignal(original?: AbortSignal) {
   return { signal, close() { closed = true; apply(nativeRemove, dependent, ['abort', onAbort]); } };
 }
 
-const unsupportedSignal = (() => {
+const unsupportedSignal: (value: unknown) => boolean = (() => {
   try { apply(nativeAborted, new Proxy(new AbortController().signal, {}), []); }
-  catch { return (_value: unknown) => false; }
+  catch { return () => false; }
   const host = globalThis as typeof globalThis & { process?: {
     getBuiltinModule?: (name: string) => { types: { isProxy: (value: unknown) => boolean } };
   } };

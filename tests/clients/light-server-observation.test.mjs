@@ -1,19 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { acceptedArtifacts, fixtureFetch, serveObservationFixtures } from './light-server-observation-fixtures.mjs';
 import { observationChecks } from './light-server-observation-checks.mjs';
-const build = process.env.LIGHT_OBSERVATION_BUILD ?? '/home/jack/zcash-light-server-observation-scratch/build';
+import { buildRoot as build } from '../support/paths.mjs';
 const { readLightdInfo } = await import(pathToFileURL(build + '/src/clients/light-server-observation.js'));
 const { createGrpcWebByteTransport } = await import(pathToFileURL(build + '/src/clients/grpc-web.js'));
 const packet = await acceptedArtifacts();
-const codecRoot = '/home/jack/zcash-light-server-observation-scratch/codec';
-await mkdir(codecRoot + '/wasm', { recursive: true });
-await writeFile(codecRoot + '/package.json', '{"type":"module"}\n');
-for (const [path, data] of packet.assets) await writeFile(codecRoot + '/' + path, data);
-const { createLightwire } = await import(pathToFileURL(codecRoot + '/codec.mjs'));
-const codec = createLightwire(await readFile(codecRoot + '/wasm/zakura_lightwire_bg.wasm'));
+const { createLightwire } = await import(pathToFileURL(packet.directory + '/codec.mjs'));
+const codec = createLightwire(packet.assets.get('wasm/zakura_lightwire_bg.wasm'));
 test('actual accepted Rust codec + byte transport + observation assertions', async () => {
   const original = globalThis.fetch;
   const requests = [];

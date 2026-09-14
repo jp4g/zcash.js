@@ -1,0 +1,72 @@
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { isMainThread } from 'node:worker_threads';
+// Capture identity primitives before consumer fault injection can replace fs methods.
+const { openSync, fstatSync, closeSync } = fs;
+function checkedOpen(path, flags, directory = false) {
+  const fd = openSync(path, flags | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK, 0o600);
+  try {
+    const stat = fstatSync(fd);
+    if (!(directory ? stat.isDirectory() : stat.isFile() && stat.nlink === 1) ||
+        stat.uid !== process.geteuid() || (stat.mode & 0o077)) throw Error('unsafe wallet path');
+    return fd;
+  } catch (e) { closeSync(fd); throw e; }
+}
+// Linux owner lease: flock belongs to the retained open file description.
+// Worker trackUnmanagedFds must remain enabled for crash/destruction cleanup.
+export function acquire(root, { create = false } = {}) {
+  if (isMainThread || process.platform !== 'linux') throw Error('dedicated Linux worker required');
+  let base, lock, dir;
+  try {
+    base = fs.realpathSync(root);
+    dir = checkedOpen(base, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY, true);
+    lock = checkedOpen(`${base}/owner.lock`, fs.constants.O_CREAT | fs.constants.O_RDWR);
+    const result = spawnSync('/usr/bin/flock', ['-n', '3'], {
+      stdio: ['ignore', 'ignore', 'ignore', lock], timeout: 5000,
+    });
+    if (result.error || result.status !== 0) {
+      throw Object.assign(Error('exclusive owner unavailable'), { code: result.status === 1 ? 'EBUSY' : 'EIO' });
+    }
+    // Validate BOTH preexisting files before SQLite can mutate either one.
+    for (const name of ['wallet.db', 'wallet.db-journal']) {
+      try { closeSync(checkedOpen(`${base}/${name}`, fs.constants.O_RDONLY)); }
+      catch (e) { if (e.code !== 'ENOENT' || (name === 'wallet.db' && !create)) throw e; }
+    }
+  } catch (e) {
+    if (dir !== undefined) closeSync(dir);
+    if (lock !== undefined) closeSync(lock);
+    throw Object.assign(Error(e.code === 'EBUSY' ? 'exclusive owner unavailable' : 'STORAGE_OPEN_FAILED'),
+      { code: e.code === 'EBUSY' ? 'EBUSY' : 'EIO' });
+  }
+  const descriptors = new Set();
+  const host = {
+    owned: true,
+    open(path, make, readOnly) {
+      const fd = checkedOpen(`${base}/${path}`, (readOnly ? fs.constants.O_RDONLY : fs.constants.O_RDWR) | (make ? fs.constants.O_CREAT : 0));
+      // Persist namespace entries before journal/database writes can depend on them.
+      try { fs.fsyncSync(dir); } catch (e) { closeSync(fd); throw e; }
+      descriptors.add(fd); return fd;
+    },
+    close(fd) { fs.fsyncSync(fd); fs.closeSync(fd); descriptors.delete(fd); },
+    read: (fd, b, at) => fs.readSync(fd, b, 0, b.length, at),
+    write: (fd, b, at) => fs.writeSync(fd, b, 0, b.length, at),
+    truncate: (fd, size) => fs.ftruncateSync(fd, size),
+    sync: fd => fs.fsyncSync(fd),
+    size: fd => fs.fstatSync(fd).size,
+    delete(path, sync) {
+      try { fs.unlinkSync(`${base}/${path}`); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+      if (sync) { fs.fsyncSync(dir); }
+    },
+    access(path, flags) {
+      try { fs.accessSync(`${base}/${path}`, flags === 1 ? fs.constants.R_OK | fs.constants.W_OK : flags === 2 ? fs.constants.R_OK : fs.constants.F_OK); return true; }
+      catch (e) { if (e.code === 'ENOENT') return false; throw e; }
+    },
+    release() {
+      if (!host.owned) return;
+      // Hold the lease until every data descriptor is closed.
+      for (const fd of descriptors) { fs.closeSync(fd); descriptors.delete(fd); }
+      descriptors.clear(); fs.closeSync(dir); fs.closeSync(lock); host.owned = false;
+    },
+  };
+  return host;
+}

@@ -1,27 +1,25 @@
 # Real Firefox consumer qualification
 
-This harness targets the reviewed public network descriptor at `1f8d885`. It
-qualifies packed ESM and bundled `defineNetwork` with actual host-local Rust WASM.
-It does not qualify a public client (none is exported), CORS, an external provider,
-wallet execution, the H1 configurable runtime contract or completion of issues #6/#8. The internal `readRpc` hook is
-explicit test access to packed code, not a supported package subpath.
+This harness tests the current checkout's packed ESM and bundled SDK in Firefox,
+including native network validation and synthetic public and light clients.
+It does not establish live-provider or wallet execution coverage.
 
-From this worktree, on the coordinator's socket-permitted Linux host with the
-already installed packaged Firefox **155.x** and geckodriver **0.37.x**:
+On Linux, install compatible Firefox and geckodriver executables, then run:
 
 ```sh
-npm run test:sdk:real-firefox -- --logs /home/jack/zcash-agnostic-browser-logs --scratch /home/jack/zcash-agnostic-browser-scratch --geckodriver /snap/bin/geckodriver
+npm ci
+npm run test:sdk:real-firefox
 ```
 
-No browser install is performed. Omit an explicit Firefox binary: packaged
-geckodriver selects its matching executable. The runner imports the measured
-`qualification/browser-runtime/firefox-options.mjs` helper and follows that
-runner's ephemeral listener/profile and owned process-group/PID start-time
-cleanup approach; it does not execute or change WASM qualification scenarios.
-Only `-headless` is passed to Firefox. No security flags, preferences, runtime
-dependencies, external provider, publication, or package scripts are introduced.
-The repository's existing development dependencies must already be installed;
-`npm ci --offline --ignore-scripts --no-audit --no-fund` is the permitted setup.
+`geckodriver` is resolved from PATH; use `GECKODRIVER` or `--geckodriver` to
+select another executable. Let the driver select its matching Firefox binary.
+Logs and scratch files default to `.local/tests/sdk-firefox/` within the repo;
+`--logs` and `--scratch` can override them. No browser is downloaded by the
+runner, and no browser security settings are weakened.
+
+The shared `tests/support/firefox-options.mjs` helper sets headless mode. The
+runner owns its temporary listeners, profiles, and child processes and cleans
+them up on success, failure, or interruption.
 
 The runner rebuilds, packs offline with scripts disabled and a run-owned npm
 cache, extracts its own tarball, and resolves a browser bundle's `zcash.js` import
@@ -60,12 +58,11 @@ PID/start time, and checks their disappearance. Failures and cleanup failures
 exit nonzero. Run-owned artifacts and JSON/driver logs are retained for review;
 the successful run's extracted consumer is removed. This is a foreground runner.
 
-Each JSON report records source HEAD, accepted source commit, tarball SHA-256,
+Each JSON report records source HEAD, tarball SHA-256,
 every served asset's SHA-256/byte count, harness hashes, exact capabilities and
-versions, claims/results, wire requests, and cleanup. It rejects changes to
-`src`, the TypeScript configuration, or lockfile relative to the accepted commit.
-A `prepared-only` report contains **no browser claims**. Source HEAD plus harness
-hashes also distinguish uncommitted harness preparation from a committed run.
+versions, claims/results, wire requests, and cleanup. It builds the current working tree, including uncommitted changes, and hashes
+the packaged/served bytes. A `prepared-only` report contains **no browser claims**;
+the source HEAD alone is not a claim that the working tree was clean.
 
 No-socket checks:
 
@@ -73,21 +70,6 @@ No-socket checks:
 node tests/sdk/real-firefox.test.mjs
 npm run test:sdk:real-firefox -- --prepare-only
 ```
-
-Historical original harness validation on 2026-09-11: the real command exits 1 at loopback `EPERM`
-before browser launch, with an explicit host command and cleanup evidence.
-Preparation and harness regressions pass; actual Firefox execution and independent
-HIGH review remain coordinator work. Node VM execution and Vite bundling are not
-reported as actual Firefox qualification.
-
-Public network validation on2026-09-12 passed with actual packaged Firefox:
-`/home/jack/zcash-public-network-logs/real-firefox-DBqdIY.json`. Both package forms
-created one native module/instance each, with zero eager accesses, constructor
-fetches or workers; four cancellation checks passed. All31served assets and four
-executable harness hashes were compared to retained/current bytes. Session,
-process-group, browser-process and server cleanup all passed. Source is1f8d885;
-this later harness commit changes no production source.
-
 The public LightClient matrix runs all eleven methods through the packed ESM
 entry and consumer bundle against the same synthetic gRPC-Web fixture. It uses
 verified transaction corpus bytes and checks read cancellation, pending-stream

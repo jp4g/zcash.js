@@ -17,8 +17,8 @@ test('packed light codecs are lazy, native, owned and bound to their capsule rec
   for(const name of ['lightwire','transparent-address']) {
     const receipt=JSON.parse(await readFile(join(runtime,`${name}-capsule.json`),'utf8'));
     assert.equal(sha(await readFile(join(runtime,`${name}-capsule.mjs`))),receipt.sha256);
-    assert.equal(sha(await readFile(join(root,'scripts/primitive-capsule.mjs'))),receipt.generatorSha256);
-    assert.equal(sha(await readFile(join(root,'package-lock.json'))),receipt.lockSha256);
+    assert.equal(sha(await readFile(join(root,'tests/fixtures/capsule-build/primitive-capsule.mjs'))),receipt.generatorSha256);
+    assert.equal(sha(await readFile(join(root,'tests/fixtures/capsule-build/package-lock.json'))),receipt.lockSha256);
   }
   let instances=0;
   const original=WebAssembly.Instance,originalFetch=globalThis.fetch;

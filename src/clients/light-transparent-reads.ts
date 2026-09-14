@@ -38,7 +38,7 @@ function options(args: Addresses): Addresses {
   } catch { throw invalidArgument(); }
 }
 async function read<T>(addressCodec: AddressCodec, codec: Lightwire, transport: CustomLightTransport,
-  family: Family, args: Addresses, method: Method, adapt: (dto: any, addresses: string[], get: <V>(action: () => V) => V) => T) {
+  family: Family, args: Addresses, method: Method, adapt: (dto: Record<string, unknown>, addresses: string[], get: <V>(action: () => V) => V) => T) {
   const input = options(args), original = input.signal;
   if (original !== undefined) {
     try {
@@ -94,11 +94,12 @@ async function read<T>(addressCodec: AddressCodec, codec: Lightwire, transport: 
     check();
     const bytes = await Promise.race([active, interruption]);
     check();
-    let dto;
+    let dto: unknown;
     try {
       const decode = get(() => codec.decodeResponse);
       dto = get(() => apply(decode, codec, [method, ownBytes(bytes, protocol, resource)]));
-      const value = adapt(dto, addresses, get);
+      if (dto === null || typeof dto !== 'object' || Array.isArray(dto)) throw protocol();
+      const value = adapt(dto as Record<string, unknown>, addresses, get);
       check();
       return { ...value, sourceId, observedAt: new Date().toISOString() };
     } catch (error) { check(); throw isZcashError(error) ? error : protocol(); }

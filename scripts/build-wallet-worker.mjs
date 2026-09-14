@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { rolldown } from '/home/jack/zcash.js/node_modules/rolldown/dist/index.mjs';
+import { rolldown } from 'rolldown';
 
 const root = resolve(import.meta.dirname, '..');
 const output = process.argv[2];

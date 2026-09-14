@@ -55,9 +55,9 @@ const requests = [], unexpected = [];
 let rpcServer,publicWalletResult={publicWallet:false},workerDispatchCrash=false;
 let stalled;
 const stalledRequest = new Promise(resolve => { stalled = resolve; });
-const certificate = '/home/jack/zcash-runtime-artifacts-scratch';
+assert.ok(process.env.WALLET_TLS_KEY && process.env.WALLET_TLS_CERT, 'Set WALLET_TLS_KEY and WALLET_TLS_CERT to local test certificates.');
 const provingAssets=await provingFixture(process.env.WALLET_PROVING_PARAMETERS);
-const server = createServer({ key: await readFile(process.env.WALLET_TLS_KEY??`${certificate}/server.key`), cert: await readFile(process.env.WALLET_TLS_CERT??`${certificate}/server.crt`) }, (req, res) => {
+const server = createServer({ key: await readFile(process.env.WALLET_TLS_KEY), cert: await readFile(process.env.WALLET_TLS_CERT) }, (req, res) => {
   requests.push(req.url);
   if (req.headers.cookie || req.headers.authorization) unexpected.push('credentials');
   if(provingAssets.has(req.url)){res.writeHead(200,{'content-type':'application/octet-stream'});res.end(provingAssets.get(req.url));return;}
@@ -137,7 +137,7 @@ try {
   const fixture = JSON.parse(fixtureBytes);
   const supplementalFixture=await publicWalletFixture(fixture,process.env.WALLET_PUBLIC_FIXTURE);
   const nativeBuild=JSON.parse(nativeReceipt);
-  const signerBytes=await readFile(`${nativeBuild.work}/source/tests/signer-fixture.json`);
+  const signerBytes=await readFile(process.env.WALLET_SIGNER_FIXTURE ?? `${process.argv[3]}/bundle/tests/signer-fixture.json`);
   assert.equal(sha(signerBytes),nativeBuild.sources['tests/signer-fixture.json']);
   const signerFixture=JSON.parse(signerBytes);
   await assert.rejects(openWalletRuntime({...options('memory-invalid'),storage:{kind:'memory',path:'must-not-create'}}),{code:'INVALID_ARGUMENT'});

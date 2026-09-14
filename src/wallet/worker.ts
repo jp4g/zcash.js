@@ -18,6 +18,7 @@ export interface WalletReply {
 export const walletWrites = new Set<WalletCommand>(['payment_abandon','fused_send','payment_reconcile','payment_observe','payment_attempt_begin','payment_attempt_finish','payment_recovery_position','pczt_finalize','pczt_prove', 'pczt_import', 'pczt_build', 'account_remove', 'proposal_create','account_import', 'account_import_mnemonic_signer', 'account_create_mnemonic_signer', 'address_next', 'address_at', 'scan_plan', 'scan_ingest_batch', 'scan_rewind', 'scan_complete', 'enhancement_apply']);
 export const mnemonicCommand = (command: unknown) => command === 'account_import_mnemonic_signer' || command === 'account_create_mnemonic_signer';
 /** Only SDK-owned plain structured-clone secret buffers reach this cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
 export function clearMnemonic(args: any): void {
   for (const key of ['mnemonic', 'passphrase']) if (args?.[key] instanceof Uint8Array) args[key].fill(0);
 }
@@ -75,6 +76,7 @@ function errorInfo(error: unknown, command: WalletCommand): { error: ErrorInfo; 
 /** Called only after the packaged worker initializes its actual Rust storage owner. */
 export function installWalletWorker(owner: InitializedViews | undefined, port: MessagePort, ownerInvalid: () => boolean = () => false, signers?: InitializedSigners): void {
   const session = owner ? new WalletSession(owner) : undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
   const calls: Partial<Record<WalletCommand, (args: any) => unknown>> = session ? {
     payment_abandon:session.payments.abandon,payment_get:session.payments.get,payment_list:session.payments.list,payment_reconcile:session.payments.reconcile,payment_observe:session.payments.observe,
     payment_attempt_begin:session.payments.begin,payment_attempt_finish:session.payments.finish,payment_recovery_position:session.payments.position,

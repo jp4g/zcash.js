@@ -52,11 +52,12 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   const { default: assert } = await import('node:assert/strict');
   const { spawn } = await import('node:child_process');
   const { readFile, writeFile, mkdir, mkdtemp, readdir } = await import('node:fs/promises');
-  const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
+  const { firefoxOptions } = await import('../support/firefox-options.mjs');
   const { createHash } = await import('node:crypto');
-  const build = process.env.WALLET_HOST_BUILD ?? '/home/jack/zcash-wallet-host-scratch/implementation/dist';
-  const logs = process.env.WALLET_HOST_LOGS ?? '/home/jack/zcash-wallet-host-logs';
-  const scratch = process.env.WALLET_HOST_SCRATCH ?? '/home/jack/zcash-wallet-host-scratch';
+  const { buildRoot, outputRoot, fixturesRoot } = await import('../support/paths.mjs');
+  const build = buildRoot;
+  const logs = process.env.WALLET_HOST_LOGS ?? `${outputRoot}/wallet-host/logs`;
+  const scratch = process.env.WALLET_HOST_SCRATCH ?? `${outputRoot}/wallet-host/scratch`;
   await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true });
   const runRoot = await mkdtemp(`${scratch}/firefox-`);
   const reportPath = `${logs}/${runRoot.split('/').at(-1)}.json`;
@@ -82,7 +83,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
   }
   try {
     report.sourceCommit = process.env.WALLET_HOST_COMMIT ?? null;
-    const packet = process.env.WALLET_NATIVE_BUILD ?? '/home/jack/zakura-account-compose-scratch/fixes/r1/balance-build-03';
+    const packet = process.env.WALLET_NATIVE_BUILD ?? `${fixturesRoot}/wallet`;
     const packetBuild = JSON.parse(await readFile(`${packet}/build.json`));
     const fixtureBytes = await readFile(`${packet}/bundle/tests/views-fixture.json`);
     assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'), packetBuild.artifacts['tests/views-fixture.json']);
@@ -101,7 +102,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     const provingAssets=await provingFixture(process.env.WALLET_PROVING_PARAMETERS);
     let signerFixture;
     if(process.env.WALLET_LOADER) {
-      const signerBytes=await readFile(`${packetBuild.work}/source/tests/signer-fixture.json`);
+      const signerBytes=await readFile(process.env.WALLET_SIGNER_FIXTURE ?? `${packet}/bundle/tests/signer-fixture.json`);
       assert.equal(createHash('sha256').update(signerBytes).digest('hex'),packetBuild.sources['tests/signer-fixture.json']);
       signerFixture=JSON.parse(signerBytes);
     }
@@ -117,9 +118,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       ['/tests/clients/public-chain-reads-fixtures.mjs', await readFile(new URL('../clients/public-chain-reads-fixtures.mjs', import.meta.url))],
     ]);
     assets.set('/tests/wallet/host-native-worker.mjs', await readFile(new URL('./host-native-worker.mjs', import.meta.url)));
-    for (const name of ['errors', 'clients/owned-plumbing', 'wallet/host', 'wallet/worker', 'wallet/session', 'wallet/mnemonic']) {
-      assets.set(`/dist/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
-    }
+    const { addBuildAssets } = await import('../support/build-assets.mjs');
+    await addBuildAssets(assets, '/dist');
     for (const name of ['bindings.js', 'bindings_bg.wasm', 'views.mjs', 'wallet.mjs', 'bytes.mjs',
       'wallet-host/storage-host.mjs', 'wallet-host/opfs.mjs']) {
       const bytes = await readFile(`${packet}/bundle/${name}`);
@@ -149,7 +149,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     if (process.env.WALLET_LOADER) {
       if(storageLegacy){
         for(const name of ['opfs-browser','opfs-faults'])assets.set(`/tests/wallet/${name}.mjs`,await readFile(new URL(`./${name}.mjs`,import.meta.url)));
-        assets.set('/qualification/wallet-durability/quota-pressure.mjs',await readFile(new URL('../../qualification/wallet-durability/quota-pressure.mjs',import.meta.url)));
+        assets.set('/tests/support/quota-pressure.mjs',await readFile(new URL('../support/quota-pressure.mjs',import.meta.url)));
       }
       assets.set('/tests/wallet/threaded-checks.mjs',await readFile(new URL('./threaded-checks.mjs',import.meta.url)));
       assets.set('/tests/wallet/public-wallet-checks.mjs', await readFile(new URL('./public-wallet-checks.mjs', import.meta.url)));
@@ -162,13 +162,6 @@ if (typeof process !== 'undefined' && process.versions?.node) {
         assets.set(`/dist/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
       }
       for(const name of ['light-chain-reads-fixtures','grpc-web-fixtures'])assets.set(`/tests/clients/${name}.mjs`,await readFile(new URL(`../clients/${name}.mjs`,import.meta.url)));
-      async function modules(directory,prefix) {
-        for(const entry of await readdir(directory,{withFileTypes:true})) {
-          if(entry.isDirectory())await modules(`${directory}/${entry.name}`,`${prefix}/${entry.name}`);
-          else if(/\.m?js$/.test(entry.name))assets.set(`${prefix}/${entry.name}`,await readFile(`${directory}/${entry.name}`));
-        }
-      }
-      await modules(`${build}/src`,'/dist/src');
       assets.set('/runtime-pin.json', JSON.stringify({ manifestSha256: report.manifestSha256,threadedManifestSha256:report.threadedManifestSha256 }));
     }
     if(process.env.WALLET_WEBPACK_OUTPUT){
@@ -228,7 +221,7 @@ if (typeof process !== 'undefined' && process.versions?.node) {
     }else server = await fixture(() => { throw Error('No RPC in local wallet test'); }, assets, tls);
     report.origin = server.origin;
     const args = ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', runRoot];
-    driver = spawn('/snap/bin/geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    driver = spawn(process.env.GECKODRIVER ?? 'geckodriver', args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     driver.on('error', error => { driverError = error; });
     driver.on('exit', (code, signal) => { driverError = Error(`driver exit ${code}/${signal}`); });
     driverIdentity = await identity(driver.pid);

@@ -36,6 +36,7 @@ function failed(code: string): never { throw new Error(code); }
 // Open requests serialize only acquisition; existing wallet ports keep their own queues.
 let opening = Promise.resolve();
 control.onmessage = ({ data }) => { opening = opening.then(() => handle(data)); };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
 async function handle(data: any) {
   let backend: { owned: boolean; release(): void } | undefined;
   let owner: InitializedViews | undefined;

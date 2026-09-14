@@ -18,31 +18,14 @@ export const blockBytes = (height = 7, h = hash, prev = nextHash, extra = new Ui
   concat(scalar(2, height), bytesField(3, h), bytesField(4, prev), extra);
 export const response = (...items) => new Response(base64(concat(...items.map(b => frame(b)), trailer())), { headers: { 'content-type': media } });
 
-// Fixture-only direct import of the accepted artifact, after exact source/build closure binding.
+// Load the committed native build only after verifying its receipt and artifact hashes.
 export async function acceptedArtifacts() {
-  const { readFileSync } = await import('node:fs');
-  const { createHash } = await import('node:crypto');
-  const assert = (await import('node:assert/strict')).default;
-  const source = '/home/jack/zakura-lightwire-codec';
-  const build = '/home/jack/zakura-lightwire-scratch/fixes/r1/build';
-  const sha = bytes => createHash('sha256').update(bytes).digest('hex');
-  const sourceCommit = '84585f25f7fed6a897891f5fb5bc509c76dddd05';
-  const receiptBytes = readFileSync(build + '/receipt.json');
-  const receiptSha = 'f0a385adffe4bdca50e39b951658f2d021ebb5011ceb00b6b78f63b988e3b5cc';
-  assert.equal(sha(receiptBytes), receiptSha);
-  const receipt = JSON.parse(receiptBytes);
-  for (const [path, digest] of Object.entries(receipt.source)) {
-    const bytes = readFileSync(source + '/lightwire/' + path);
-    assert.equal(sha(bytes), digest, path);
-  }
-  const assets = new Map();
-  for (const [path, digest] of Object.entries(receipt.artifacts)) {
-    const bytes = readFileSync(build + '/' + path); assert.equal(sha(bytes), digest, path);
-    assets.set('/codec/' + path, bytes);
-  }
-  const golden = JSON.parse(readFileSync(source + '/lightwire/tests/golden.json'));
-  assets.set('/golden.json', readFileSync(source + '/lightwire/tests/golden.json'));
-  return { assets, golden, build, provenance: { sourceCommit, receiptSha, source: receipt.source, artifacts: receipt.artifacts } };
+  const { nativeFixture, readFixture } = await import('../support/fixtures.mjs');
+  const accepted = nativeFixture('lightwire');
+  const assets = new Map([...accepted.assets].map(([path, bytes]) => ['/codec/' + path, bytes]));
+  const goldenBytes = readFixture('lightwire/golden.json');
+  assets.set('/golden.json', goldenBytes);
+  return { assets, golden: JSON.parse(goldenBytes), build: accepted.directory, provenance: accepted.provenance };
 }
 export async function fixtureCodec() {
   const accepted = await acceptedArtifacts();

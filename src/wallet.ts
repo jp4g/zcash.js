@@ -142,12 +142,11 @@ export async function createWalletClient(args:WalletOptions):Promise<WalletClien
         },async return(){finish();return iterator?iterator.return!():{done:true as const,value:undefined};}};
       },
       close(){if(closing)return closing;
-        let draining:Promise<void>[];
         closing=Promise.resolve().then(async()=>{const results=await Promise.allSettled(draining);await Promise.allSettled([...active]);let closeError:unknown;
           try{await accountOwner.close();}catch(error){closeError=error;}
           const failed=results.find(value=>value.status==='rejected');if(failed?.status==='rejected')throw failed.reason;if(closeError)throw closeError;
         });
-        stopped.abort();draining=[syncOwner.stop(),paymentOwner.close()];return closing;
+        stopped.abort();const draining=[syncOwner.stop(),paymentOwner.close()];return closing;
       },
     };
     return Object.freeze(api);

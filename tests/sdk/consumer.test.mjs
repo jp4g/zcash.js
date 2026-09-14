@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -44,7 +44,17 @@ test('packed private package imports and typechecks in an isolated Node consumer
   const consumer = join(folder, 'consumer');
   await mkdir(consumer);
   await writeFile(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
-  await exec('npm', ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', join(folder, packed.filename)], { cwd: consumer });
+  // Install the packed bytes with runtime dependencies already resolved by npm ci.
+  // An empty registry cache must not force this isolated consumer online.
+  const repository = resolve(import.meta.dirname, '../..');
+  const lock = JSON.parse(await readFile(join(repository, 'package-lock.json'), 'utf8'));
+  for (const [path, dependency] of Object.entries(lock.packages)) {
+    if (!path.startsWith('node_modules/') || dependency.dev || dependency.devOptional) continue;
+    await cp(join(repository, path), join(consumer, path), { recursive: true });
+  }
+  const installed = join(consumer, 'node_modules/zcash.js');
+  await mkdir(installed, { recursive: true });
+  await exec('tar', ['-xzf', join(folder, packed.filename), '--strip-components=1', '-C', installed]);
   const manifest = JSON.parse(await readFile(join(consumer, 'node_modules/zcash.js/package.json'), 'utf8'));
   assert.equal(manifest.private, true);
   assert.deepEqual(manifest.dependencies, { '@grpc/grpc-js': '1.14.4' });

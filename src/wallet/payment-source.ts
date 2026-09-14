@@ -25,6 +25,7 @@ const same=(a:ChainPoint,b:ChainPoint)=>a.height===b.height&&a.hash===b.hash;
 
 /** Captured client methods; private route identity is never inferred from display sourceId. */
 export class PaymentSource {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
   private readonly methods:Record<string,Function>={};
   private readonly bound:ReturnType<typeof networkBinding>;
   private readonly endpoint:string|null;
@@ -51,6 +52,7 @@ export class PaymentSource {
   }
   private async tree(height:number,signal:AbortSignal):Promise<ChainPoint & {sourceId:string}>{
     if(!Number.isInteger(height)||height<0||height>0xffffffff)throw protocol();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
     const value=snapshot(await this.call<any>('getTreeState',{height,signal}),['network','point','sapling','ironwood','encoded','sourceId','observedAt']);
     if(networkBinding(value.network).definition.binding!==this.bound.definition.binding)throw mismatch();
     const p=point(value.point);if(p.height!==height)throw protocol();
@@ -58,17 +60,20 @@ export class PaymentSource {
     let decoded:{height:string;hash:string};try{decoded=initialize().decodeResponse('GetTreeState',bytes) as typeof decoded;}catch{throw protocol();}
     if(decoded.height!==String(p.height)||decoded.hash!==p.hash)throw protocol();return {...p,sourceId:sourceId(value.sourceId)};
   }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
   async verify(signal:AbortSignal):Promise<string>{const pending=operation(signal);try{pending.check();if(this.registered){const tip=snapshot(await pending.wait(this.call<any>('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);point({height:tip.height,hash:tip.hash});return sourceId(tip.sourceId);}const tree=await pending.wait(this.tree(0,pending.signal));if(tree.hash!==this.network.genesisHash)throw mismatch();return tree.sourceId;}finally{pending.close();}}
   async observe(id:TxId,signal:AbortSignal):Promise<TransactionObservation>{
     const pending=operation(signal);
     try{
       pending.check();const verifiedSource=await pending.wait(this.verify(pending.signal));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
       const before=snapshot(await pending.wait(this.call<any>('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);
       const tip=point({height:before.height,hash:before.hash}),source=sourceId(before.sourceId);
       if(source!==verifiedSource)throw protocol();
       let evidence:TransactionObservation;
       if(this.methods.getTransactionStatus)evidence=await pending.wait(this.call<TransactionObservation>('getTransactionStatus',{txid:id,signal:pending.signal}));
       else{
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
         const result=await pending.wait(this.call<any>('getTransaction',{txid:id,signal:pending.signal}));
         if(result===null)evidence={txid:id,state:'notSeen',inclusion:null,tip:null,priorInclusion:null,sourceId:source,observedAt:new Date().toISOString()};
         else{
@@ -98,6 +103,7 @@ export class PaymentSource {
         if(p.sourceId!==source||p.height>tip.height||(p.height===tip.height&&p.hash!==tip.hash)||(claimed.blockHash!==null&&claimed.blockHash!==p.hash))throw protocol();
         inclusion={height:p.height,blockHash:p.hash,confirmations:tip.height-p.height+1};
       }else if(value.inclusion!==null)throw protocol();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
       const after=snapshot(await pending.wait(this.call<any>('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);
       if(after.sourceId!==source||!same(tip,point({height:after.height,hash:after.hash})))throw protocol();
       pending.check();return {txid:txId(id),state:value.state,inclusion,tip,priorInclusion,sourceId:source,observedAt:new Date().toISOString()};

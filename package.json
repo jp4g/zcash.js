@@ -3,7 +3,7 @@
   "private": true,
   "description": "Private initial WASM-independent SDK slice; implemented exports are listed in docs/planning/agnostic-implementation.md.",
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "docs:dev": "vitepress dev docs --host 127.0.0.1 --port 4173 --strictPort",
@@ -13,11 +13,17 @@
     "docs:check-recovery": "node docs/api/check-recovery-spec.mjs",
     "build": "tsc -p tsconfig.json && node scripts/primitive-capsule.mjs",
     "test:sdk": "npm run build && node --test tests/sdk/*.test.mjs",
-    "test": "npm run test:sdk",
-    "test:sdk:real-firefox": "node tests/sdk/real-firefox-run.mjs"
+    "test": "npm run build && node --test --test-concurrency=4 tests/*/*.test.mjs",
+    "test:sdk:real-firefox": "node tests/sdk/real-firefox-run.mjs",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "check": "npm run lint && npm test"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
     "typescript": "6.0.3",
+    "typescript-eslint": "^8.70.0",
     "vitepress": "2.0.0-alpha.20",
     "webpack": "5.110.3"
   },

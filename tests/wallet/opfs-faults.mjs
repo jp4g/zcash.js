@@ -1,5 +1,5 @@
 // One real native owner per worker. The page terminates paused owners and children.
-import {fill,isNativeQuota} from '../../qualification/wallet-durability/quota-pressure.mjs';
+import {fill,isNativeQuota} from '../support/quota-pressure.mjs';
 const hex = value => Uint8Array.from(value.match(/../g) ?? [], x => parseInt(x,16));
 const check = (ok,label) => { if(!ok) throw Error(label); };
 const plain = value => JSON.stringify(value,(_,v)=>typeof v==='bigint'?String(v):v);

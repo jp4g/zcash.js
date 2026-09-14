@@ -35,6 +35,7 @@ export async function memorySigner(network: Network, authority: Authority): Prom
       throw failure('NETWORK_MISMATCH','account','correct-input','Signer network does not match.');
     }
     const { parameters: _parameters, genesis: _genesis, ...roles } = native;
+    void _parameters; void _genesis;
     capabilities = signerCapabilities({...roles,networks:[network.identity]});
     accountIndex(description.accountIndex);
     if (capabilities.maxPcztBytes !== maximum) throw mismatch();

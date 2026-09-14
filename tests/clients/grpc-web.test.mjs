@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { media, service, base64, frame, concat, trailer, good, serveFixtures, unaryMethods, streamMethods } from './grpc-web-fixtures.mjs';
-const internal = await import('../../dist/src/clients/grpc-web.js').catch(() => ({}));
+const internal = await import('../../dist/src/clients/grpc-web.js');
 const { isGrpcNotFound } = await import('../../dist/src/clients/grpc-status.js');
 const options = (extra = {}) => ({ timeoutMs: 1000, ...extra });
 const create = (url = 'https://synthetic.invalid', extra = {}) => internal.createGrpcWebByteTransport(url, options(extra));

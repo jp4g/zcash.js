@@ -1,3 +1,4 @@
+import { fixturesRoot } from '../support/paths.mjs';
 // Actual packaged bootstrap + Rust owner; no injected module/worker implementation.
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp } from 'node:fs/promises';
@@ -23,7 +24,7 @@ assert.equal(digest(await readFile(`${packet}/dependency-graph.json`)), manifest
 const { format, files, ...expected } = manifest;
 const wasm = new Uint8Array(await readFile(`${packet}/bindings_bg.wasm`));
 const parameters = new TextEncoder().encode('{"encoding":"regtest","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}');
-const fixtureBytes = await readFile('/home/jack/zakura-account-compose-scratch/fixes/r1/balance-build-03/bundle/tests/views-fixture.json');
+const fixtureBytes = await readFile(`${fixturesRoot}/wallet/bundle/tests/views-fixture.json`);
 assert.equal(digest(fixtureBytes), '731843024627c13dd4a7b56a8b70220b1eac1ce56d2b56e0f883a1695ea18f44');
 const fixture = JSON.parse(fixtureBytes);
 const root = await mkdtemp('/tmp/wallet-runtime-node-');

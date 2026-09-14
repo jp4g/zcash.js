@@ -71,10 +71,11 @@ async function runFirefox() {
   const { readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync } = await import('node:fs');
   const { spawn } = await import('node:child_process');
   const { createHash } = await import('node:crypto');
-  const { firefoxOptions } = await import('../../qualification/browser-runtime/firefox-options.mjs');
+  const { firefoxOptions } = await import('../support/firefox-options.mjs');
+  const { outputRoot } = await import('../support/paths.mjs');
   const assert = (await import('node:assert/strict')).default;
-  const logs = process.env.GRPC_WEB_LOGS ?? '/home/jack/zcash-grpc-web-logs/fixes/lifecycle';
-  const scratch = process.env.GRPC_WEB_SCRATCH ?? '/home/jack/zcash-grpc-web-scratch/fixes/lifecycle';
+  const logs = process.env.GRPC_WEB_LOGS ?? outputRoot + '/grpc-web-browser/logs';
+  const scratch = process.env.GRPC_WEB_SCRATCH ?? outputRoot + '/grpc-web-browser/scratch';
   const report = { ok: false, started: new Date().toISOString(), runnerPid: process.pid,
     node: process.versions.node, cleanup: { errors: [] }, trace: [], identities: {} };
   let watcher, profile, sessionRequested = false;
@@ -188,14 +189,14 @@ catch (error) { window.grpcWebResult = { ok: false, error: String(error), name: 
     report.assets = Object.fromEntries([...assets].map(([path, bytes]) => [path, hash(bytes)]));
     report.sources = {};
     for (const path of ['src/clients/grpc-web.ts', 'src/errors.ts', 'tsconfig.json', 'package.json',
-      'qualification/browser-runtime/firefox-options.mjs']) {
+      'tests/support/firefox-options.mjs']) {
       report.sources[path] = hash(readFileSync(new URL('../../' + path, import.meta.url)));
     }
     trace('assets-read');
     await bounded(() => serveFixtures(assets, { signal: stop.signal, onCreate: owned => { fixture = owned; trace('server-created'); } }));
     report.origin = fixture.origin; trace('server-listening');
     stop.signal.throwIfAborted();
-    driver = spawn('/snap/bin/geckodriver', ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', run],
+    driver = spawn(process.env.GECKODRIVER ?? 'geckodriver', ['--host', '127.0.0.1', '--port', '0', '--websocket-port', '0', '--profile-root', run],
       { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     driver.on('error', error => { driverError = error; stop.abort(error); });
     driver.on('exit', (code, signal) => { driverError = Error(`driver exit ${code}/${signal}`); stop.abort(driverError); });

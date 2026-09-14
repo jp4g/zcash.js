@@ -12,6 +12,7 @@ export const saplingAssets=Object.freeze([
 ] as const);
 const total=saplingAssets.reduce((sum,asset)=>sum+asset.byteLength,0);
 async function hash(bytes:Uint8Array):Promise<string>{return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes as Uint8Array<ArrayBuffer>)),b=>b.toString(16).padStart(2,'0')).join('');}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
 const builtin=(name:string)=>(globalThis as any).process?.getBuiltinModule?.(name);
 
 /** Fixed canonical asset inventory; caches never receive wallet data or witnesses. */
@@ -88,6 +89,7 @@ export class ProvingAssets {
     this.check();const name=await this.location(),fs=builtin('fs/promises');
     if(fs){
       const os=builtin('os'),path=builtin('path');const filename=path.join(os.homedir(),'.cache','zakura',name,key);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
       let file;try{file=await fs.open(filename,'r');}catch(error){if((error as any)?.code==='ENOENT')return;throw error;}
       try{const stat=await file.stat();if(!stat.isFile()||stat.size!==maximum)throw fail('ASSET_INTEGRITY');
         const bytes=new Uint8Array(maximum);let offset=0;

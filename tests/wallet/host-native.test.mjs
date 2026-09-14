@@ -1,3 +1,4 @@
+import { fixturesRoot } from '../support/paths.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile, mkdtemp } from 'node:fs/promises';
@@ -6,7 +7,7 @@ import { Worker, MessageChannel } from 'node:worker_threads';
 import { createHash } from 'node:crypto';
 import { attachWalletWorker } from '../../dist/src/wallet/host.js';
 
-const packet = '/home/jack/zakura-account-compose-scratch/fixes/r1/balance-build-03';
+const packet = `${fixturesRoot}/wallet`;
 const bundle = pathToFileURL(`${packet}/bundle/`).href;
 const build = JSON.parse(await readFile(`${packet}/build.json`));
 for (const name of ['bindings.js', 'bindings_bg.wasm', 'views.mjs', 'wallet.mjs', 'bytes.mjs',

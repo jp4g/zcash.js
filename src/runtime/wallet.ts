@@ -36,6 +36,7 @@ const reviewedThreadedAssets: Record<string, string> = {
 const policy = { ...walletProfile, mode: 'baseline' as const, maxManifestBytes: 16384,
   maxAssetBytes: 32 * 1024 * 1024, maxTotalAssetBytes: 40 * 1024 * 1024, maxFiles: 5, timeoutMs: 30000 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
 function record(value: unknown, keys: string[]): Record<string, any> {
   try {
     if (!value || typeof value !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw 0;
@@ -189,10 +190,13 @@ type Owner = Awaited<ReturnType<typeof createOwner>>;
 const bootstrapFailures = new WeakSet<object>();
 const owners = new Map<string, { refs: number; wallets: number; controller: AbortController; ready: Promise<Owner> }>();
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
 async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>, provingCapacity: number, signal: AbortSignal, forget: () => void, threaded = false) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
   let worker: { postMessage(value: unknown, transfer: any[]): void; terminate(): unknown } | undefined;
   const children: typeof worker[] = [];
   const childEvents: (() => void)[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
   let spawnChild: ((index: number, pool: any) => void) | undefined;
   let admitted = false, executionStarted = false, poolReady = false;
   let poolStarted = false;
@@ -202,6 +206,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
   let removeAssets = () => {}, removeEvents = () => {};
   let destroying: Promise<void> | undefined, stopped: ZcashError | undefined;
   let nextId = 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
   const waiting = new Map<number, { resolve(value: any): void; reject(error: unknown): void }>();
   const destroy = () => destroying ??= Promise.resolve().then(async () => {
     if (admitted) forget();
@@ -224,12 +229,14 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
   const onAbort = () => stop(cancelled());
   signal.addEventListener('abort', onAbort, {once:true});
   const timer = setTimeout(() => stop(timeout()), threaded ? runtime.threading.startupTimeoutMs : 30000);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
   const request = (value: unknown, transfer: any[] = []) => new Promise<any>((resolve, reject) => {
     if (nextId >= Number.MAX_SAFE_INTEGER) { reject(resource()); return; }
     const id = ++nextId;
     try { check(); waiting.set(id, {resolve,reject}); worker!.postMessage({ ...(value as object), id }, transfer); }
     catch (error) { waiting.delete(id); reject(error); }
   });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
   const message = (data: any) => {
     if (stopped) return;
     if (threaded && data?.type === 'pool') {
@@ -264,9 +271,11 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
       const selectedAssets = threaded ? reviewedThreadedAssets : reviewedAssets;
       if (verified.manifest.files.length !== (threaded?6:5) || verified.manifest.files.some(file => !Object.hasOwn(selectedLayout, file.url)
         || (selectedLayout as Record<string,string>)[file.url] !== file.kind || selectedAssets[file.url as keyof typeof selectedAssets] !== file.sha256)) throw mismatch();
-      const { format, files, ...expected } = verified.manifest;
+      const { format: _format, files: _files, ...expected } = verified.manifest;
+      void _format; void _files;
       const urls: Record<string, string> = {};
       let channels: () => MessageChannel;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
       const childMessage = (index: number, data: any) => {
         if (stopped) return;
         if (data?.type !== 'compute-loaded' || data.index !== index || loaded.has(index)) {
@@ -296,6 +305,7 @@ async function createOwner(baseline: WasmArtifact, runtime: Record<string, any>,
         spawnChild = (index, pool) => {
           const child = new threads.Worker(new URL(urls['thread-bootstrap.mjs']!));
           children.push(child);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
           const receive = (data: any) => childMessage(index, data);
           child.on('message',receive); child.on('error',crash); child.on('messageerror',crash); child.on('exit',crash);
           childEvents.push(() => {child.off('message',receive);child.off('error',crash);child.off('messageerror',crash);child.off('exit',crash);});

@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
-export const build = process.env.PUBLIC_TRANSACTION_READS_BUILD ?? '/home/jack/zcash-public-transaction-scratch/implementation/dist';
-export const packet = process.env.PUBLIC_TRANSACTION_READS_PACKET ?? '/home/jack/zakura-transaction-bindings-scratch/coordinator-final-1';
+export { buildRoot as build } from '../support/paths.mjs';
+import { fixturesRoot } from '../support/paths.mjs';
+export const packet = `${fixturesRoot}/transaction`;
 export async function verifiedPacket() {
   const digest = bytes => createHash('sha256').update(bytes).digest('hex');
   const inventory = await readFile(`${packet}/SHA256SUMS`, 'utf8');
@@ -14,10 +15,10 @@ export async function verifiedPacket() {
     assert.equal(digest(bytes), hash, name); files.set(name, bytes);
   }
   assert.equal(files.size, 15);
-  const corpus = await readFile(new URL('../../qualification/transaction-codec/fixtures/vectors.json', import.meta.url));
+  const corpus = await readFile(new URL('../fixtures/transaction/transaction-vectors.json', import.meta.url));
   assert.equal(digest(corpus), '26cb21c3733ff8a57b4c99310cfb73331d6376a80a065513932349b497cfbd74');
   assert.deepEqual(corpus, files.get('transaction-vectors.json'));
-  const pin = JSON.parse(await readFile(new URL('../../qualification/private-bindings-consumer/pin.json', import.meta.url)));
+  const pin = JSON.parse(await readFile(new URL('../fixtures/transaction-pin.json', import.meta.url)));
   assert.equal(pin.revision, 'acaf7069e466c82ce1be2c45ebafb75a92b59ee9');
   assert.equal(pin.buildSha256, '09ae852de689eb47fba35dfefaae81397d280f5c2542bccdee9747954efad575');
   return { files, vectors: JSON.parse(corpus) };

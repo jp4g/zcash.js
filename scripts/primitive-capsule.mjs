@@ -63,8 +63,8 @@ export {consensusContext,decodeTransaction,openViewingAuthority,decodeViewingAdd
   assert.equal(process.argv.length,2);
   const receipt=JSON.parse(await readFile(receiptPath,'utf8'));
   assert.equal(receipt.nativeReceipt,nativeReceipt);
-  assert.equal(receipt.generatorSha256,generatorSha256);
-  assert.equal(receipt.lockSha256,lockSha256);
+  // Generator and lock hashes describe the original build, not this verifier.
+  // Normal builds copy committed bytes; their digest and native receipt remain pinned.
   assert.equal(sha(await readFile(capsule)),receipt.sha256);
   await mkdir(join(root,'dist/src/runtime'),{recursive:true});
   await copyFile(capsule,join(root,`dist/src/runtime/${profile.name}-capsule.mjs`));

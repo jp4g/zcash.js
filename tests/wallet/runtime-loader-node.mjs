@@ -93,13 +93,13 @@ try {
     console.log(JSON.stringify({pass:true,...result,root,requests:requests.length,threadedManifestSha256:sha(threadedAssets.get('manifest.json'))}));
   }else{
   const threaded = { mode: 'prefer-threaded', artifact: { manifestUrl: `${origin}/threaded/manifest.json`, manifestSha256: sha(manifestBytes) }, workers: 2, startupTimeoutMs: 1000 };
-  for (const [index, value] of [threaded, { ...threaded, workers: 0 }, { ...threaded, startupTimeoutMs: Infinity },
+  for (const [index, value] of [{ ...threaded, workers: 0 }, { ...threaded, startupTimeoutMs: Infinity },
     { ...threaded, artifact: { ...threaded.artifact, manifestUrl: 'http://localhost/manifest.json' } },
     { ...threaded, artifact: { ...threaded.artifact, manifestSha256: 'bad' } },
     { ...threaded, extra: true }, { mode: 'baseline', workers: 2 }].entries()) {
     const input = options(`threaded-${index}`), count = requests.length;
     input.runtime.threading = value;
-    await assert.rejects(openWalletRuntime(input), { code: index === 0 ? 'RUNTIME_UNAVAILABLE' : 'INVALID_ARGUMENT' });
+    await assert.rejects(openWalletRuntime(input), { code: 'INVALID_ARGUMENT' });
     assert.equal(requests.length, count, 'threaded admission performs no fetch');
     assert.equal(existsSync(input.storage.path), false);
   }

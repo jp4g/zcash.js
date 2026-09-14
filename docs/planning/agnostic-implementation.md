@@ -46,19 +46,22 @@ range validation or authorize negative payments; only balance deltas may be nega
 
 The internal engine serializes JSON-RPC 2.0 POST requests with unique, monotonic
 string IDs per transport; validates exact matching IDs and result/error exclusivity;
-and rejects duplicate/unknown envelope keys. It accepts only an internal read-method
+and rejects unknown envelope keys. It accepts only an internal read-method
 allowlist and primitive parameters; no broadcast path is implemented. Its presence
 does not establish that any named RPC is deployed or suitable for a public DTO.
 There is no automatic protocol downgrade, provider handshake, endpoint failover,
 ambient cookie/authentication use, redirect following, or cache use.
 
 The engine follows the [JSON-RPC 2.0 specification](https://www.jsonrpc.org/specification).
-Its internal [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) parser retains numeric
-lexemes as `JsonNumber` tokens until a DTO can check exact units and ranges. It does
-not round JSON numbers through JavaScript `number`. Tests cover decimal/exponent
-tokens, escaped strings and names, arrays/literals, malformed grammar and duplicate
-keys. Nesting is limited to 64 containers, in addition to the response byte bound.
-This is an internal protocol parser, not a new public bigint/transaction codec.
+Responses use native `JSON.parse` with a reviver that retains numeric source text
+as `JsonNumber` tokens until a DTO checks exact units and ranges. This requires
+Node >=22.12.0 or a browser with `JSON.parse` reviver `context.source` support;
+numeric responses reject if that feature is missing, rather than silently rounding.
+Duplicate keys follow native last-key-wins behavior. Objects have null prototypes.
+Nesting is checked against a 64-container limit after native parsing, in addition
+to the transport's response byte bound; it does not bound native parsing itself.
+HTTP tests cover exact numeric tokens, depth limits and missing reviver source
+support. This is an internal protocol wrapper, not a public bigint/transaction codec.
 
 `readRetry.attempts` counts total attempts including the first; `1` means no retry.
 Retries retain the original parameters and endpoint but use fresh IDs and headers.

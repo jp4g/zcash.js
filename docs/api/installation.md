@@ -6,7 +6,7 @@
 
 ## Review locally
 
-From the repository root, with Node `^20.19.0` or `>=22.12.0`:
+From the repository root, with Node `>=22.12.0`:
 
 ```sh
 npm ci

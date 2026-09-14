@@ -248,18 +248,47 @@ test('retry backoff is abortable and credentials failures never dispatch or disc
   assert.equal(calls, 1);
 });
 
-test('transport rejects duplicate envelopes, invalid UTF-8, empty/truncated bodies and wrong lengths', async (t) => {
+test('transport rejects invalid UTF-8, empty/truncated bodies and wrong lengths', async (t) => {
   let content;
   let headers;
   mockFetch(t, async () => new Response(content, { headers }));
   const transport = sdk.http('https://synthetic.invalid', options({ maxResponseBytes: 64 }));
-  for (content of ['', '{', '\ufeff{}', '{"id":"1","id":"1","jsonrpc":"2.0","result":null}', new Uint8Array([0xe2, 0x82])]) {
+  for (content of ['', '{', '\ufeff{}', new Uint8Array([0xe2, 0x82])]) {
     await assert.rejects(call(transport), { code: 'PROTOCOL_MISMATCH' });
   }
   content = '{}';
   headers = { 'content-length': '65' };
   await assert.rejects(call(transport), { code: 'RESOURCE_LIMIT' });
   headers = { 'content-length': '-1' };
+  await assert.rejects(call(transport), { code: 'PROTOCOL_MISMATCH' });
+});
+
+test('native response wrapper preserves numeric tokens and checks container depth', async (t) => {
+  let result = '{"n":9007199254740993,"amount":0.123456789012345678,"exp":1e400,"__proto__":{"safe":true}}';
+  mockFetch(t, async (_url, init) => new Response(
+    `{"jsonrpc":"2.0","id":${JSON.stringify(JSON.parse(init.body).id)},"result":${result}}`,
+  ));
+  const transport = sdk.http('https://synthetic.invalid', options());
+  const value = await call(transport);
+  assert.equal(value.n.text, '9007199254740993');
+  assert.equal(value.amount.text, '0.123456789012345678');
+  assert.equal(value.exp.text, '1e400');
+  assert.equal(Object.getPrototypeOf(value), null);
+  assert.equal(value.__proto__.safe, true);
+  // The RPC envelope counts as one container.
+  result = '['.repeat(63) + '0' + ']'.repeat(63);
+  await call(transport);
+  result = '['.repeat(64) + '0' + ']'.repeat(64);
+  await assert.rejects(call(transport), { code: 'PROTOCOL_MISMATCH' });
+});
+
+test('numeric responses reject when native parsing lacks reviver source support', async (t) => {
+  const nativeParse = JSON.parse;
+  t.mock.method(JSON, 'parse', (text, reviver) => nativeParse(text, reviver && function (key, value) {
+    return reviver.call(this, key, value);
+  }));
+  mockFetch(t, async (_url, init) => response(JSON.parse(init.body), 42));
+  const transport = sdk.http('https://synthetic.invalid', options());
   await assert.rejects(call(transport), { code: 'PROTOCOL_MISMATCH' });
 });
 

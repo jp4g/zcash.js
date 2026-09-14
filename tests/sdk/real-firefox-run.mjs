@@ -9,6 +9,10 @@ import { fileURLToPath } from 'node:url';
 import { outputRoot } from '../support/paths.mjs';
 import { bundle } from './real-firefox-build.mjs';
 import { firefoxOptions } from '../support/firefox-options.mjs';
+import { verifiedPacket } from '../clients/public-transaction-reads-packet.mjs';
+import { publicResponse } from './public-client-fixture.mjs';
+import { fixtureResponses, methods } from './light-client-fixture.mjs';
+import { frame, concat, trailer, base64, media, service } from '../clients/grpc-web-fixtures.mjs';
 import { sha, verifyAssets, verifyResult } from './real-firefox-support.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -26,7 +30,7 @@ await mkdir(logs, { recursive: true }); await mkdir(scratch, { recursive: true }
 const runRoot = await mkdtemp(join(scratch, 'real-firefox-'));
 const resultPath = join(logs, `${runRoot.split('/').at(-1)}.json`);
 const report = { started: new Date().toISOString(), argv, node: process.version, runRoot,
-  status: 'failed', claims: [], limits: 'Accepted partial SDK only. Internal readRpc is test access. No public client, CORS, provider, wallet, WASM, #6 or #8 completion.' };
+  status: 'failed', claims: [], limits: 'Accepted partial SDK only. Internal readRpc is test access. Public Network, full LightClient and PublicClient synthetic workflows; no live provider, wallet sync or release completion.' };
 const stop = new AbortController();
 const deadline = setTimeout(() => stop.abort(Error('suite deadline 120s')), 120000);
 const onSignal = () => stop.abort(Error('interrupted'));
@@ -34,7 +38,7 @@ process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
 const delay = ms => new Promise(done => setTimeout(done, ms));
 let server, driver, endpoint, session, browserIdentity, driverIdentity;
 let driverText = '', driverError;
-const requests = [], unexpected = [], timers = new Set();
+const publicRequests = [], lightRequests = [], requests = [], unexpected = [], timers = new Set();
 let abortStarted = false;
 function command(executable, args, cwd = root) {
   const out = join(runRoot, 'command.stdout'), err = join(runRoot, 'command.stderr');
@@ -66,7 +70,7 @@ async function request(route, method = 'GET', body, cleanup = false) {
 }
 try {
   const sourceCommit = command('git', ['rev-parse', 'HEAD']);
-  command(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.json']);
+  command('npm', ['run', 'build']);
   const [pack] = JSON.parse(command('npm', ['pack', '--offline', '--cache', join(runRoot, 'npm-cache'), '--ignore-scripts', '--json', '--pack-destination', runRoot]));
   assert.ok(pack.files.every(file => !file.path.startsWith('qualification/') && !file.path.startsWith('tests/')));
   const consumer = join(runRoot, 'consumer');
@@ -77,27 +81,34 @@ try {
   command('tar', ['-xzf', join(runRoot, pack.filename), '--strip-components=1', '-C', join(consumer, 'node_modules/zcash.js')]);
   const packageRoot = join(consumer, 'node_modules/zcash.js');
   const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json')));
-  assert.deepEqual(Object.keys(manifest.exports), ['.']);
+  assert.deepEqual(Object.keys(manifest.exports), ['.', './grpc-node']);
   assert.equal(manifest.exports['.'].import, './dist/src/index.js');
-  assert.equal(manifest.dependencies, undefined);
+  assert.deepEqual(manifest.dependencies, { '@grpc/grpc-js': '1.14.4' });
   const entry = join(consumer, 'entry.mjs');
   await writeFile(entry, "import * as sdk from 'zcash.js';\nimport { readRpc } from './node_modules/zcash.js/dist/src/http.js';\nexport { sdk, readRpc };\n");
   const code = await bundle(consumer, stop.signal);
+  const packet=await verifiedPacket();
+  const vector=packet.vectors.find(value=>value.branch===0x76b809bb);
+  assert.ok(vector);
+  const light=fixtureResponses(vector);
   const assets = new Map([
     ['/', Buffer.from('<!doctype html><meta charset="utf-8"><title>SDK Firefox qualification</title><link rel="icon" href="data:,">')],
     ['/bundle.mjs', Buffer.from(code)],
+    ['/light-vector.json', Buffer.from(JSON.stringify(vector))],
+    ...await Promise.all(['sdk/pczt-checks.mjs','sdk/pczt-fixture.mjs','sdk/signer-checks.mjs','sdk/birthday-checks.mjs','sdk/birthday-fixture.mjs','sdk/viewing-checks.mjs','sdk/viewing-fixture.mjs','sdk/public-client-fixture.mjs','clients/public-chain-reads-fixtures.mjs','sdk/light-client-fixture.mjs','clients/light-chain-reads-fixtures.mjs','clients/grpc-web-fixtures.mjs'].map(async name=>['/'+name.replace(/^sdk\//,''),await readFile(new URL('../'+name,import.meta.url))])),
     ['/probe.mjs', await readFile(new URL('./real-firefox-browser.mjs', import.meta.url))],
     ['/negative-eager.mjs', Buffer.from("new Worker('/forbidden-worker.mjs');")],
-    ['/negative-unsupported.mjs', Buffer.from("import { createPublicClient } from '/package/dist/src/index.js'; export { createPublicClient };")],
+    ['/negative-unsupported.mjs', Buffer.from("import { nonexistentTestExport } from '/package/dist/src/index.js'; export { nonexistentTestExport };")],
   ]);
   async function collect(folder, prefix) {
     for (const item of await readdir(folder, { withFileTypes: true })) {
       if (item.isDirectory()) await collect(join(folder, item.name), `${prefix}/${item.name}`);
-      else if (item.name.endsWith('.js')) assets.set(`${prefix}/${item.name}`, await readFile(join(folder, item.name)));
+      else if (/\.m?js$/.test(item.name)) assets.set(`${prefix}/${item.name}`, await readFile(join(folder, item.name)));
     }
   }
   await collect(join(packageRoot, 'dist'), '/package/dist');
   report.inputs = { sourceCommit, tarballSha256: sha(await readFile(join(runRoot, pack.filename))),
+    transactionPacket: Object.fromEntries([...packet.files].map(([name,bytes])=>[name,sha(bytes)])),
     manifest, files: Object.fromEntries([...assets].map(([name, bytes]) => [name, { sha256: sha(bytes), bytes: bytes.length }])),
     harness: Object.fromEntries(await Promise.all(['run', 'browser', 'support', 'build'].map(async name => [name,
       sha(await readFile(new URL(`./real-firefox-${name}.mjs`, import.meta.url)))]))),
@@ -116,7 +127,29 @@ try {
       try {
         if (req.url === '/fixture-state' && req.method === 'GET') {
           res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-          res.end(JSON.stringify({ abortStarted })); return;
+          res.end(JSON.stringify({ abortStarted, lightRequests, publicRequests })); return;
+        }
+        if(req.method==='POST' && req.url.startsWith(service)) {
+          const method=req.url.slice(service.length),mode=req.headers['x-fixture-mode']??'good';
+          assert.ok(methods.includes(method));
+          let body='';for await(const chunk of req){body+=chunk;assert.ok(body.length<=4*1024*1024);}
+          const requestBytes=Buffer.from(body,'base64');
+          assert.equal(requestBytes[0],0);assert.equal(requestBytes.readUInt32BE(1),requestBytes.length-5);
+          assert.equal(req.headers['content-type'],media);
+          if(method==='GetTreeState')assert.equal(requestBytes.subarray(5).toString('hex'),'1220'+'03'.repeat(32),'genesis uses explicit hash selector');
+          const observed={method,mode,request:requestBytes.subarray(5).toString('hex'),closed:false};
+          lightRequests.push(observed);res.once('close',()=>{observed.closed=true;});
+          res.writeHead(200,{'Content-Type':media,'Cache-Control':'no-store'});
+          if((mode==='read-stall'&&method==='GetLatestBlock')||(mode==='stream-stall'&&method==='GetBlockRange'&&requestBytes.subarray(5).toString('hex')!=='0a02080112020801')||(mode==='send-stall'&&method==='SendTransaction')) {res.flushHeaders();return;}
+          res.end(base64(concat(frame(light.response(method,requestBytes.subarray(5))),trailer())));return;
+        }
+        if(req.url==='/public-rpc'&&req.method==='POST') {
+          let body='';for await(const chunk of req){body+=chunk;assert.ok(body.length<=4*1024*1024);}
+          const parsed=JSON.parse(body),mode=req.headers['x-fixture-mode']??'good';
+          const observed={method:parsed.method,mode,closed:false};publicRequests.push(observed);res.once('close',()=>{observed.closed=true;});
+          res.writeHead(200,{'Content-Type':'application/json'});
+          if((mode==='read-stall'&&parsed.method==='getrawtransaction')||(mode==='send-stall'&&parsed.method==='sendrawtransaction')){res.write('{');return;}
+          res.end(JSON.stringify({jsonrpc:'2.0',id:parsed.id,...publicResponse(parsed,vector,mode)}));return;
         }
         if (req.url === '/rpc' && req.method === 'POST') {
           let body = '';
@@ -138,9 +171,9 @@ try {
         }
         const bytes = req.method === 'GET' && assets.get(req.url);
         if (!bytes) { unexpected.push({ method: req.method, url: req.url }); res.writeHead(404).end(); return; }
-        res.writeHead(200, { 'Content-Type': req.url === '/' ? 'text/html' : 'text/javascript',
+        res.writeHead(200, { 'Content-Type': req.url === '/' ? 'text/html' : req.url.endsWith('.json')?'application/json':'text/javascript',
           'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
-          'Content-Security-Policy': "default-src 'none'; script-src 'self'; connect-src 'self'; worker-src 'none'; img-src data:; frame-src 'none'; object-src 'none'" });
+          'Content-Security-Policy': "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; worker-src 'none'; img-src data:; frame-src 'none'; object-src 'none'" });
         res.end(bytes);
       } catch (error) { unexpected.push({ error: String(error) }); res.destroy(); }
     });
@@ -184,6 +217,15 @@ try {
     }
     // IDs are unique on the same transport; separate transports have independent sequences.
     assert.notEqual(requests[0].id, requests[2].id); assert.notEqual(requests[2].id, requests[3].id);
+    assert.deepEqual([...new Set(lightRequests.map(r=>r.method))].sort(),[...methods].sort());
+    for(const mode of ['good','send-stall'])assert.equal(lightRequests.filter(r=>r.method==='SendTransaction'&&r.mode===mode).length,2);
+    const closeUntil=Date.now()+3000;
+    while([...lightRequests,...publicRequests].some(r=>!r.closed)&&Date.now()<closeUntil)await delay(10);
+    assert.ok(lightRequests.every(r=>r.closed),'all gRPC-Web responses closed after reads/cancellation');
+    assert.ok(publicRequests.every(r=>r.closed),'all public HTTP responses closed after reads/cancellation');
+    for(const mode of ['good','send-stall'])assert.equal(publicRequests.filter(r=>r.method==='sendrawtransaction'&&r.mode===mode).length,2);
+    report.publicRequests=publicRequests;
+    report.lightRequests=lightRequests;
     assert.deepEqual(unexpected, []);
     report.processIdentities = { driver: driverIdentity, browser: browserIdentity };
     report.browserResult = result.value; report.claims = result.value.claims; report.status = 'passed';

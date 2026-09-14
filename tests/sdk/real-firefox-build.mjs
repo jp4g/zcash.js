@@ -48,7 +48,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const { build } = await import('vite');
   const consumer = process.argv[2];
   const bundled = await build({ configFile: false, logLevel: 'silent', root: consumer, build: {
-    write: false, minify: false, target: 'es2022', lib: { entry: join(consumer, 'entry.mjs'), formats: ['es'], fileName: 'bundle' } } });
+    write: false, minify: false, target: 'es2022', rolldownOptions: { output: { inlineDynamicImports: true } }, lib: { entry: join(consumer, 'entry.mjs'), formats: ['es'], fileName: 'bundle' } } });
   const outputs = (Array.isArray(bundled) ? bundled : [bundled]).flatMap(result => result.output);
   assert.equal(outputs.length, 1); assert.equal(outputs[0].type, 'chunk');
   const { writeFile } = await import('node:fs/promises');

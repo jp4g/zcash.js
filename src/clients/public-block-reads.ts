@@ -1,5 +1,6 @@
+import { nodeEvents } from './owned-plumbing.js';
 import type { BlockSelector, HttpTransport, Op, PublicBlock } from '../../docs/api/public-api.js';
-import { readRpc } from '../http.js';
+import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
 import { JsonNumber, protocolError } from '../json.js';
 import { blockHash, txId } from '../primitives.js';
@@ -26,8 +27,7 @@ async function bindSignal(original?: AbortSignal) {
     if (!closed && apply(nativeAborted, original, [])) apply(nativeAbort, controller, []);
   };
   if (nodeRuntime) {
-    const builtin = 'node:events';
-    const { addAbortListener } = await import(builtin);
+    const { addAbortListener } = nodeEvents();
     const view: AbortSignal = apply(nativeSignal, new NativeController(), []);
     Object.defineProperties(view, {
       aborted: { get: () => apply(nativeAborted, original, []) },
@@ -101,7 +101,7 @@ function integer(value: unknown, maximum: number): number {
 export async function getBlock(
   source: { readonly transport: HttpTransport; readonly sourceId: string },
   args: BlockSelector & Op,
-): Promise<PublicBlock> {
+): Promise<PublicBlock | null> {
   source = input(source, ['transport', 'sourceId']);
   args = input(args, ['height', 'hash', 'signal']);
   const { transport, sourceId } = source;
@@ -120,7 +120,9 @@ export async function getBlock(
   try {
     checkSignal(caller);
     // readRpc owns the configured byte/deadline bounds and lossless JSON decoding.
-    const value = await readRpc(transport, 'getblock', [selector, 1], signal);
+    let value;
+    try { value = await readRpc(transport, 'getblock', [selector, 1], signal); }
+    catch (error) { if (rpcErrorCode(error) === (requestedHash === undefined ? -8 : -5)) return null; throw error; }
     if (typeof value !== 'object' || value === null || Array.isArray(value) || value instanceof JsonNumber) throw protocolError();
     const resolvedHeight = integer(value.height, 0xffff_ffff);
     const time = integer(value.time, 0xffff_ffff);

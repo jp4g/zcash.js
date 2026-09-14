@@ -113,6 +113,14 @@ function manifestUrl(value: unknown): URL {
   if (!authority || url.protocol !== 'https:' || url.username || url.password || authority.includes('@')) throw invalidArgument();
   return url;
 }
+/** Validate a selected or fallback-only artifact without fetching it. */
+export function artifactEndpoint(artifact: WasmArtifact): URL {
+  try {
+    exact(artifact, ['manifestUrl', 'manifestSha256']);
+    digest(artifact.manifestSha256);
+    return manifestUrl(artifact.manifestUrl);
+  } catch { throw invalidArgument(); }
+}
 function assetUrl(file: ArtifactFile, directory: URL): string {
   const path = file.url;
   if (path.trim() !== path || /[\\%?#\u0000-\u001f\u007f]/u.test(path)
@@ -133,8 +141,7 @@ async function sha(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 export async function acquireArtifacts(artifact: WasmArtifact, supplied: ArtifactPolicy, caller?: AbortSignal): Promise<VerifiedArtifacts> {
   let endpoint: URL, pin: string, policy: ArtifactPolicy;
   try {
-    exact(artifact, ['manifestUrl', 'manifestSha256']);
-    endpoint = manifestUrl(artifact.manifestUrl); pin = artifact.manifestSha256; digest(pin);
+    endpoint = artifactEndpoint(artifact); pin = artifact.manifestSha256;
     // Snapshot all caller-owned configuration before asynchronous admission.
     policy = structuredClone(supplied);
     exact(policy, ['contractRevision', 'abiVersion', 'mode', 'schemas', 'maxManifestBytes', 'maxAssetBytes', 'maxTotalAssetBytes', 'maxFiles', 'timeoutMs']);

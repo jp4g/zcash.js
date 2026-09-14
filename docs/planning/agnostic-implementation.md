@@ -1,5 +1,90 @@
 # Initial WASM-independent implementation
 
+## Current standalone PCZT
+
+`pczt.parse`, `serialize`, `inspect`, `combine` and `redact` compose native
+PCZT roles through independently disposable handles. Parsing uses the caller’s
+byte bound and explicit network/height/branch context. Inspection reports material
+completeness, not verified proofs, signatures, or spending approval. The qualified
+`zakura-signer-full/1` profile applies upstream Full redaction; it preserves fields
+needed by that signer route. Wallet PCZT association and authorization acceptance
+remain separate unfinished work.
+
+Shared packed Node and Firefox ESM/bundle fixtures cover V5/V6 material, exact
+redaction, bounds, context mismatch, cancellation and independent disposal. This
+matrix passed against the completed native capsule in Node and Firefox. The
+Firefox receipt is `/home/jack/zcash-public-pczt-logs/real-firefox-CSleHK.json`;
+the SDK suite passed 94 tests.
+
+## Current custom signer adapter
+
+`createCustomSigner` captures an application's three signer callbacks, preserves
+stateful adapter method receivers, and copies requests and responses. It checks
+request IDs and genuine viewing handles, projecting account metadata from Rust.
+Capability records remain adapter advertisements; this boundary does not negotiate
+profiles or verify PCZT effects, keys, or signatures. Wallet attachment and signing
+acceptance remain unfinished. PCZT size policy belongs to wallet configuration and
+negotiation, not an invented adapter-wide ceiling. Capability control records have
+a 64 KiB text/numeric budget, 1,024 entries per array and 4,096 characters per string.
+
+The adapter receives cancellation and owns cleanup of account results it does not
+deliver. The wrapper never disposes an adapter's potentially shared viewing handle;
+a successfully returned descriptor remains caller-disposable.
+
+## Current standalone viewing and birthdays
+
+The root exports `accountFromViewingKey`, `viewing.export`, `viewing.toIncoming`,
+and `addresses.derive`, `find`, `decode`, and `selectReceiver`. Caller-owned native
+UFVK/UIVK handles dispose independently; Rust performs key reduction, derivation,
+address parsing and receiver selection. `resolveBirthday` reads the prior block's
+TreeState through a LightClient and validates its canonical frontiers and network
+with the same Rust validator used by wallet import. It returns owned bytes and
+preserves the caller's recovery boundary.
+
+Shared packed Node and real Firefox ESM/bundle checks exercise these public
+operations with synthetic fixtures, independent disposal, bounded search, receiver
+routing, nonpalindromic genesis, malformed responses and cancellation. This
+qualifies standalone operations; the public WalletClient remains unfinished.
+Historical implementation checkpoints below describe their original scope.
+
+## Current public light client
+
+The root now exports `defineNetwork`, `grpc` and the complete `createLightClient`.
+All eleven light methods compose the packaged Rust network, transaction, Lightwire
+and transparent-address codecs. Construction is lazy; first use checks server
+protocol, activation/branch context and the configured genesis hash. These are
+endpoint observations, not wallet scanning or full consensus verification.
+
+`grpc` selects native gRPC on Node and gRPC-Web in browsers. Configured retries
+apply only to transient unary reads. Streams are pull-bounded and never replayed;
+broadcast makes one attempt, verifies the returned transaction ID, and preserves
+an unknown outcome if cancellation interrupts a dispatched submission. Custom
+adapters receive the same owned byte and cancellation boundaries.
+
+The root also exports `GrpcTransport`, `CustomLightTransport`, `LightClient`,
+`LightUnaryMethod` and `LightStreamMethod` types. `tests/sdk/light-client-node.test.mjs`
+exercises the packed public API over actual local native gRPC, including all eleven
+methods and three cancelled-call cleanups. These synthetic fixtures do not qualify
+any live provider. The public wallet factory remains unfinished.
+
+## Current public JSON-RPC client
+
+`createPublicClient` now composes all eleven frozen methods over the pinned Zakura
+RPC profile. It validates the configured genesis on first use, uses native transaction
+and address codecs, and encodes scan TreeState protobufs through Rust, including Orchard.
+Only qualified initial lookup errors become absence; nested inconsistencies remain errors.
+Confirmations and subtree completion require coherent block/tip observations.
+
+Broadcast submits exact bytes once. A matching returned txid acknowledges submission;
+qualified rejection codes remain sanitized, and interrupted or ambiguous dispatch is
+unknown. Watchers have bounded queues, owned prior inclusion, and cancellation cleanup.
+Packed Node and Firefox ESM/bundled fixtures exercise all eleven methods, actual HTTP
+cancellation, and submission counts. These checks qualify synthetic endpoint behavior,
+not live-provider availability, wallet completion, or full consensus validation.
+
+The sections below retain the earlier implementation history; their original
+sequencing and export lists describe those earlier slices.
+
 Owner sequencing amendment, 2026-09-11: production code demonstrably independent
 of WASM qualification proceeds alongside issues #2/#3. Wallet, storage, scanning,
 signing and proving remain gated. This owned slice does not change qualification
@@ -25,15 +110,17 @@ were installed using `npm ci --offline --ignore-scripts --no-audit --no-fund`.
 | `accountIndex`, `diversifierIndex` | Frozen integer bounds, no coercion/wrapping. | Both inclusive boundaries and out-of-range/type cases. |
 | `txId`, `blockHash` | Lowercase, exactly 64 display hex characters; no byte reversal or normalization. | Wrong width, uppercase, prefix, newline and invalid characters reject. |
 | `isZcashError(value: unknown): value is ZcashError` | Recognizes this module instance's errors using a private WeakSet; no foreign getters inspected. | Sanitized messages/stacks, foreign errors/lookalikes/proxies rejected. |
+| `defineNetwork(args): Promise<Network>` | Real Rust-validated immutable descriptor, admitted by a private instance registry; bounded copied canonical parameters and cancellation. | `tests/sdk/network.test.mjs`: actual packed Node import, lazy single native initialization, no fetch, Sapling branch vector, input ownership, forged-instance rejection and cancellation. |
 | `http(url, options): HttpTransport` | Lazy opaque transport with a real internal Fetch JSON-RPC 2.0 read engine. It has no public request method and currently no exported client that consumes it. | `tests/sdk/http.test.mjs`: serialization, IDs, policy validation/copying, exact response numbers, error/absence distinction, bounds, retries and cancellation. |
 
 Only the associated `AccountIndex`, `DiversifierIndex`, `TxId`, `BlockHash`,
-`ErrorCode`, `ErrorInfo`, `ZcashError`, `HttpTransport` and `TransportOptions` types
+`ErrorCode`, `ErrorInfo`, `ZcashError`, `HttpTransport`, `TransportOptions`,
+`Network`, `NetworkDefinition` and `Op` types
 are re-exported. Types reference the frozen declaration directly; TypeScript emits
 that declaration under `dist/docs/api` to preserve exact brands and optional error
 attachments without maintaining a divergent copy. It has no runtime import edge.
-The package export map exposes only `.`; internal files and unimplemented functions
-are not public subpaths. The existing API book and root README describe the earlier
+The export map exposes the root and the Node-only `grpc-node` subpath; internal
+files and unimplemented functions are not public subpaths. The existing API book and root README describe the earlier
 specification deliverable; this document records the current executable subset.
 
 The amount input grammar is an optional minus, one or more ASCII integer digits,
@@ -164,3 +251,34 @@ Broadcast needs qualified txid derivation from exact transaction bytes; transact
 observation needs a settled coherent inclusion/reorg mapping. Neither has placeholders.
 Wallet DB, scanning, signing/proving, secrets, custom cryptography, protocol codecs,
 live providers and deployment/publication remain outside this worker's slice.
+
+## Package-owned pure network codecs
+
+`defineNetwork` uses the accepted handle-free Rust consensus codec in a single
+package-owned ESM capsule. Importing the public root does not initialize WASM;
+the first admitted call loads the local capsule and initializes one native module.
+It creates no worker, native wallet handle or disposal obligation. The descriptor
+retains the caller's exact canonical parameters privately; neither identity nor
+genesis alone establishes network equality. Caller parameters are copied before
+any await, limited to256bytes; identity labels are limited to1024code units.
+Cancellation is checked at async boundaries; pure synchronous native validation
+finishes within its call. No mutable runtime URL or fetch supplies executable bytes.
+
+`src/runtime/primitive-capsule.json` records the accepted native receipt, every
+primitive artifact hash, the closed executable module set, generator and lockfile
+hashes and emitted capsule hash. `scripts/primitive-capsule.mjs --generate
+VERIFIED_NATIVE_BUILD` reproduces this selected asset from verified bytes using
+the existing locked bundler. Ordinary package builds only hash-check and copy the
+committed capsule and declarations; they need no local native artifact/build tools.
+This narrow host-local codec qualification does not claim the H1 configurable
+artifact-runtime contract, threaded scanning or any unimplemented client factory.
+
+Private LightClient codec capsules now package the accepted Lightwire and
+transparent-address Rust artifacts using the same offline capsule producer.
+`lightwire-capsule.mjs` and `transparent-address-capsule.mjs` each expose an internal
+`initialize()` returning the existing codec interface; import does not instantiate
+WASM, and repeated initialization reuses the stateless instance. Reproduce with
+`node scripts/primitive-capsule.mjs --generate-lightwire BUILD` or
+`--generate-transparent-address BUILD`. Normal builds verify the committed hashes
+and copy the capsules without fetching or building native code. This adds no
+public client factory; packed Node codec tests are not browser acceptance.

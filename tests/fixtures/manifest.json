@@ -18,6 +18,14 @@
       "repository": "zcash/lightwalletd",
       "path": "frontend/service.go",
       "commit": "09593edbee4ee68d47e5a53f8ce1c83514c4e8e6"
+    },
+    "wallet": {
+      "sourceRevision": "9af4c7aaa1eec28e78645a3d8386af4c9c90cffc",
+      "receiptSha256": "611e3d508b617aa9992464480d84a95bf6e3606a98fca45e783b718cdc457807"
+    },
+    "transaction": {
+      "inventorySha256": "dbf2c6891e73f69ae256f1e3ce6f756b7d7a68bb67c47123fc79a5e01cd89e18",
+      "sourceRevision": "acaf7069e466c82ce1be2c45ebafb75a92b59ee9"
     }
   },
   "sha256": {
@@ -35,6 +43,44 @@
     "lightwire/wasm/zakura_lightwire.d.ts": "eb23fc6d6d74d168fcc2c03cd3efcfb1a98b323509e0b62fbec38e37229450e7",
     "lightwire/wasm/zakura_lightwire.js": "ce88b2db6c2b24c7935b85c2d4f6d9d5e1739234d35c39510d92b7c781c4e043",
     "lightwire/wasm/zakura_lightwire_bg.wasm": "4803d36718071fc1b114c1d0dce766b876da02234e3c2078979c5dc69ad37da9",
-    "lightwire/wasm/zakura_lightwire_bg.wasm.d.ts": "e6ad0679fbf83685f4d5793f4ed83c96043d0c6e944ff5f49068bceffe62787a"
+    "lightwire/wasm/zakura_lightwire_bg.wasm.d.ts": "e6ad0679fbf83685f4d5793f4ed83c96043d0c6e944ff5f49068bceffe62787a",
+    "transaction/SHA256SUMS": "dbf2c6891e73f69ae256f1e3ce6f756b7d7a68bb67c47123fc79a5e01cd89e18",
+    "transaction/pin.json": "5785834a98abd73234002f283471cfe43d04d7e4c3ddea6a88ea9a4c2aa7fbc5",
+    "transaction/transaction-vectors.json": "26cb21c3733ff8a57b4c99310cfb73331d6376a80a065513932349b497cfbd74",
+    "transaction/firefox.mjs": "f958cd5ce4d43443537e935732d8effd90a1a7b8c1f0c79a3fe9cd8dd9134dd3",
+    "transaction/bindings.d.ts": "c3e606a9080260c225f5ebe84790139ac0ddd0cc224243dd85345d6123800c02",
+    "transaction/transaction-behavior.mjs": "03839ea3361b68bb04b0719e6743410ef57e31f1eaa280e059acab106156ec65",
+    "transaction/behavior.mjs": "75eea25ce350f1480ec6ad8b20e080187a9b2f095c5a45fa740a7d144c5ea5b6",
+    "transaction/transaction.mjs": "42408426c99f6984638dc4109e99dea76b45ab21c4ee260ed7f9d87cc9616dbd",
+    "transaction/bindings_bg.wasm.d.ts": "8455a6b672e36a6a64494351cc1a952128e98d0d7b9adf7854eeab0c1640fe83",
+    "transaction/vectors.mjs": "201f49347d8ec5eda8dfa6a0f0951d528a08bc60f61995ce0151b7ec454fcbb9",
+    "transaction/bindings.js": "d6762eb5693bfc546b4bd7b03bdcfd939076de4732cd74ecebb125688fd8aa66",
+    "transaction/bindings_bg.wasm": "a6ce789d7107fe9ce570cf3a8717c27da4f2292de09b3809a2a230710e510dc8",
+    "transaction/browser.mjs": "429ebb964ce45af785044b11f14207d99b4421939950924f15d02076b82e51d8",
+    "transaction/node.mjs": "9691bfba40fd91b8dc6da45a6ffda9ab1d087a4f45f3f3e908589dae96d1aea7",
+    "transaction/network.mjs": "704970c6a2dedc085d3c89282dc1765373da033f646ef6dd5a25f3120f081496",
+    "transaction/bytes.mjs": "1bdd8a73a245d66c419e859fc666a743e2d61c6dd86546631d06eeb3eb6f36ff",
+    "wallet/build.json": "611e3d508b617aa9992464480d84a95bf6e3606a98fca45e783b718cdc457807",
+    "wallet/bundle/views.mjs": "fd96938e0075f64acd79c4c9f2e41f6d448334c26112a3ba63635f0203e569d2",
+    "wallet/bundle/bindings.d.ts": "5988a7d1f753083ff9a80a409415737863272a3c5bfbe965df24fd5260de39a6",
+    "wallet/bundle/transaction.mjs": "42408426c99f6984638dc4109e99dea76b45ab21c4ee260ed7f9d87cc9616dbd",
+    "wallet/bundle/bindings_bg.wasm.d.ts": "33483db1f975a1d8673a1563f2f78b6f00830cc193318c0963abf408294a2ea3",
+    "wallet/bundle/wallet.mjs": "6523ccc17159feba3d0846b545c0d8000fee395c96a110d1d99698956f7189ac",
+    "wallet/bundle/bindings.js": "d701a2f7cc67a5a64b98838698d1bfa4ea2015f65c81dfc9152b3849f5b83173",
+    "wallet/bundle/bindings_bg.wasm": "ad7d54174492992a453e6565ea90cfc42189697d8ceb5458fe7cc7d5b7458c62",
+    "wallet/bundle/network.mjs": "704970c6a2dedc085d3c89282dc1765373da033f646ef6dd5a25f3120f081496",
+    "wallet/bundle/bytes.mjs": "408153ead4462acc2ec6069a27ee611b1ee4e386ff230c89454e42e72be6d7cd",
+    "wallet/bundle/wallet-host/storage-host.mjs": "0001b3bf8924a561d7223d902fca360d645ee89100c0f113f020d8166c56dfe0",
+    "wallet/bundle/wallet-host/node-worker.mjs": "0a756fd3fffa5c0f1ba8235189d02b39d377543f3804f800dc502da1fc95f5fc",
+    "wallet/bundle/wallet-host/browser-worker.mjs": "36afc0023f67a0f962a7f3d3f44e3818dae1df7104a464c2f4ecb7aa380711ad",
+    "wallet/bundle/wallet-host/opfs.mjs": "ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645",
+    "wallet/bundle/wallet-host/node-fs.mjs": "e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e",
+    "wallet/bundle/tests/wallet-support.mjs": "f515a32695c4da197c72aa685a248125216c8a3f13231ba4cb6136bd9624c9ba",
+    "wallet/bundle/tests/views-fixture.json": "731843024627c13dd4a7b56a8b70220b1eac1ce56d2b56e0f883a1695ea18f44",
+    "wallet/bundle/tests/wallet-schema/prefix.rs": "6a8463aaeb19f5b7595d669f5fd423250973d3568a9ecf4da923886852d8cc90",
+    "wallet/bundle/tests/wallet-views/native.rs": "1bbc1a642f7f8f75b6d00601a4bc465fd396a50c374679113bd1298dcdf59fb5",
+    "transaction-pin.json": "5785834a98abd73234002f283471cfe43d04d7e4c3ddea6a88ea9a4c2aa7fbc5",
+    "capsule-build/primitive-capsule.mjs": "4b7630ce60aa970eaa078b929040bbbb2daceb93ffdac713d8a3a8a0753ca355",
+    "capsule-build/package-lock.json": "ff9ff85bbb4d31cbda95066586192cb855a20ab8ef1173483f18123880468440"
   }
 }

@@ -422,11 +422,11 @@ export interface Birthday {
 export declare function resolveBirthday(args: {
   light: LightClient; firstScanHeight: number; recoverUntilExclusive?: number;
 } & Op): Promise<Birthday>;
+/** Mnemonic accounts use all supported pools; pool selection is not an onboarding option. */
 export interface AccountCreate extends Op {
   readonly mnemonic: SecretInput; // UTF-8; all checksum-valid BIP39 12/15/18/21/24 counts
   readonly passphrase?: SecretInput; // omitted = empty BIP39 passphrase; NFKD required
   readonly name?: string; // omitted = null
-  readonly enabledPools?: NonEmpty<Pool>; // omitted = all three v1 pools, enforced in Rust
 }
 export interface MnemonicImport extends AccountCreate {
   readonly accountIndex: AccountIndex;
@@ -529,7 +529,8 @@ export interface SignerCapabilities {
   readonly maxPcztBytes: number;
 }
 export type SignerSelector = { readonly kind: 'derived'; readonly accountIndex: AccountIndex }
-  | { readonly kind: 'imported'; readonly keyId: string };
+  | { readonly kind: 'imported'; readonly keyId: string }
+  | { readonly kind: 'fingerprint'; readonly fingerprint: string };
 export interface Signer {
   getCapabilities(args?: Op): Promise<SignerCapabilities>;
   getAccount(args: { network: Network; selector: SignerSelector } & Op): Promise<AccountDescriptor>;
@@ -580,6 +581,11 @@ export interface ReviewedOutput {
   readonly memo: MemoInput | null;
   readonly kind: 'payment' | 'change' | 'step-funding';
 }
+/** Recipient intent is exact; native construction may choose wallet-owned internal addresses later. */
+export type ProposedOutput = Omit<ReviewedOutput, 'kind' | 'address'> & (
+  | { readonly kind: 'payment'; readonly address: string }
+  | { readonly kind: 'change' | 'step-funding'; readonly address: string | null }
+);
 export interface Proposal {
   readonly [opaque]: 'wallet-proposal';
   readonly operationId: string;
@@ -593,12 +599,13 @@ export interface Proposal {
   readonly steps: NonEmpty<{
     readonly index: number; readonly dependsOn: readonly number[];
     readonly transactionVersion: number; readonly expiryHeight: number; // zero = disabled
-    readonly inputs: readonly ReviewedInput[]; readonly outputs: readonly ReviewedOutput[];
+    readonly inputs: readonly ReviewedInput[]; readonly outputs: readonly ProposedOutput[];
     readonly fee: bigint;
   }>;
 }
 export interface PcztArtifact {
   readonly [opaque]: 'wallet-pczt';
+  readonly outputs: readonly ReviewedOutput[]; // exact native-built outputs, available before external signing
   readonly operationId: string;
   readonly artifactId: string;
   readonly accountIds: NonEmpty<AccountId>;
@@ -646,7 +653,7 @@ export interface PaymentState {
   readonly accountIds: NonEmpty<AccountId>;
   readonly durability: 'durable' | 'ephemeral';
   /** Journal presentation, NOT a linear proof/authorization pipeline. */
-  readonly phase: 'proposed' | 'awaitingAuthorization' | 'building' | 'ready' | 'observing' | 'needsAttention' | 'complete';
+  readonly phase: 'proposed' | 'awaitingAuthorization' | 'building' | 'ready' | 'observing' | 'needsAttention' | 'complete' | 'abandoned';
   readonly missing: readonly ('proposal' | 'artifact' | 'authority' | 'provingMaterial' | 'finalizedBytes')[];
   readonly steps: readonly {
     readonly index: number; readonly dependsOn: readonly number[]; readonly txid: TxId | null;
@@ -680,6 +687,11 @@ export interface PageArgs {
   readonly limit?: number; // default 50, maximum 200, positive integer
 }
 export interface OperationsApi {
+  /** Atomically retire an unbuilt proposal and release only its input locks.
+   * Local/offline and idempotent; any retained artifact or finalized transaction rejects.
+   * The retained operation and idempotency key cannot be reused to execute a spend.
+   */
+  abandon(args: { operationId: string } & Op): Promise<PaymentState>;
   /** Wallet-wide if accountId omitted; never selects a spending account. */
   list(args?: PageArgs & Op & { accountId?: AccountId }): Promise<OperationPage>;
   get(args: { operationId: string } & Op): Promise<PaymentState | null>;

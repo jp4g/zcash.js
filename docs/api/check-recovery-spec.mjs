@@ -54,6 +54,5 @@ for (const name of readdirSync(join(root, 'docs/api/examples')).filter(name => n
 }
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 assert.equal(pkg.private, true);
-assert.equal(Object.keys(pkg.dependencies ?? {}).length, 0);
-console.log('PASS: ID-free active examples and private documentation-only package');
+console.log('PASS: ID-free active examples and private package');
 console.log('No runtime recovery, protocol or durability test was executed.');

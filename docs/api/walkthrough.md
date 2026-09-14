@@ -1,7 +1,7 @@
 # End-to-end stakeholder walkthrough
 
-::: warning Unimplemented
-This is a narrated, type-checked scenario, not a runnable demo. No network, account, funds, keys or runtime are supplied. The compile-only source is excerpted below in sequential regions; it uses direct named imports from the proposed `zcash.js` entry point and a few declared application inputs and helpers.
+::: warning Compile-only contract
+This is a narrated, type-checked scenario, not a runnable demo. No network, account, funds, keys or runtime are supplied. The compile-only source is excerpted below in sequential regions; it uses direct named imports from the `zcash.js` entry point and a few declared application inputs and helpers.
 :::
 
 The examples use root named imports, including exact ZEC amount conversion:

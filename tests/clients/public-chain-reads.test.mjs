@@ -202,7 +202,7 @@ test('abort and timeout cover both header requests through the existing transpor
   await assert.rejects(adapter.getTip(f.context), code('TIMEOUT'));
 });
 
-test('RPC errors remain errors rather than invented absence and never leak server messages', async t => {
+test('qualified initial absence is null; other RPC errors remain sanitized failures', async t => {
   const { genesis } = await import('./public-chain-reads-fixtures.mjs');
   let rpcCode, stage;
   const f = await local(t, call => {
@@ -212,6 +212,7 @@ test('RPC errors remain errors rather than invented absence and never leak serve
   for (stage of ['tip', 'verbose', 'raw']) for (rpcCode of [-32601, -5, -8, -1, -28]) {
     const before = f.calls.length;
     const pending = stage === 'tip' ? adapter.getTip(f.context) : adapter.getBlockHeader(f.context, { height: 0 });
+    if (stage === 'verbose' && rpcCode === -8) { assert.equal(await pending, null); assert.equal(f.calls.length - before, 1); continue; }
     await assert.rejects(pending, error => {
       assert.equal(error.code, rpcCode === -32601 ? 'METHOD_NOT_SUPPORTED' : 'TRANSPORT_ERROR');
       assert.doesNotMatch(String(error), /secret-fixture|not found|private/);
@@ -265,7 +266,8 @@ test('internal and root imports have no eager WASM, worker or network activity o
     const internal = await import(${JSON.stringify(build + '/src/clients/public-chain-reads.js')});
     const root = await import(${JSON.stringify(build + '/src/index.js')});
     assert.deepEqual(Object.keys(internal).sort(), ['getBlockHeader', 'getTip']);
-    for (const name of ['getTip', 'getBlockHeader', 'createPublicClient']) assert.equal(name in root, false);
+    for (const name of ['getTip', 'getBlockHeader']) assert.equal(name in root, false);
+    assert.equal(typeof root.createPublicClient, 'function');
     assert.equal(calls, 0);
   `], { timeout: 10000 });
 });

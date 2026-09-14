@@ -22,7 +22,7 @@ export async function runBrowser() {
   try {
     const { getBlock } = await import('/src/clients/public-block-reads.js');
     const root = await import('/src/index.js');
-    check(!('getBlock' in root) && !('createPublicClient' in root), 'internal only');
+    check(!('getBlock' in root) && typeof root.createPublicClient === 'function', 'internal only');
     check(Object.values(eager).every(n => n === 0), 'lazy imports');
     globalThis.fetch = originals.fetch;
     const context = (mode, options = {}) => ({ sourceId,
@@ -49,7 +49,8 @@ export async function runBrowser() {
     await rejects(getBlock(context('invalid'), { height: 1, signal: pre.signal }), 'ABORTED', 'pre-abort');
     for (const stage of [0, 1, 2]) {
       await rejects(getBlock(context(`unsupported-${stage}`), { height: 1 }), 'METHOD_NOT_SUPPORTED', `unsupported-${stage}`);
-      await rejects(getBlock(context(`unknown-${stage}`), { height: 1 }), 'TRANSPORT_ERROR', `unknown-${stage}`);
+      if (stage === 0) check(await getBlock(context('unknown-0'), { height: 1 }) === null, 'initial height absence');
+      else await rejects(getBlock(context(`unknown-${stage}`), { height: 1 }), 'TRANSPORT_ERROR', `unknown-${stage}`);
       await rejects(getBlock(context(`oversize-${stage}`), { height: 1 }), 'RESOURCE_LIMIT', `oversize-${stage}`);
       await rejects(getBlock(context(`timeout-${stage}`, { timeoutMs: 100 }), { height: 1 }), 'TIMEOUT', `timeout-${stage}`);
       const controller = new AbortController();
@@ -230,9 +231,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       ['/public-block-reads-browser.mjs', await readFile(new URL(import.meta.url))],
       ['/public-chain-reads-fixtures.mjs', await readFile(new URL('./public-chain-reads-fixtures.mjs', import.meta.url))],
     ]);
-    for (const name of ['index', 'amounts', 'http', 'errors', 'json', 'primitives', 'clients/public-chain-reads', 'clients/public-block-reads']) {
-      assets.set(`/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
-    }
+    const { addBuildAssets } = await import('../support/build-assets.mjs');
+    await addBuildAssets(assets);
     const state = {};
     assets.set('/state', JSON.stringify(state));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));

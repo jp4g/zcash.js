@@ -1,8 +1,8 @@
 # zcash.js
 
-**Private, experimental SDK and proposed v1 API.** This repository contains a small implemented TypeScript SDK, internal adapters, tests, and a larger proposed API. It is not a production SDK or published npm package and does not establish validated wallet support. The proposed product is one TypeScript API for Node and browsers, backed by Zakura Rust/WASM, targeting transparent, Sapling and Ironwood.
+**Private TypeScript SDK with qualified synthetic Node/browser wallet workflows.** The package exposes independent public, light and wallet clients, plus optional composition. Baseline wallet storage, account/query/sync, signing/proving and payment recovery paths have actual Node filesystem and Firefox OPFS evidence. This is not complete v1 acceptance or a published npm package.
 
-Start stakeholder review with the [API book](docs/api/README.md) and its [end-to-end walkthrough](docs/api/walkthrough.md): client setup, account creation/recovery, sync, receive, balances, reviewed send, wait, restart/resume and close. Each chapter distinguishes proposed behavior, missing implementation and qualification requirements. Examples contain no real wallet data and are compile-only.
+See [local installation and runtime assets](docs/api/installation.md) for installing a local tarball and configuring the separately verified wallet runtime. The [API book](docs/api/README.md) describes the frozen contract; its compile-only examples are not evidence that every contract case is implemented. Signer selection (#97), threaded integration (#107), and current OPFS fault recovery (#116) have been qualified. Already-finalized transparent PCZT inputs (#102) remain deferred.
 
 ## Local review site
 
@@ -38,4 +38,8 @@ See `tests/README.md` for browser and optional TLS checks.
 - Settled [D01–D25 decisions](docs/planning/decision-log.md), [validation workplan](docs/planning/api-surface-workplan.md), and [functional gates](docs/planning/wasm-host-architecture.md#functional-acceptance-gates).
 - [Tracked future issues](docs/planning/future-issues.md) and retained research, available in collapsed site sections.
 
-This is the documentation deliverable for [issue #1](https://github.com/jp4g/zcash.js/issues/1), not completion of runtime/design qualification gates. The coherent locked Common 1.0.0 graph remains the implementation baseline; 1.1.0 migration is tracked separately. No license has been selected. See [CONTRIBUTING.md](CONTRIBUTING.md) for scope, validation and private-data reporting rules.
+The coherent locked Common 1.0.0 graph remains the implementation baseline; 1.1.0 migration is tracked separately. See [CONTRIBUTING.md](CONTRIBUTING.md) for scope, validation and private-data reporting rules.
+
+## License
+
+Project-owned code is [MIT licensed](https://github.com/jp4g/zcash.js/blob/main/LICENSE). Bundled dependencies retain their own licenses; keep the accompanying [third-party notices](https://github.com/jp4g/zcash.js/blob/main/licenses/README.md) when redistributing JavaScript/WASM artifacts.

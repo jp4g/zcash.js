@@ -5,13 +5,13 @@ export const hashB = 'cd'.repeat(32);
 export const transportOptions = { sourceId, timeoutMs: 1000,
   readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 16384 };
 
-export async function fixture(respond, assets = new Map()) {
-  const { createServer } = await import('node:http');
+export async function fixture(respond, assets = new Map(), tls) {
+  const { createServer } = await import(tls ? 'node:https' : 'node:http');
   const calls = [], unexpected = [];
-  const server = createServer(async (req, res) => {
+  const server = createServer(tls ?? {}, async (req, res) => {
     try {
       if (req.method === 'GET' && assets.has(req.url)) {
-        res.writeHead(200, { 'content-type': req.url === '/' ? 'text/html' : 'text/javascript' });
+        res.writeHead(200, { 'content-type': req.url === '/' ? 'text/html' : req.url.endsWith('.wasm') ? 'application/wasm' : req.url.endsWith('.json') ? 'application/json' : 'text/javascript' });
         res.end(assets.get(req.url)); return;
       }
       if (req.method !== 'POST' || !req.url.startsWith('/rpc')) {
@@ -29,7 +29,7 @@ export async function fixture(respond, assets = new Map()) {
   await new Promise((resolve, reject) => {
     server.once('error', reject); server.listen(0, '127.0.0.1', resolve);
   });
-  return { origin: `http://127.0.0.1:${server.address().port}`, calls, unexpected,
+  return { origin: `${tls ? 'https' : 'http'}://127.0.0.1:${server.address().port}`, calls, unexpected,
     async close() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
 }
 export const result = value => `"result":${JSON.stringify(value)}`;

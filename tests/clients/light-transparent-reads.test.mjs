@@ -143,3 +143,30 @@ test('delivered backend failure statuses reject for both methods without retry',
   assert.equal(calls,2);t.mock.restoreAll();
  }
 });
+
+for (const method of ['getAddressBalance', 'getAddressUtxos']) {
+ test(method+' shared byte admission preserves exact failures and owns intrinsic subviews',async()=>{
+  const detached=new Uint8Array(8);structuredClone(detached.buffer,{transfer:[detached.buffer]});
+  const oversized=new Uint8Array(4194305);
+  for(const bytes of [detached,new Proxy(new Uint8Array(),{}),new Uint16Array(8),new Uint8Array(new SharedArrayBuffer(8)),oversized])
+   await assert.rejects(internal[method](address,wire,transport(bytes),'main',{addresses:[token]}),{
+    code:bytes===oversized?'RESOURCE_LIMIT':'PROTOCOL_MISMATCH',
+    message:bytes===oversized?'Light-transparent response limit exceeded.':'Invalid light-transparent response or schema revision.',
+   });
+  const valid=method==='getAddressBalance'?scalar(1,7):list(utxo());
+  const limit=new Uint8Array(4194304);
+  // Isolate client admission from the real codec's independent message limits.
+  const boundaryWire={encodeRequest:(...args)=>wire.encodeRequest(...args),decodeResponse(name,bytes){
+   assert.equal(bytes.length,4194304);assert.notEqual(bytes.buffer,limit.buffer);return wire.decodeResponse(name,valid);
+  }};
+  await internal[method](address,boundaryWire,transport(limit),'main',{addresses:[token]});
+  const backing=new Uint8Array(valid.length+2);backing.set(valid,1);
+  const bytes=backing.subarray(1,-1);
+  for(const key of ['buffer','byteOffset','byteLength','slice',Symbol.iterator])
+   Object.defineProperty(bytes,key,{get(){throw Error('private-secret');}});
+  const result=await internal[method](address,wire,transport(bytes),'main',{addresses:[token]});
+  backing.fill(255);
+  if(method==='getAddressBalance')assert.equal(result.value,7n);
+  else assert.deepEqual(result.items[0].script,new Uint8Array([81]));
+ });
+}

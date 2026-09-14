@@ -4,6 +4,12 @@
 
 Read the [decision log](docs/planning/decision-log.md), [API guide](docs/api/README.md), [namespace audit](docs/planning/api-namespace-audit.md) and [workplan](docs/planning/api-surface-workplan.md) before proposing changes. Preserve decided scope. A proposed signature is not an implemented export, a source symbol is not a runtime result, and a passing TypeScript check is not wallet qualification.
 
+## Branches and pull requests
+
+Before starting an issue, fetch origin and fast-forward local `main`. Create a
+fresh branch from that synced `main` and open a separate PR for the issue. Link
+the issue with `Closes #...` so it closes when the fix merges.
+
 ## Owner-authorized delivery phase and D26 slice
 
 The owner authorizes private issues #2–9 qualification and subsequent gated implementation, including isolated #2 experiments and their required dependency/source fetches, tools and coherent locked Common 1.0.0 graph. Preserve G0–G6 and F1–F8 requirements: #2 must qualify F1 linking/execution, F2 scanner/thread behavior and F3 real Node/OPFS durability; #3 transaction/protocol/atomicity qualification depends on #2; #4 host implementation depends on #2/#3; #5 storage/accounts/recovery on #4; #6 transport/sync/query on #4/#5; #7 transaction/signers/operations on #5/#6; #8 packaging on #4–7; #9 conformance on #8 and the implementation gates. Production implementation follows the applicable evidence gates and G6 approval of the concrete specification and accepted limitations. Compile-only evidence does not pass them.

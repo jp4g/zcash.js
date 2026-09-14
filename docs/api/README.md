@@ -1,7 +1,7 @@
 # Proposed v1 API book
 
-::: warning Unimplemented
-This is the documentation/specification deliverable for [issue #1](https://github.com/jp4g/zcash.js/issues/1). There is no SDK runtime, published package, validated wallet support or production dependency here. Examples are compile-only contracts.
+::: warning Partial private implementation
+The private SDK now exposes public, light and wallet clients, with scoped synthetic Node filesystem and Firefox OPFS qualification. See [local installation](installation.md) and the [qualification requirements](host-contract.md). This book preserves the frozen [issue #1](https://github.com/jp4g/zcash.js/issues/1) contract; full acceptance remains incomplete, including #97, #102 and healthy threading. No published package is claimed. Embedded examples remain compile-only contracts.
 :::
 
 Start with the [end-to-end walkthrough](walkthrough.md), then follow the chapters in sidebar order. A stakeholder should be able to explain who owns the account, what has actually been submitted, and what survives a restart before reviewing the implementation boundary.
@@ -17,7 +17,8 @@ Excluded from v1: Sprout and legacy Orchard spending/automatic migration; mnemon
 ## How to read the book
 
 - **Proposed Contract** identifies behavior required of a future implementation.
-- **Unimplemented** identifies missing product work, including all SDK examples.
+- **Compile-only contract** identifies examples or declarations; typechecking does not establish runtime support.
+- **Unimplemented** identifies missing product work, not every exported SDK method.
 - **Requires Qualification** identifies claims that need functional evidence before support can be advertised.
 
 The [declarations](public-api.md) remain the exact signature baseline. [D01–D26](../planning/decision-log.md) govern settled scope; this book preserves them. D26 amends opening to recover all recorded operations without a separately persisted ID, under the [recovery policy](operations.md). Research and historical candidate snippets are secondary evidence, not alternate current APIs. The [host contract](host-contract.md) adds a versioned review boundary. Issue #1 freezes the authenticated `WasmArtifact` manifest declaration and clarifies that zero-birthday account creation uses coherent local database state after explicit sync, failing `SYNC_REQUIRED` before mutation when unavailable/stale.

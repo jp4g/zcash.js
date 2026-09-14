@@ -1,5 +1,6 @@
 import type { LightUnaryMethod, LightStreamMethod, ZcashError } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
+import { recordNotFound } from './grpc-status.js';
 const media = 'application/grpc-web-text+proto';
 const service = '/cash.z.wallet.sdk.rpc.CompactTxStreamer/';
 const limit = () => failure('RESOURCE_LIMIT', 'transport', 'configure', 'gRPC-Web byte limit exceeded.');
@@ -12,7 +13,7 @@ export interface GrpcWebByteOptions {
   readonly limits?: Partial<Limits>;
 }
 const aborted = () => failure('ABORTED', 'transport', 'none', 'Request aborted.');
-const timeout = () => failure('TIMEOUT', 'transport', 'none', 'Request timed out.');
+const timeout = () => failure('TIMEOUT', 'transport', 'none', 'Request timed out.', true);
 const transportError = () => failure('TRANSPORT_ERROR', 'transport', 'configure', 'gRPC request failed.');
 const protocol = () => failure('PROTOCOL_MISMATCH', 'transport', 'configure', 'Invalid gRPC-Web response.');
 type Args<M> = { method: M; request: Uint8Array; signal?: AbortSignal };
@@ -108,8 +109,11 @@ async function* decode(read: () => Promise<ReadableStreamReadResult<Uint8Array>>
 
 function status(value: string | null): void {
   if (value === null || !/^(?:[0-9]|1[0-6])$/.test(value)) throw protocol();
-  if (value !== '0') throw failure(value === '12' ? 'METHOD_NOT_SUPPORTED' : 'TRANSPORT_ERROR',
-    'transport', 'configure', 'gRPC request failed.');
+  if (value !== '0') {
+    const error = failure(value === '12' ? 'METHOD_NOT_SUPPORTED' : 'TRANSPORT_ERROR',
+      'transport', 'configure', 'gRPC request failed.', value === '4' || value === '14');
+    throw value === '5' ? recordNotFound(error) : error;
+  }
 }
 
 function trailers(bytes: Uint8Array): void {

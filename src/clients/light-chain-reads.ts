@@ -1,11 +1,12 @@
-import type { ChainTip, CompactBlock, HeightRange, CustomLightTransport, Op } from '../../docs/api/public-api.js';
+import type { BlockSelector, Network, TreeState, ChainTip, CompactBlock, HeightRange, CustomLightTransport, Op } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { blockHash } from '../primitives.js';
+import { ownBytes } from './owned-plumbing.js';
 
 // Structural view of the accepted initialized codec instance; no acquisition or initialization.
 interface Lightwire {
-  encodeRequest(method: 'GetLatestBlock' | 'GetBlockRange', json: string): Uint8Array;
-  decodeResponse(method: 'GetLatestBlock', bytes: Uint8Array): unknown;
+  encodeRequest(method: 'GetLatestBlock' | 'GetBlockRange' | 'GetTreeState', json: string): Uint8Array;
+  decodeResponse(method: 'GetLatestBlock' | 'GetTreeState', bytes: Uint8Array): unknown;
   decodeItem(method: 'GetBlockRange', bytes: Uint8Array): unknown;
 }
 
@@ -26,7 +27,16 @@ const unsupportedSignalProxy = (() => {
   return host.process?.getBuiltinModule?.('node:util').types.isProxy ?? (() => true);
 })();
 
-function admit(transport: CustomLightTransport, args: Op, keys: readonly string[]): string {
+function admitSignal(signal: AbortSignal | undefined): void {
+  if (signal === undefined) return;
+  try {
+    if (unsupportedSignalProxy(signal) || Object.getPrototypeOf(signal) !== AbortSignal.prototype
+      || Object.hasOwn(signal, 'aborted') || Object.hasOwn(signal, 'reason')) throw invalidArgument();
+    signalAborted.call(signal);
+  } catch { throw invalidArgument(); }
+}
+
+export function admit(transport: CustomLightTransport, args: Op, keys: readonly string[]): string {
   try {
     if (transport.protocolRevision !== revision) throw protocol();
     const sourceId = transport.sourceId;
@@ -35,12 +45,7 @@ function admit(transport: CustomLightTransport, args: Op, keys: readonly string[
     if (!args || typeof args !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(args))
       || Reflect.ownKeys(args).some(key => typeof key !== 'string' || !keys.includes(key)
         || !Object.hasOwn(Object.getOwnPropertyDescriptor(args, key)!, 'value'))) throw invalidArgument();
-    if (args.signal !== undefined) {
-      // A native dependent signal must not observe caller-overridden state accessors.
-      if (unsupportedSignalProxy(args.signal) || Object.getPrototypeOf(args.signal) !== AbortSignal.prototype
-        || Object.hasOwn(args.signal, 'aborted') || Object.hasOwn(args.signal, 'reason')) throw invalidArgument();
-      signalAborted.call(args.signal);
-    }
+    admitSignal(args.signal);
     return sourceId;
   } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
 }
@@ -61,7 +66,8 @@ const aborted = () => failure('ABORTED', 'query', 'none', 'Light-chain read abor
 
 // Native dependent signals propagate cancellation independently of caller event listeners.
 // Keep the dependent signal private: synthetic events on the caller/transport signal cannot cancel us.
-function operation(signal: AbortSignal | undefined, release: () => void = () => {}) {
+export function operation(signal: AbortSignal | undefined, release: () => void = () => {}) {
+  admitSignal(signal);
   const controller = new AbortController();
   const dependent = signal === undefined ? undefined : AbortSignal.any([signal]);
   let cancelled = false, closed = false;
@@ -104,7 +110,7 @@ export async function getTip(codec: Lightwire, transport: CustomLightTransport, 
     const bytes = await pending.wait(Reflect.apply(unary, transport, [{ method: 'GetLatestBlock', request, signal: pending.signal }]));
     pending.check();
     let checked;
-    try { checked = point(codec.decodeResponse('GetLatestBlock', ownBytes(bytes))); }
+    try { checked = point(codec.decodeResponse('GetLatestBlock', ownBytes(bytes, protocol, resourceLimit))); }
     catch (error) { throw isZcashError(error) ? error : protocol(); }
     pending.check();
     return { ...checked, sourceId, observedAt: new Date().toISOString() };
@@ -114,23 +120,6 @@ export async function getTip(codec: Lightwire, transport: CustomLightTransport, 
   } finally { pending.close(); pending.check(); }
 }
 const resourceLimit = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Light-chain byte limit exceeded.');
-const typedArray = Object.getPrototypeOf(Uint8Array.prototype);
-const tag = Object.getOwnPropertyDescriptor(typedArray, Symbol.toStringTag)!.get!;
-const bufferOf = Object.getOwnPropertyDescriptor(typedArray, 'buffer')!.get!;
-const offsetOf = Object.getOwnPropertyDescriptor(typedArray, 'byteOffset')!.get!;
-const lengthOf = Object.getOwnPropertyDescriptor(typedArray, 'byteLength')!.get!;
-const bufferLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength')!.get!;
-function ownBytes(bytes: Uint8Array): Uint8Array {
-  try {
-    if (tag.call(bytes) !== 'Uint8Array') throw protocol();
-    const buffer = bufferOf.call(bytes);
-    bufferLength.call(buffer);
-    typedArray.values.call(bytes); // Reject detached/out-of-bounds original views.
-    const length = lengthOf.call(bytes);
-    if (length > 4 * 1024 * 1024) throw resourceLimit();
-    return new Uint8Array(new Uint8Array(buffer, offsetOf.call(bytes), length));
-  } catch (error) { throw isZcashError(error) ? error : protocol(); }
-}
 
 /** Internal finite range; successful exhaustion is required for complete coverage. */
 export function streamCompactBlocks(codec: Lightwire, transport: CustomLightTransport,
@@ -184,7 +173,7 @@ export function streamCompactBlocks(codec: Lightwire, transport: CustomLightTran
           return { done: true, value: undefined };
         }
         if (height > toHeight) throw protocol();
-        const encoded = ownBytes(item.value);
+        const encoded = ownBytes(item.value, protocol, resourceLimit);
         total += encoded.length;
         if (total > 64 * 1024 * 1024) throw resourceLimit();
         let checked, previousHash;
@@ -207,4 +196,48 @@ export function streamCompactBlocks(codec: Lightwire, transport: CustomLightTran
       return { done: true, value: undefined };
     },
   };
+}
+
+/** Endpoint tree bytes, not verified wallet chain state. Native ingestion validates frontiers. */
+export async function getTreeState(codec: Lightwire, transport: CustomLightTransport,
+  network: Network, encoding: 'main' | 'test' | 'regtest', args: BlockSelector & Op): Promise<TreeState> {
+  const sourceId = admit(transport, args, ['height', 'hash', 'signal']);
+  const { height, hash, signal } = args;
+  if (!['main', 'test', 'regtest'].includes(encoding) || (height === undefined) === (hash === undefined)) throw invalidArgument();
+  if (height !== undefined && (!Number.isInteger(height) || height < 0 || height > 0xffff_ffff)) throw invalidArgument();
+  const requestedHash = hash === undefined ? undefined : blockHash(hash);
+  const requestValue = height === undefined || height === 0
+    ? { hash: requestedHash ?? network.genesisHash } : { height: String(height) };
+  const pending = operation(signal);
+  try {
+    pending.check();
+    let request: Uint8Array;
+    try { request = codec.encodeRequest('GetTreeState', JSON.stringify(requestValue)); } catch { throw protocol(); }
+    pending.check();
+    const unary = transport.unary;
+    pending.check();
+    const response = await pending.wait(Reflect.apply(unary, transport, [{ method: 'GetTreeState', request, signal: pending.signal }]));
+    pending.check();
+    const encoded = ownBytes(response, protocol, resourceLimit);
+    let dto: { network: string; height: string; hash: string; sapling_tree: string; ironwood_tree: string };
+    try { dto = codec.decodeResponse('GetTreeState', encoded) as typeof dto; } catch { throw protocol(); }
+    pending.check();
+    if (!dto || typeof dto.height !== 'string' || !/^(0|[1-9][0-9]{0,9})$/.test(dto.height)
+      || BigInt(dto.height) > 0xffff_ffffn || typeof dto.hash !== 'string' || !/^[0-9a-f]{64}$/.test(dto.hash)) throw protocol();
+    if (dto.network !== encoding) throw failure('NETWORK_MISMATCH', 'query', 'configure', 'Tree state network mismatch.');
+    // Pinned lightwalletd GetTreeState uses display-order BlockID bytes as well as response text.
+    const point = { height: Number(dto.height), hash: blockHash(dto.hash) };
+    if ((height !== undefined && point.height !== height) || (requestedHash !== undefined && point.hash !== requestedHash)) throw protocol();
+    if (point.height === 0 && point.hash !== network.genesisHash) throw failure('NETWORK_MISMATCH', 'query', 'configure', 'Tree state genesis mismatch.');
+    const tree = (value: string) => {
+      if (typeof value !== 'string' || !/^(?:[0-9a-f]{2})*$/.test(value)) throw protocol();
+      return value.length ? Uint8Array.from(value.match(/../g)!, byte => parseInt(byte, 16)) : null;
+    };
+    const sapling = tree(dto.sapling_tree), ironwood = tree(dto.ironwood_tree);
+    pending.check();
+    return { network, point, sapling, ironwood, encoded, sourceId, observedAt: new Date().toISOString() };
+  } catch (error) {
+    pending.check();
+    throw isZcashError(error) ? error : transportFailure();
+  } finally { pending.close(); pending.check(); }
 }

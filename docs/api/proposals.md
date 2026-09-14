@@ -8,9 +8,17 @@
 
 ## What the reviewer approves
 
-Show all steps and dependencies, selected inputs and their pools, recipients/amounts/memos, change and step-funding outputs, each fee and total fee. Review network, target height/branch, transaction versions, expiry and lock expiry. Explain transparent disclosure and pool crossing before approval.
+Show all steps and dependencies, selected inputs and their pools, recipients/amounts/memos, change and step-funding outputs, each fee and total fee. Recipient addresses remain exact. Change and step-funding addresses may be `null`
+until native construction chooses them; show these as unresolved wallet-owned
+outputs, not placeholder addresses. Their pool, amount and ownership intent remain
+part of the plan. Review network, target height/branch, transaction versions,
+expiry and lock expiry. Explain transparent disclosure and pool crossing before approval.
 
-`operationId` is durable work identity, `proposalId` identifies the retained plan, and `reviewCommitment` binds review effects. `revision` supports freshness checks. Account IDs are metadata, not proof of native getter availability. The application review callback in the example is application UX, not an SDK `approve` method or a transferable approval token.
+`operationId` is durable work identity, `proposalId` identifies the retained plan, and `reviewCommitment` binds review effects. The proposal commitment binds explicit recipient intent and internal-output
+constraints; it does not claim to commit an unresolved address string. Native
+execution must verify that change is wallet-controlled and step-funding is consumed
+by the intended dependency. Wallet control does not bypass confirmation or maturity
+rules. `revision` supports freshness checks. Account IDs are metadata, not proof of native getter availability. The application review callback in the example is application UX, not an SDK `approve` method or a transferable approval token.
 
 The proposal is opaque and instance-bound. Readonly JavaScript fields alone do not make a `Uint8Array` immutable: Rust must retain/copy and revalidate canonical effects. Editing displayed output, fee, memo, network or selected inputs cannot change the retained approved plan.
 

@@ -11,9 +11,9 @@
     "docs:preview": "vite preview --outDir docs/.vitepress/dist --host 127.0.0.1 --port 4173 --strictPort --base /",
     "docs:typecheck": "tsc -p docs/api/examples/tsconfig.json",
     "docs:check-recovery": "node docs/api/check-recovery-spec.mjs",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/primitive-capsule.mjs",
     "test:sdk": "npm run build && node --test tests/sdk/*.test.mjs",
-    "test": "npm run build && node --test tests/*/*.test.mjs",
+    "test": "npm run build && node --test --test-concurrency=4 tests/*/*.test.mjs",
     "test:sdk:real-firefox": "node tests/sdk/real-firefox-run.mjs",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
@@ -24,20 +24,32 @@
     "eslint": "^10.10.0",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.70.0",
-    "vitepress": "2.0.0-alpha.20"
+    "vitepress": "2.0.0-alpha.20",
+    "webpack": "5.110.3"
   },
   "version": "0.0.0",
   "type": "module",
   "files": [
     "dist",
-    "docs/planning/agnostic-implementation.md"
+    "docs/planning/agnostic-implementation.md",
+    "licenses"
   ],
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
       "import": "./dist/src/index.js"
+    },
+    "./grpc-node": {
+      "node": {
+        "types": "./dist/src/clients/grpc-node.d.ts",
+        "import": "./dist/src/clients/grpc-node.js"
+      }
     }
   },
   "types": "./dist/src/index.d.ts",
-  "sideEffects": false
+  "sideEffects": false,
+  "dependencies": {
+    "@grpc/grpc-js": "1.14.4"
+  },
+  "license": "MIT"
 }

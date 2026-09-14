@@ -29,5 +29,11 @@ Open acquires ownership, checks database/network/schema compatibility, migrates 
 `close()` is idempotent: stop admission, finish/stop work at safe boundaries, flush and close storage, detach bindings and invalidate wallet-dependent handles. Injected clients/signers remain caller-owned. Dispose returned memory signers explicitly after their final use. Closing does not undo submitted payments.
 
 ::: info Requires Qualification
-Both VFS durability paths, migration rollback, single-writer exclusion and crash recovery remain F3/F6 gates. Storage holds sensitive viewing/history data; encrypted-at-rest protection is not established. There is no public backup/export-database API in the declarations.
+Both VFS durability paths have scoped [Node/Firefox qualification](../planning/wallet-payments-qualification.md), including [current OPFS fault recovery](installation.md#current-opfs-fault-recovery-116). Storage holds sensitive viewing/history data; encrypted-at-rest protection is not established.
 :::
+
+## Backup and restore scope
+
+The public API has no database backup, export or restore operation. The restore clauses in the recovery matrix apply to a supported explicit restore workflow; none is offered by this version. They do not require adding a new API or treating an ordinary reopen as a restore test. Mnemonic account import and rescan recover account authority/history, not a previous database's operation records or retry budgets.
+
+An application-controlled filesystem/OPFS copy or rollback is outside SDK restore guarantees. Opening the same bytes cannot reveal that they came from an older snapshot or another copy. Stored consent and counters may therefore be replayed; there is no cross-copy retry-budget or automatic invalidation guarantee. Applications handling such copies should start with offline recovery and review the saved state. Offline opening prevents recovery network activity; it does not erase or renew consent.

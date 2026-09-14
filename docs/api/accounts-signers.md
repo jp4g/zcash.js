@@ -12,7 +12,7 @@ Create wallet records separately from custody. Applications obtain and back up m
 
 Mnemonic `accounts.import` requires `accountIndex` plus a validated `Birthday` or `'fullScan'`. Birthday identifies the first scanned block and prior-block tree state; `recoverUntilExclusive` is exclusive. `resolveBirthday` obtains that state from a light client for an explicit first height. Recovery must never silently start at today's tip.
 
-All checksum-valid standard BIP39 word counts (12/15/18/21/24) are accepted. Mnemonic/passphrase inputs are UTF-8 bytes with required normalization. Omitted passphrase means empty; another passphrase derives another seed, not a detectable wrong-password error. Names default to null. Enabled pools default to all three v1 pools; missing required authority rejects.
+All checksum-valid standard BIP39 word counts (12/15/18/21/24) are accepted. Mnemonic/passphrase inputs are UTF-8 bytes with required normalization. Omitted passphrase means empty; another passphrase derives another seed, not a detectable wrong-password error. Names default to null. Mnemonic creation/import uses all supported pools and accepts no `enabledPools` option. Transaction spend-pool policy and address receiver selection remain independent. UFVK import retains its optional `enabledPools` selection; missing required viewing authority rejects.
 
 <<< ./examples/accounts.ts
 
@@ -27,3 +27,19 @@ UFVK `accounts.import({ viewingKey, birthday })` returns an `AccountRecord`. Def
 `accountFromViewingKey` parses UFVK or UIVK into an opaque descriptor for standalone viewing/address work with explicit enabled pools. `viewing.toIncoming` reduces authority; `viewing.export` requires `acknowledge: 'discloses-viewing-authority'`. Dispose descriptor viewing handles. UIVK cannot determine full spentness and is excluded from wallet import. No raw spending-key export or persistent secret vault exists.
 
 `Signer.getCapabilities`, `getAccount` and `authorize` form the generic adapter boundary. Capability tuples negotiate network/pool/branch/transaction/circuit/PCZT versions, review mode and required field profiles. Account IDs and derivation metadata are routing hints; they never prove key correspondence. See [signing routes](signing.md) for disclosure and return validation.
+
+### External signer lookup for imported accounts
+
+When an account has no derivation index, attachment and signing request
+`getAccount({ network, selector: { kind: 'fingerprint', fingerprint } })`. The
+fingerprint is lowercase hexadecimal SHA-256 of the UTF-8 canonical encoded UFVK,
+with no prefix or terminator. The wallet reads the canonical key from Rust; adapters
+can canonicalize their existing UFVK through `accountFromViewingKey` and
+`viewing.export` before computing the same digest. Network remains explicit.
+
+The adapter resolves the fingerprint to its existing account handle. An adapter
+without lookup support or a matching account must reject the call (foreign errors
+become `SIGNER_REJECTED`). A fingerprint is only a lookup hint: the wallet still
+checks the returned viewing key against the native account before attachment or
+signing. Associations remain in memory; no persistent key map is added. Derived
+selectors and built-in memory signer association retain their existing behavior.

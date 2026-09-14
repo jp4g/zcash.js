@@ -18,7 +18,7 @@ export async function runBrowser() {
   try {
     api = await import('/src/clients/public-chain-reads.js');
     const root = await import('/src/index.js'); http = root.http;
-    check(!('getTip' in root) && !('getBlockHeader' in root) && !('createPublicClient' in root), 'internal exports only');
+    check(!('getTip' in root) && !('getBlockHeader' in root) && typeof root.createPublicClient === 'function', 'internal exports only');
     check(Object.values(eager).every(n => n === 0), 'imports are lazy');
     globalThis.fetch = originals.fetch;
     const context = (mode, timeoutMs = 1000) => ({ sourceId,
@@ -227,9 +227,8 @@ if (typeof process !== 'undefined' && process.versions?.node) {
       ['/public-chain-reads-browser.mjs', await readFile(new URL(import.meta.url))],
       ['/public-chain-reads-fixtures.mjs', await readFile(new URL('./public-chain-reads-fixtures.mjs', import.meta.url))],
     ]);
-    for (const name of ['index', 'amounts', 'http', 'errors', 'json', 'primitives', 'clients/public-chain-reads']) {
-      assets.set(`/src/${name}.js`, await readFile(`${build}/src/${name}.js`));
-    }
+    const { addBuildAssets } = await import('../support/build-assets.mjs');
+    await addBuildAssets(assets);
     assets.set('/state', JSON.stringify({ rawAbort: false }));
     report.assets = Object.fromEntries([...assets].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     server = await fixture((call, req, res) => {

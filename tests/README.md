@@ -8,7 +8,8 @@ npm run check
 ```
 
 `check` runs ESLint, builds the current source into `dist/`, and runs every
-`tests/*/*.test.mjs` suite. `npm test` does the same build and tests without
+`tests/*/*.test.mjs` suite, with at most four test files running concurrently
+to bound native worker and bundler resource use. `npm test` does the same build and tests without
 linting; `npm run test:sdk` runs only the SDK subset. No external source tree,
 old build directory, Rust compiler, or live blockchain endpoint is needed.
 
@@ -30,9 +31,11 @@ npm run build
 node tests/clients/grpc-web-browser.mjs
 node tests/clients/public-chain-reads-browser.mjs
 node tests/clients/public-block-reads-browser.mjs
+node tests/clients/public-transaction-reads-browser.mjs
 node tests/clients/light-chain-reads-browser.mjs
 node tests/clients/light-transparent-reads-browser.mjs
 node tests/clients/light-server-observation-browser.mjs
+node tests/wallet/host-browser.mjs
 ```
 
 These use local fixture servers and write logs/profiles under the ignored
@@ -50,3 +53,11 @@ it does not disable certificate validation. See its entrypoint in
 
 Documentation checks remain available as `npm run docs:typecheck`,
 `npm run docs:check-recovery`, and `npm run docs:build`.
+
+Advanced wallet runtime runners accept explicitly supplied runtime packages and proving
+parameters through `WALLET_*` variables. Those optional runs are separate from the
+self-contained Node suite and default OPFS bridge test; TLS runs also require
+`WALLET_TLS_KEY` and `WALLET_TLS_CERT`.
+
+Advanced signer runs read `bundle/tests/signer-fixture.json` from the supplied
+native packet, or `WALLET_SIGNER_FIXTURE`; its original receipt hash is still required.

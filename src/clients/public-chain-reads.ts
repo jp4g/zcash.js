@@ -1,5 +1,6 @@
+import { nodeEvents, nodeIsProxy } from './owned-plumbing.js';
 import type { BlockHeader, BlockSelector, ChainTip, HttpTransport, Op } from '../../docs/api/public-api.js';
-import { readRpc } from '../http.js';
+import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
 import { JsonNumber, protocolError } from '../json.js';
 import { blockHash } from '../primitives.js';
@@ -16,17 +17,12 @@ const nativeAdd = EventTarget.prototype.addEventListener;
 const nativeRemove = EventTarget.prototype.removeEventListener;
 const nodeRuntime = typeof globalThis === 'object'
   && typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string';
-let proxyCheck: Promise<(value: unknown) => boolean> | undefined;
 
 async function bridge(original?: AbortSignal) {
   if (original === undefined) return { signal: undefined, close() {} };
   try {
     if (nodeRuntime) {
-      // Dynamic and Node-only: works across the public Node engine range, including
-      // versions predating process.getBuiltinModule; browsers never resolve this URL.
-      const builtin = 'node:util';
-      proxyCheck ??= import(builtin).then(module => module.types.isProxy);
-      if ((await proxyCheck)(original)) throw invalidArgument();
+      if (nodeIsProxy(original)) throw invalidArgument();
     }
     // Browser Web IDL branding rejects proxies; Node additionally needs isProxy.
     nativeAborted.call(original);
@@ -38,8 +34,7 @@ async function bridge(original?: AbortSignal) {
       removeEventListener: { value: nativeRemove.bind(signal) },
     });
     if (nodeRuntime) {
-      const builtin = 'node:events';
-      const { addAbortListener } = await import(builtin);
+      const { addAbortListener } = nodeEvents();
       // Node's helper reads public properties. Give it a native signal with
       // trusted forwarding operations, never the caller's overrides.
       const view: AbortSignal = nativeSignal.call(new NativeController());
@@ -120,7 +115,7 @@ export async function getTip(source: ChainReadSource, args: Op = {}): Promise<Ch
 }
 
 /** Resolve once, then pin the raw request to that identity even if the height reorganizes. */
-export async function getBlockHeader(source: ChainReadSource, args: BlockSelector & Op): Promise<BlockHeader> {
+export async function getBlockHeader(source: ChainReadSource, args: BlockSelector & Op): Promise<BlockHeader | null> {
   const { transport, sourceId } = validateSource(source);
   args = input(args, ['height', 'hash', 'signal']);
   const { height, hash: requestedHash } = args;
@@ -133,7 +128,9 @@ export async function getBlockHeader(source: ChainReadSource, args: BlockSelecto
   const owned = await bridge(args.signal);
   const { signal } = owned;
   try {
-    const value = await readRpc(transport, 'getblockheader', [selector, true], signal);
+    let value;
+    try { value = await readRpc(transport, 'getblockheader', [selector, true], signal); }
+    catch (error) { if (rpcErrorCode(error) === (requestedHash === undefined ? -8 : -5)) return null; throw error; }
     object(value);
     const point = { height: integer(value.height, 0, 0xffff_ffff), hash: hash(value.hash) };
     if ((height !== undefined && point.height !== height)

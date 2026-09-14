@@ -23,7 +23,7 @@ try {
     report.sources[path] = hash(readFileSync(new URL('../../' + path, import.meta.url)));
   }
   report.compiled = {};
-  for (const path of ['src/clients/light-chain-reads.js', 'src/clients/grpc-web.js', 'src/errors.js', 'src/primitives.js']) {
+  for (const path of ['src/clients/light-chain-reads.js', 'src/clients/grpc-web.js', 'src/clients/grpc-status.js', 'src/errors.js', 'src/primitives.js']) {
     report.compiled[path] = hash(readFileSync(build + '/' + path));
   }
   save();
@@ -35,6 +35,7 @@ try {
   assert.equal(fixture.requests.length, report.result.requests);
   for (const request of fixture.requests) {
     assert.equal(request.body, request.path === service + 'GetLatestBlock' ? 'AAAAAAA='
+      : request.path === service + 'GetTreeState' ? base64(frame(new Uint8Array([8, 7])))
       : base64(frame(new Uint8Array([10, 2, 8, 7, 18, 2, 8, 8]))));
     assert.ok(!request.headers.cookie && !request.headers.referer);
   }

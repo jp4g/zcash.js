@@ -44,7 +44,7 @@ export async function serveChainFixtures(assets = new Map(), { signal, onCreate,
         res.writeHead(200, { 'content-type': url.pathname === '/' ? 'text/html' : url.pathname.endsWith('.wasm') ? 'application/wasm' : 'text/javascript' });
         res.end(assets.get(url.pathname)); return;
       }
-      if (req.method !== 'POST' || ![service + 'GetLatestBlock', service + 'GetBlockRange'].includes(url.pathname)) { res.writeHead(404).end(); return; }
+      if (req.method !== 'POST' || ![service + 'GetLatestBlock', service + 'GetBlockRange', service + 'GetTreeState'].includes(url.pathname)) { res.writeHead(404).end(); return; }
       let body = '';
       for await (const chunk of req) { body += chunk; if (body.length > 1024) throw Error('fixture request bound'); }
       const mode = url.searchParams.get('case') ?? 'good';
@@ -70,7 +70,12 @@ export async function serveChainFixtures(assets = new Map(), { signal, onCreate,
         const vector = golden.find(v => v.method === 'GetBlockRange' && v.direction === 'item');
         items[0] = concat(Uint8Array.from(vector.hex.match(/../g), h => parseInt(h, 16)), scalar(2, 7), bytesField(99, new Uint8Array([42])));
       }
-      if (mode === 'stall') { res.write(base64(frame(items[0]))); return; }
+      if (url.pathname.endsWith('GetTreeState')) {
+        const textField = (field, text) => bytesField(field, new TextEncoder().encode(text));
+        items = [concat(textField(1, mode === 'tree-network' ? 'test' : 'regtest'),
+          scalar(2, mode === 'tree-height' ? 8 : 7), textField(3, display(hash)), textField(5, '000000'))];
+      }
+      if (mode === 'stall' || mode === 'tree-stall') { res.write(base64(frame(items[0]))); return; }
       const terminal = mode === 'missing' ? new Uint8Array() : mode === 'error'
         ? trailer('grpc-status: 13\r\ngrpc-message: private-secret\r\n') : trailer();
       const text = base64(concat(...items.map(item => frame(item)), terminal));

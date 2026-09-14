@@ -25,29 +25,20 @@ const nativeAdd = EventTarget.prototype.addEventListener;
 const nativeRemove = EventTarget.prototype.removeEventListener;
 const nodeRuntime = typeof globalThis === 'object'
   && typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string';
-let proxyCheck: Promise<(value: unknown) => boolean> | undefined;
+const getBuiltin = (globalThis as { process?: { getBuiltinModule(name: string): unknown } }).process?.getBuiltinModule;
 
 async function bridge(original?: AbortSignal) {
   if (original === undefined) return { signal: undefined, close() {} };
   try {
     if (nodeRuntime) {
-      // Node-only proxy check; browsers never resolve this URL.
-      const builtin = 'node:util';
-      proxyCheck ??= import(builtin).then(module => module.types.isProxy);
-      if ((await proxyCheck)(original)) throw invalidArgument();
+      if ((getBuiltin!('node:util') as typeof import('node:util')).types.isProxy(original)) throw invalidArgument();
     }
     // Browser Web IDL branding rejects proxies; Node additionally needs isProxy.
     apply(nativeAborted, original, []);
     const controller = new NativeController();
     const signal: AbortSignal = apply(nativeSignal, controller, []);
-    Object.defineProperties(signal, {
-      aborted: { get: () => apply(nativeAborted, signal, []) },
-      addEventListener: { value: nativeAdd.bind(signal) },
-      removeEventListener: { value: nativeRemove.bind(signal) },
-    });
     if (nodeRuntime) {
-      const builtin = 'node:events';
-      const { addAbortListener } = await import(builtin);
+      const { addAbortListener } = getBuiltin!('node:events') as typeof import('node:events');
       // Node's helper reads public properties. Give it a native signal with
       // trusted forwarding operations, never the caller's overrides.
       const view: AbortSignal = apply(nativeSignal, new NativeController(), []);

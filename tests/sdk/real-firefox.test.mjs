@@ -17,6 +17,12 @@ test('Firefox result gate is red for eager initialization and missing claims', (
 import { guarded } from './real-firefox-browser.mjs';
 import { claims } from './real-firefox-support.mjs';
 test('no-eager gate restores globals and detects even swallowed accesses', async () => {
+  // Finish Node's own lazy HTTP/WASM initialization before trapping SDK access.
+  const { createServer } = await import('node:http');
+  const server = createServer((_request, response) => response.end('ready'));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try { await (await fetch(`http://127.0.0.1:${server.address().port}`)).text(); }
+  finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
   const before = Object.getOwnPropertyDescriptor(globalThis, 'WebAssembly');
   await assert.rejects(guarded(async () => { try { void globalThis.Worker; } catch {} }), /eager initialization/);
   assert.deepEqual(Object.getOwnPropertyDescriptor(globalThis, 'WebAssembly'), before);

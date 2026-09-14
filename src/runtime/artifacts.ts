@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex -- Canonical encoding and URL validation intentionally match ASCII control characters. */
 import type { ArtifactFile, ArtifactManifest, WasmArtifact, ZcashError } from '../../docs/api/public-api.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 

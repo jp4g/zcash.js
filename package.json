@@ -14,11 +14,16 @@
     "build": "tsc -p tsconfig.json",
     "test:sdk": "npm run build && node --test tests/sdk/*.test.mjs",
     "test": "npm run test:sdk",
-    "test:sdk:real-firefox": "node tests/sdk/real-firefox-run.mjs"
+    "test:sdk:real-firefox": "node tests/sdk/real-firefox-run.mjs",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix"
   },
   "devDependencies": {
-    "vitepress": "2.0.0-alpha.20",
-    "typescript": "6.0.3"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.70.0",
+    "vitepress": "2.0.0-alpha.20"
   },
   "version": "0.0.0",
   "type": "module",

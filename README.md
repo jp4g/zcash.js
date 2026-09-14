@@ -2,7 +2,7 @@
 
 **Private TypeScript SDK with qualified synthetic Node/browser wallet workflows.** The package exposes independent public, light and wallet clients, plus optional composition. Baseline wallet storage, account/query/sync, signing/proving and payment recovery paths have actual Node filesystem and Firefox OPFS evidence. This is not complete v1 acceptance or a published npm package.
 
-See [local installation and runtime assets](docs/api/installation.md) for installing a local tarball and configuring the separately verified wallet runtime. The [API book](docs/api/README.md) describes the frozen contract; its compile-only examples are not evidence that every contract case is implemented. Known gaps include generic signer selection for UFVK attachment (#97), already-finalized transparent PCZT inputs (#102), and healthy threaded runtime integration.
+See [local installation and runtime assets](docs/api/installation.md) for installing a local tarball and configuring the separately verified wallet runtime. The [API book](docs/api/README.md) describes the frozen contract; its compile-only examples are not evidence that every contract case is implemented. Signer selection (#97), threaded integration (#107), and current OPFS fault recovery (#116) have been qualified. Already-finalized transparent PCZT inputs (#102) remain deferred.
 
 ## Local review site
 
@@ -24,7 +24,7 @@ Open **http://127.0.0.1:4173/**. For editing, run `npm run docs:dev` at the same
 - Settled [D01–D25 decisions](docs/planning/decision-log.md), [validation workplan](docs/planning/api-surface-workplan.md), and [functional gates](docs/planning/wasm-host-architecture.md#functional-acceptance-gates).
 - [Tracked future issues](docs/planning/future-issues.md) and retained research, available in collapsed site sections.
 
-This is the documentation deliverable for [issue #1](https://github.com/jp4g/zcash.js/issues/1), not completion of runtime/design qualification gates. The coherent locked Common 1.0.0 graph remains the implementation baseline; 1.1.0 migration is tracked separately. No license has been selected. See [CONTRIBUTING.md](CONTRIBUTING.md) for scope, validation and private-data reporting rules.
+The coherent locked Common 1.0.0 graph remains the implementation baseline; 1.1.0 migration is tracked separately. See [CONTRIBUTING.md](CONTRIBUTING.md) for scope, validation and private-data reporting rules.
 
 ## License
 

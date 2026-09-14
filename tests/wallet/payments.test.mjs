@@ -48,13 +48,13 @@ function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delaye
   const client={network,async getTreeState({height}){control.requests++;const block=height===0?network.genesisHash:hash;return {network,point:{height,hash:block},sapling:null,ironwood:null,encoded:concat(scalar(2,height),bytesField(3,new TextEncoder().encode(block))),sourceId:'source',observedAt:new Date().toISOString()};},
     async getTip(){control.requests++;return {height:20,hash,sourceId:'source',observedAt:new Date().toISOString()};},
     async getTransaction(){throw Error('not used');},
-    async getTransactionStatus({txid}){control.reads++;if(control.stalled){control.started?.();return new Promise(()=>{});}return {txid,state:control.mined?'mined':control.seen.has(txid)?'mempool':'notSeen',inclusion:control.mined?{height:19,blockHash:hash,confirmations:999}:null,tip:null,priorInclusion:control.prior??null,sourceId:'source',observedAt:new Date().toISOString()};},
+    async getTransactionStatus({txid}){control.reads++;control.visited?.push(txid);if(control.stalled){control.started?.();return new Promise(()=>{});}return {txid,state:control.mined?'mined':control.seen.has(txid)?'mempool':'notSeen',inclusion:control.mined?{height:19,blockHash:hash,confirmations:999}:null,tip:null,priorInclusion:control.prior??null,sourceId:'source',observedAt:new Date().toISOString()};},
     async broadcastTransaction({bytes}){const index=bytes[0]-1;assert.deepEqual([...bytes],[index+1,2,3]);control.dispatches++;control.order.push(index);control.seen.add(stepTxid(index));control.started?.();if(delayed)return new Promise(resolve=>{control.reply=resolve;});return {txid:stepTxid(index),outcome:'acknowledged',diagnosticCode:null,sourceId:'source',observedAt:new Date().toISOString()};}};
   const wallet={session,close:()=>session.close()};
   const options={network,storage:{kind:'memory'},runtime:{maxQueuedJobs:8},observation:{pollIntervalMs:5,maxBufferedUpdates:buffer},recovery:online?{mode:'online',timeoutMs:30,...(retry?{rebroadcast:retry}:{})}:{mode:'offline'},...(light?{light:client}:{}),broadcaster:client};
   const payments=new WalletPayments(wallet,{},options);
   t.after(async()=>{await payments.close();await session.close();assert.equal(budget.proving.bytes,0);});
-  return {payments,session,journal,control,budget,client};
+  return {payments,session,journal,control,budget,client,wallet,options};
 }
 
 test('offline recovery traverses more than one page without IDs or network, then paginates locally',async t=>{
@@ -172,4 +172,26 @@ test('recovery pause stays asynchronous when the monotonic clock advances during
   const {payments}=setup(t,{count:2,finalized:false,light:false});
   const report=await payments.recover();
   assert.equal(report.local,'complete');assert.equal(report.operations,2);
+});
+
+
+test('short-deadline recovery rotates across fresh payment owners without refreshing work',async t=>{
+  const {payments,journal,control,budget,wallet,options}=setup(t,{count:3,online:true});
+  journal.forEach((row,index)=>{row.state.steps[0].txid=operationId(index+1);});
+  control.stalled=true;control.visited=[];
+  let owner=payments;
+  for(let cycle=0;cycle<4;cycle++){
+    if(cycle)owner=new WalletPayments(wallet,{},options);
+    try{
+      const report=await owner.recover();
+      assert.equal(report.local,'complete');assert.equal(report.operations,3);
+      assert.equal(report.observedOperations,0);assert.equal(report.deferredOperations,3);
+      assert.equal(report.lastError.code,'TIMEOUT');
+      assert.equal(control.position,String(cycle%3+1));
+    }finally{await owner.close();}
+    assert.equal(control.dispatches,0);assert.equal(budget.jobs,0);assert.equal(budget.bytes,0);
+    const reads=control.reads;await wait(5);assert.equal(control.reads,reads,'no background recovery after return/close');
+  }
+  assert.deepEqual(control.visited,[operationId(1),operationId(2),operationId(3),operationId(1)]);
+  assert.ok(journal.every(row=>row.state.steps[0].attempts.length===0));
 });

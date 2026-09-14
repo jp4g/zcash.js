@@ -7,7 +7,7 @@ const bufferOf = Object.getOwnPropertyDescriptor(typedArray, 'buffer')!.get!;
 const offsetOf = Object.getOwnPropertyDescriptor(typedArray, 'byteOffset')!.get!;
 const lengthOf = Object.getOwnPropertyDescriptor(typedArray, 'byteLength')!.get!;
 const bufferLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength')!.get!;
-export function ownBytes(bytes: Uint8Array, protocol: () => Error, resourceLimit: () => Error, maximum = 4 * 1024 * 1024): Uint8Array {
+export function ownBytes(bytes: unknown, protocol: () => Error, resourceLimit: () => Error, maximum = 4 * 1024 * 1024): Uint8Array {
   try {
     if (tag.call(bytes) !== 'Uint8Array') throw protocol();
     const buffer = bufferOf.call(bytes);
@@ -20,10 +20,12 @@ export function ownBytes(bytes: Uint8Array, protocol: () => Error, resourceLimit
 }
 
 const resource = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Client input exceeds limit.');
-export function snapshot<T extends object>(args: T, keys: readonly string[], maximum = 4 * 1024 * 1024): T {
+export function snapshot<T extends object>(args: T, keys: readonly string[], maximum?: number): T;
+export function snapshot(args: unknown, keys: readonly string[], maximum?: number): Record<string, unknown>;
+export function snapshot(args: unknown, keys: readonly string[], maximum = 4 * 1024 * 1024): Record<string, unknown> {
   try {
     const output = recordFields(args, keys);
-    if ('bytes' in output) output.bytes = ownBytes(output.bytes as Uint8Array, invalidArgument, resource, maximum);
+    if ('bytes' in output) output.bytes = ownBytes(output.bytes, invalidArgument, resource, maximum);
     if ('addresses' in output) {
       const values = output.addresses;
       if (!Array.isArray(values) || !values.length || values.length > 1000) throw invalidArgument();
@@ -35,14 +37,14 @@ export function snapshot<T extends object>(args: T, keys: readonly string[], max
       }
       output.addresses = copy;
     }
-    return output as T;
+    return output;
   } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
 }
 
 // Descriptor copying is shared; callers retain their existing error/ownership policies.
-function recordFields(value: object, keys: readonly string[]): Record<string, unknown> {
+function recordFields(value: unknown, keys: readonly string[]): Record<string, unknown> {
   if (!value || typeof value !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
-  const output = Object.create(null);
+  const output: Record<string, unknown> = Object.create(null);
   for (const key of Reflect.ownKeys(value)) {
     if (typeof key !== 'string' || !keys.includes(key)) throw invalidArgument();
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
@@ -53,9 +55,11 @@ function recordFields(value: object, keys: readonly string[]): Record<string, un
 }
 
 /** Shallow data-only options; foreign errors are always sanitized as invalid input. */
-export function copyRecord<T extends object>(value: T, keys: readonly string[]): T {
+export function copyRecord<T extends object>(value: T, keys: readonly string[]): T;
+export function copyRecord(value: unknown, keys: readonly string[]): Record<string, unknown>;
+export function copyRecord(value: unknown, keys: readonly string[]): Record<string, unknown> {
   try {
     if (Array.isArray(value)) throw invalidArgument();
-    return recordFields(value, keys) as T;
+    return recordFields(value, keys);
   } catch { throw invalidArgument(); }
 }

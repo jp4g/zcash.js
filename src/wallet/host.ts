@@ -91,15 +91,13 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
   let value: unknown;
   try {
     if(command==='enhancement_apply'){
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-      const input=fields(args as any,['revision','request','result','signal']);
+      const input=fields(args as unknown,['revision','request','result','signal']);
       const request=fields(input.request,['kind','txid','address','start','endExclusive','requestAt','txStatus','outputStatus']);
       unspentInventory=request.kind==='address'&&request.txStatus==='all'&&request.outputStatus==='unspent'&&request.endExclusive===null;
       args={...input,request};
     }
     if (command === 'account_import' || mnemonicCommand(command)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-      const input = fields(args as any, command === 'account_import'
+      const input = fields(args as unknown, command === 'account_import'
         ? ['viewingKey', 'birthday', 'name', 'viewOnly', 'enabledPools', 'signal']
         : command === 'account_create_mnemonic_signer' ? ['mnemonic', 'passphrase', 'name', 'signal']
           : ['mnemonic', 'passphrase', 'accountIndex', 'birthday', 'name', 'signal']);
@@ -114,13 +112,11 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
       } else args = input;
     }
     if (command === 'pczt_prove'||command==='pczt_finalize') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-      const input=fields(args as any,['operationId','artifactId','spend','output','signal']);
+      const input=fields(args as unknown,['operationId','artifactId','spend','output','signal']);
       args={...input,maximum:Math.min(pcztMaximum,4 * 1024 * 1024)};
     }
     if(command==='fused_send'){
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-      const input=fields(args as any,['operationId','proposalId','reviewCommitment','token','spend','output','signal']);
+      const input=fields(args as unknown,['operationId','proposalId','reviewCommitment','token','spend','output','signal']);
       args={...input,maximum:Math.min(pcztMaximum,4*1024*1024)};
     }
     if (command === 'pczt_import') {
@@ -128,8 +124,7 @@ function snapshot(args: object, maximum: number, command: WalletCommand, pcztMax
       args={...input,maximum:Math.min(pcztMaximum,4 * 1024 * 1024)};
     }
     if(command==='payment_attempt_begin'){
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-      const input=fields(args as any,['operationId','stepIndex','sourceId','routeBinding','mode','origin','wallTimeMs','monotonicElapsedMs','observationSequence','policy','signal']);
+      const input=fields(args as unknown,['operationId','stepIndex','sourceId','routeBinding','mode','origin','wallTimeMs','monotonicElapsedMs','observationSequence','policy','signal']);
       args={...input,maximum:Math.min(pcztMaximum,2*1024*1024)};
     }
     if (command === 'signer_authorize') {

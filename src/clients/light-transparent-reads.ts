@@ -23,8 +23,30 @@ function amount(value: unknown): bigint {
   if (result > 9223372036854775807n) throw protocol();
   return result;
 }
+// Copy data fields once so validation and conversion use the same values.
+function responseFields(value: unknown, keys: string[]): Record<string, unknown> {
+  try { return copyRecord(value, keys); } catch { throw protocol(); }
+}
+interface UtxoDto {
+  address: string;
+  txid: string;
+  index: number;
+  script: string;
+  value: bigint;
+  height: number;
+}
+function utxo(value: unknown): UtxoDto {
+  const item = responseFields(value, ['address', 'txid', 'index', 'script', 'value_zat', 'height']);
+  if (typeof item.address !== 'string'
+    || typeof item.txid !== 'string' || !/^[0-9a-f]{64}$/.test(item.txid)
+    || typeof item.index !== 'number' || !Number.isInteger(item.index) || item.index < 0 || item.index > 0x7fffffff
+    || typeof item.height !== 'string' || !/^(0|[1-9][0-9]{0,9})$/.test(item.height) || BigInt(item.height) > 0xffffffffn
+    || typeof item.script !== 'string' || !/^(?:[0-9a-f]{2})*$/.test(item.script)) throw protocol();
+  return { address: item.address, txid: item.txid, index: item.index, script: item.script,
+    value: amount(item.value_zat), height: Number(item.height) };
+}
 async function read<T>(addressCodec: AddressCodec, codec: Lightwire, transport: CustomLightTransport,
-  family: Family, args: Addresses, method: Method, adapt: (dto: Record<string, unknown>, addresses: string[], get: <V>(action: () => V) => V) => T) {
+  family: Family, args: Addresses, method: Method, adapt: (dto: unknown, addresses: string[], get: <V>(action: () => V) => V) => T) {
   const input = copyRecord(args, ['addresses', 'signal']), original = input.signal;
   admitSignal(original);
   const controller = new AbortController();
@@ -74,8 +96,7 @@ async function read<T>(addressCodec: AddressCodec, codec: Lightwire, transport: 
     try {
       const decode = get(() => codec.decodeResponse);
       dto = get(() => apply(decode, codec, [method, ownBytes(bytes, protocol, resource)]));
-      if (dto === null || typeof dto !== 'object' || Array.isArray(dto)) throw protocol();
-      const value = adapt(dto as Record<string, unknown>, addresses, get);
+      const value = adapt(dto, addresses, get);
       check();
       return { ...value, sourceId, observedAt: new Date().toISOString() };
     } catch (error) { check(); throw isZcashError(error) ? error : protocol(); }
@@ -93,7 +114,7 @@ async function read<T>(addressCodec: AddressCodec, codec: Lightwire, transport: 
  */
 export function getAddressBalance(address: AddressCodec, wire: Lightwire, transport: CustomLightTransport,
   family: Family, args: Addresses): ReturnType<LightClient['getAddressBalance']> {
-  return read(address, wire, transport, family, args, 'GetTaddressBalance', dto => ({ value: amount(dto.value_zat) }));
+  return read(address, wire, transport, family, args, 'GetTaddressBalance', dto => ({ value: amount(responseFields(dto, ['value_zat']).value_zat) }));
 }
 
 /** Bounded reply adaptation; completeness requires an independently failure-faithful source.
@@ -102,27 +123,28 @@ export function getAddressBalance(address: AddressCodec, wire: Lightwire, transp
 export function getAddressUtxos(address: AddressCodec, wire: Lightwire, transport: CustomLightTransport,
   family: Family, args: Addresses): ReturnType<LightClient['getAddressUtxos']> {
   return read(address, wire, transport, family, args, 'GetAddressUtxos', (dto, addresses, get) => {
-    if (!Array.isArray(dto.address_utxos)) throw protocol();
-    if (dto.address_utxos.length > 1000) throw resource();
+    const { address_utxos: rows } = responseFields(dto, ['address_utxos']);
+    if (!Array.isArray(rows)) throw protocol();
+    const count = Object.getOwnPropertyDescriptor(rows, 'length')?.value;
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) throw protocol();
+    if (count > 1000) throw resource();
     const seen = new Set<string>();
-    const items = dto.address_utxos.map((item: { address: string; txid: string; index: number; script: string; value_zat: string; height: string }) => {
+    const items = Array.from({ length: count }, (_, index) => {
+      const field = Object.getOwnPropertyDescriptor(rows, String(index));
+      if (!field || !Object.hasOwn(field, 'value')) throw protocol();
+      const item = utxo(field.value);
       if (!addresses.includes(item.address)) throw protocol();
       const decode = get(() => address.decode);
       get(() => apply(decode, address, [item.address, family]));
-      if (typeof item.txid !== 'string' || !/^[0-9a-f]{64}$/.test(item.txid)
-        || !Number.isInteger(item.index) || item.index < 0 || item.index > 0x7fffffff
-        || typeof item.height !== 'string' || !/^(0|[1-9][0-9]{0,9})$/.test(item.height)
-        || BigInt(item.height) > 0xffffffffn
-        || typeof item.script !== 'string' || !/^(?:[0-9a-f]{2})*$/.test(item.script)) throw protocol();
       const key = item.txid + ':' + item.index;
       if (seen.has(key)) throw protocol();
       seen.add(key);
       return {
         // Selected GetAddressUtxos server reverses display txids into wire bytes.
         txid: txId(item.txid.match(/../g)!.reverse().join('')), outputIndex: item.index,
-        address: item.address, value: amount(item.value_zat),
+        address: item.address, value: item.value,
         script: Uint8Array.from(item.script.match(/../g) ?? [], byte => parseInt(byte, 16)),
-        minedHeight: Number(item.height),
+        minedHeight: item.height,
       };
     });
     // ReplyList has no chain point; this is unavailable observation metadata, not absence of UTXOs.

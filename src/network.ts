@@ -56,8 +56,8 @@ export async function defineNetwork(args: NetworkDefinition & Op): Promise<Netwo
 }
 
 /** Internal instance admission; structurally similar user objects are not Networks. */
-export function networkBinding(network: Network) {
-  const bound = networks.get(network);
+export function networkBinding(network: unknown) {
+  const bound = typeof network === 'object' && network !== null ? networks.get(network as Network) : undefined;
   if (!bound) throw invalidArgument();
   return bound;
 }

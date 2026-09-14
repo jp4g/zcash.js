@@ -170,3 +170,27 @@ for (const method of ['getAddressBalance', 'getAddressUtxos']) {
   else assert.deepEqual(result.items[0].script,new Uint8Array([81]));
  });
 }
+
+test('decoded UTXO fields reject malformed records, sparse arrays and accessors', async () => {
+  const valid = { address: token, txid: '00'.repeat(32), index: 0, script: '51', value_zat: '9007199254740993', height: '4294967295' };
+  const call = rows => internal.getAddressUtxos(address, {
+    encodeRequest: (...args) => wire.encodeRequest(...args), decodeResponse: () => ({ address_utxos: rows }),
+  }, transport(new Uint8Array()), 'main', { addresses: [token] });
+  const result = await call([valid]);
+  assert.equal(result.items[0].value, 9007199254740993n);
+  assert.equal(result.items[0].minedHeight, 4294967295);
+  for (const item of [null, [], 1, {}, { ...valid, index: '0' }, { ...valid, value_zat: 9007199254740993n },
+    { ...valid, value_zat: '9223372036854775808' }, { ...valid, height: '4294967296' },
+    { ...valid, txid: '00' }, { ...valid, script: 'a' }, { ...valid, address: 1 }]) {
+    await assert.rejects(call([item]), code('PROTOCOL_MISMATCH'));
+  }
+  await assert.rejects(call(new Array(1)), code('PROTOCOL_MISMATCH'));
+  await assert.rejects(call([valid, valid]), code('PROTOCOL_MISMATCH'));
+  let reads = 0;
+  const accessor = { ...valid, get txid() { reads++; return valid.txid; } };
+  await assert.rejects(call([accessor]), code('PROTOCOL_MISMATCH'));
+  const rows = [valid];
+  Object.defineProperty(rows, '0', { get() { reads++; return valid; } });
+  await assert.rejects(call(rows), code('PROTOCOL_MISMATCH'));
+  assert.equal(reads, 0);
+});

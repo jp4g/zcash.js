@@ -283,3 +283,33 @@ test('wallet ports share one owner queue budget and release it on close', async 
   assert.deepEqual(calls,[0,1]);
   assert.equal(shared.jobs,0);assert.equal(shared.bytes,0);assert.equal(shared.active,false);assert.equal(shared.wake.size,0);
 });
+
+test('worker rejects malformed signer payloads before calling native authority', async t => {
+  const { port1, port2 } = new MessageChannel();
+  t.after(() => { port1.close(); port2.close(); });
+  let calls = 0;
+  installWalletWorker(undefined, port2, () => false, {
+    capabilities(token) { calls++; return { token }; },
+    authorize() { calls++; throw Error('unexpected native call'); },
+  });
+  let id = 0;
+  const send = (command, args) => new Promise(resolve => {
+    port1.once('message', resolve);
+    port1.postMessage({ id: ++id, command, args });
+  });
+  for (const args of [null, [], {}, { token: '1' }]) {
+    const reply = await send('signer_capabilities', args);
+    assert.equal(reply.outcome.ok, false);
+    assert.equal(reply.outcome.error.code, 'INVALID_ARGUMENT');
+    assert.equal(reply.invalid, false);
+  }
+  const malformed = await send('signer_authorize', {
+    token: 1, format: 'zcash-js-network/1', parameters: new Uint8Array(), genesis: new Uint8Array(32),
+    height: 1, branch: 1, bytes: 'not bytes', maximum: 1024,
+  });
+  assert.equal(malformed.outcome.error.code, 'INVALID_ARGUMENT');
+  assert.equal(calls, 0);
+  const valid = await send('signer_capabilities', { token: 1 });
+  assert.deepEqual(valid.outcome, { ok: true, value: { token: 1 } });
+  assert.equal(calls, 1);
+});

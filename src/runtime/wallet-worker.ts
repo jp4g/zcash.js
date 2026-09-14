@@ -1,4 +1,3 @@
-import type { WalletStorage } from '../../docs/api/public-api.js';
 import type { InitializedViews, InitializedSigners } from '../wallet/session.js';
 import { installWalletWorker } from '../wallet/worker.js';
 import { sameRecord, walletProfile } from './wallet-profile.js';
@@ -31,13 +30,16 @@ let initializationId: number | undefined;
 function executableUrl(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith(node ? 'file:' : 'blob:');
 }
+function isPort(value: unknown): value is MessagePort {
+  return value instanceof (node ? threads.MessagePort : MessagePort);
+}
 function failed(code: string): never { throw new Error(code); }
 
 // Open requests serialize only acquisition; existing wallet ports keep their own queues.
 let opening = Promise.resolve();
 control.onmessage = ({ data }) => { opening = opening.then(() => handle(data)); };
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Existing dynamic boundary; explicit DTO typing is tracked in #137.
-async function handle(data: any) {
+async function handle(raw: unknown) {
+  const data: Record<string, unknown> = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   let backend: { owned: boolean; release(): void } | undefined;
   let owner: InitializedViews | undefined;
   let nativeOpening = false;
@@ -47,7 +49,7 @@ async function handle(data: any) {
       phase = 'starting';
       if (!executableUrl(data.moduleUrl) || !(data.module instanceof WebAssembly.Module)
         || !(data.memory instanceof WebAssembly.Memory) || !(data.memory.buffer instanceof SharedArrayBuffer)
-        || !Number.isSafeInteger(data.index) || data.index < 0 || data.index >= 8) failed('PROTOCOL_MISMATCH');
+        || typeof data.index !== 'number' || !Number.isSafeInteger(data.index) || data.index < 0 || data.index >= 8) failed('PROTOCOL_MISMATCH');
       api = await import(data.moduleUrl);
       // The generated initializer establishes the child's TLS/stack before its
       // blocking native entry. The host may release the owner build meanwhile.
@@ -74,9 +76,10 @@ async function handle(data: any) {
       }) || !['baseline','threaded'].includes(identity.mode) || identity.memory?.shared !== (identity.mode === 'threaded')
         || identity.memory.maximumPages !== 4096 || !Number.isSafeInteger(identity.memory.initialPages)
         || identity.memory.initialPages < 1 || identity.memory.initialPages > identity.memory.maximumPages) failed('PROTOCOL_MISMATCH');
-      if (!Number.isSafeInteger(data.maxMemoryBytes) || data.maxMemoryBytes < identity.memory.maximumPages * 65536) failed('RESOURCE_LIMIT');
+      if (typeof data.maxMemoryBytes !== 'number' || !Number.isSafeInteger(data.maxMemoryBytes) || data.maxMemoryBytes < identity.memory.maximumPages * 65536) failed('RESOURCE_LIMIT');
       if (identity.mode === 'threaded') {
-        if (!Number.isSafeInteger(data.workers) || data.workers < 1 || data.workers > 8) failed('RESOURCE_LIMIT');
+        if (typeof data.workers !== 'number' || !Number.isSafeInteger(data.workers) || data.workers < 1 || data.workers > 8) failed('RESOURCE_LIMIT');
+        if (typeof data.id !== 'number' || !Number.isSafeInteger(data.id)) failed('PROTOCOL_MISMATCH');
         initializationId = data.id;
         const pool = api.prepareThreaded(data.wasm, data.workers);
         data.wasm.fill(0);
@@ -90,35 +93,40 @@ async function handle(data: any) {
       return;
     }
     if (phase === 'ready' && data?.type === 'signers' && !signerPort) {
-      if (!(data.port instanceof (node ? threads.MessagePort : MessagePort))) failed('PROTOCOL_MISMATCH');
+      if (!isPort(data.port)) failed('PROTOCOL_MISMATCH');
       installWalletWorker(undefined, data.port, () => runtime.invalid, runtime.signers);
       signerPort = true;
       control.postMessage({ type: 'signers-ready', id: data.id });
       return;
     }
     if (phase !== 'ready' || data?.type !== 'open') failed('PROTOCOL_MISMATCH');
-    const storage: WalletStorage = data.storage;
+    const rawStorage = data.storage;
+    if (!rawStorage || typeof rawStorage !== 'object' || Array.isArray(rawStorage)) failed('INVALID_ARGUMENT');
+    const storage = rawStorage as Record<string, unknown>;
     if (!storage || (storage.kind !== 'memory' && (node ? storage.kind !== 'node-filesystem' : storage.kind !== 'browser-opfs'))
-      || (storage.kind !== 'memory' && !executableUrl(data.hostUrl)) || !(data.port instanceof (node ? threads.MessagePort : MessagePort))
+      || (storage.kind !== 'memory' && !executableUrl(data.hostUrl)) || !isPort(data.port)
       || !(data.genesis instanceof Uint8Array) || data.genesis.length !== 32
       || !(data.parameters instanceof Uint8Array) || data.parameters.length < 1 || data.parameters.length > 256
-      || (storage.kind === 'memory' ? Object.keys(storage).length !== 1 : typeof (storage.kind === 'node-filesystem' ? storage.path : (storage as { name: string }).name) !== 'string')) failed('INVALID_ARGUMENT');
+      || (storage.kind === 'memory' ? Object.keys(storage).length !== 1 : typeof (storage.kind === 'node-filesystem' ? storage.path : storage.name) !== 'string')) failed('INVALID_ARGUMENT');
+    if (typeof data.parametersFormat !== 'string') failed('INVALID_ARGUMENT');
     // Native document validation precedes storage acquisition.
     api.consensusContext(data.parametersFormat, data.parameters, 0);
     failure = 'STORAGE_ERROR';
     let opened: unknown;
     if (storage.kind === 'memory') { nativeOpening = true; opened = runtime.openMemory(data.parametersFormat, data.parameters, data.genesis); }
     else {
+      const location = storage.kind === 'node-filesystem' ? storage.path : storage.name;
+      if (typeof location !== 'string' || !executableUrl(data.hostUrl)) failed('INVALID_ARGUMENT');
       if (storage.kind === 'node-filesystem') {
         const filesystem = 'node:fs';
         const fs = await import(filesystem);
         if (phase !== 'ready') failed('PROTOCOL_MISMATCH');
-        try { fs.mkdirSync(storage.path, { mode: 0o700 }); }
+        try { fs.mkdirSync(location, { mode: 0o700 }); }
         catch (error) { if ((error as { code?: string }).code !== 'EEXIST') throw error; }
       }
       const host = await import(data.hostUrl);
       if (phase !== 'ready') failed('PROTOCOL_MISMATCH');
-      backend = await host.acquire(storage.kind === 'node-filesystem' ? storage.path : (storage as { name: string }).name, { create: true });
+      backend = await host.acquire(location, { create: true });
       if (phase !== 'ready') failed('PROTOCOL_MISMATCH');
       nativeOpening = true;
       opened = runtime.open(backend, data.parametersFormat, data.parameters, data.genesis);

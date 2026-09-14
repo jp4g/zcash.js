@@ -18,10 +18,10 @@ export const unsupportedSignalProxy: (value: unknown) => boolean = (() => {
   return (getBuiltin?.('node:util') as typeof import('node:util') | undefined)?.types.isProxy ?? (() => true);
 })();
 
-export function admitSignal(signal: AbortSignal | undefined): void {
+export function admitSignal(signal: unknown): asserts signal is AbortSignal | undefined {
   if (signal === undefined) return;
   try {
-    if (unsupportedSignalProxy(signal) || Object.getPrototypeOf(signal) !== AbortSignal.prototype
+    if (typeof signal !== 'object' || signal === null || unsupportedSignalProxy(signal) || Object.getPrototypeOf(signal) !== AbortSignal.prototype
       || Object.hasOwn(signal, 'aborted') || Object.hasOwn(signal, 'reason')) throw invalidArgument();
     signalAborted.call(signal);
   } catch { throw invalidArgument(); }

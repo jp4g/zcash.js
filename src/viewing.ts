@@ -24,18 +24,19 @@ function run<T>(signal: AbortSignal | undefined, action: () => T): T {
   catch (error) { return mapped(error); }
   finally { pending.close(); }
 }
-function authority(account: AccountDescriptor) {
+function authority(account: unknown) {
   const value = snapshot(account, ['network', 'viewing', 'components', 'enabledPools', 'provenance']);
-  const handle = handles.get(value.viewing);
+  if (typeof value.viewing !== 'object' || value.viewing === null) throw invalidArgument();
+  const handle = handles.get(value.viewing as ViewKeyHandle);
   if (!handle || value.network !== handle.network) throw invalidArgument();
   if (handle.closed) throw failure('CLOSED', 'account', 'none', 'Viewing authority is disposed.');
-  return handle;
+  return { ...handle, viewing: value.viewing as ViewKeyHandle };
 }
 /** Preserve the genuine handle while projecting metadata from its native authority. */
-export function checkedAccountDescriptor(account: AccountDescriptor): AccountDescriptor {
+export function checkedAccountDescriptor(account: unknown): AccountDescriptor {
   const owned = snapshot(account, ['network','viewing','components','enabledPools','provenance']);
   const state = authority(owned), data = state.native.describe();
-  return Object.freeze({network:state.network,viewing:owned.viewing,components:Object.freeze([...data.components]),
+  return Object.freeze({network:state.network,viewing:state.viewing,components:Object.freeze([...data.components]),
     enabledPools:Object.freeze([...data.enabledPools]),provenance:data.provenance});
 }
 function descriptor(native: ViewingAuthority, network: Network): AccountDescriptor {

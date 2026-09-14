@@ -140,8 +140,8 @@ try {
           const observed={method,mode,request:requestBytes.subarray(5).toString('hex'),closed:false};
           lightRequests.push(observed);res.once('close',()=>{observed.closed=true;});
           res.writeHead(200,{'Content-Type':media,'Cache-Control':'no-store'});
-          if((mode==='read-stall'&&method==='GetLatestBlock')||(mode==='stream-stall'&&method==='GetBlockRange')||(mode==='send-stall'&&method==='SendTransaction')) {res.flushHeaders();return;}
-          res.end(base64(concat(frame(light.response(method)),trailer())));return;
+          if((mode==='read-stall'&&method==='GetLatestBlock')||(mode==='stream-stall'&&method==='GetBlockRange'&&requestBytes.subarray(5).toString('hex')!=='0a02080112020801')||(mode==='send-stall'&&method==='SendTransaction')) {res.flushHeaders();return;}
+          res.end(base64(concat(frame(light.response(method,requestBytes.subarray(5))),trailer())));return;
         }
         if(req.url==='/public-rpc'&&req.method==='POST') {
           let body='';for await(const chunk of req){body+=chunk;assert.ok(body.length<=4*1024*1024);}

@@ -30,7 +30,7 @@ async function fixture(branch = 0x76b809bb) {
     },
     stream(args) {
       state.calls.push(args.method);
-      const value = args.method === 'GetBlockRange' ? blockBytes(20)
+      const value = args.method === 'GetBlockRange' ? (Array.from(args.request).join(',')==='10,2,8,1,18,2,8,1'?blockBytes(1,undefined,new Uint8Array(32).fill(3)):blockBytes(20))
         : args.method === 'GetSubtreeRoots' ? concat(bytesField(2, new Uint8Array(32).fill(1)), bytesField(3, new Uint8Array(32).fill(2)), scalar(4, 20))
         : transaction(args.method === 'GetMempoolStream' ? 0 : 20);
       let done = false;
@@ -46,7 +46,7 @@ test('complete light factory composes all eleven methods with actual native code
   const { client, state, raw, vector } = await fixture();
   assert.equal(state.calls.length, 0);
   assert.equal((await client.getTip()).height, 20);
-  assert.deepEqual(state.calls, ['GetLightdInfo', 'GetTreeState', 'GetLatestBlock']);
+  assert.deepEqual(state.calls, ['GetLightdInfo', 'GetBlockRange', 'GetLatestBlock']);
   assert.equal((await client.getServerInfo()).networkIdentity, 'synthetic');
   assert.equal((await client.getTreeState({ height: 0 })).point.hash, client.network.genesisHash);
   assert.equal((await client.getAddressBalance({ addresses: [token] })).value, 42n);
@@ -59,7 +59,7 @@ test('complete light factory composes all eleven methods with actual native code
   }
   assert.equal((await client.broadcastTransaction({ bytes: raw })).outcome, 'acknowledged');
   assert.equal(state.calls.filter(v => v === 'SendTransaction').length, 1);
-  assert.equal(state.returns, 4);
+  assert.equal(state.returns, 5);
 });
 
 test('public broadcast preserves unknown outcome after dispatched cancellation', async () => {

@@ -7,7 +7,7 @@ export const networkDefinition=()=>({identity:'synthetic',genesisHash:'03'.repea
 export function fixtureResponses(vector) {
   const raw=Uint8Array.from(vector.hex.match(/../g),v=>parseInt(v,16));
   const transaction=height=>concat(bytesField(1,raw),scalar(2,height));
-  return {raw,response(method){
+  return {raw,response(method,request){
     switch(method) {
       case 'GetLightdInfo':return concat(text(1,'fixture'),text(2,'synthetic'),text(4,'main'),scalar(5,20),text(6,'76b809bb'),scalar(7,20),text(18,'v0.5.0'));
       case 'GetTreeState':return concat(text(1,'main'),text(3,'03'.repeat(32)));
@@ -17,7 +17,7 @@ export function fixtureResponses(vector) {
       case 'GetTaddressBalance':return scalar(1,42);
       case 'GetAddressUtxos':return new Uint8Array();
       case 'SendTransaction':return text(2,JSON.stringify(vector.display));
-      case 'GetBlockRange':return blockBytes(20);
+      case 'GetBlockRange':return Array.from(request??[]).join(',')==='10,2,8,1,18,2,8,1'?blockBytes(1,undefined,new Uint8Array(32).fill(3)):blockBytes(20);
       case 'GetSubtreeRoots':return concat(bytesField(2,new Uint8Array(32).fill(1)),bytesField(3,new Uint8Array(32).fill(2)),scalar(4,20));
       default:throw Error('unexpected fixture method');
     }

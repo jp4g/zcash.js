@@ -27,13 +27,14 @@ test('packed public LightClient uses native gRPC for all methods and releases ca
       requestSerialize: Buffer.from, requestDeserialize: Buffer.from, responseSerialize: Buffer.from, responseDeserialize: Buffer.from };
     handlers[method] = (call, callback) => {
       const mode = call.metadata.get('x-fixture-mode')[0] ?? 'good';
-      const key = `${method}:${mode}`; calls.push(key);
-      if (stalled[mode] === method) {
+      const handshake=method==='GetBlockRange'&&call.request.toString('hex')==='0a02080112020801';
+      const key = `${method}:${mode}${handshake?':handshake':''}`; calls.push(key);
+      if (stalled[mode] === method && !handshake) {
         call.on('cancelled', () => closed.add(key));
         awaiting.get(key)?.();
         return;
       }
-      const response = fixture.response(method);
+      const response = fixture.response(method,call.request);
       if (callback) callback(null, response); else { call.write(response); call.end(); }
     };
   }

@@ -39,7 +39,12 @@ export function createLightClient(args: { network: Network; transport: GrpcTrans
       if (info.chainName !== family || info.saplingActivationHeight !== definition.parameters.heights[1]
         || info.branchId !== branch.toString(16).padStart(8, '0'))
         throw failure('NETWORK_MISMATCH', 'query', 'configure', 'Light server network mismatch.');
-      await chain.getTreeState(value.wire, transport, network, family, { hash: network.genesisHash, signal });
+      // lightwalletd requires a Sapling tree for GetTreeState, which genesis lacks.
+      // Block 1 links directly to genesis; consume the bounded stream completely.
+      for await (const block of chain.streamCompactBlocks(value.wire, transport, { fromHeight: 1, toHeight: 1, signal })) {
+        if (block.previousHash !== network.genesisHash)
+          throw failure('NETWORK_MISMATCH', 'query', 'configure', 'Light server genesis mismatch.');
+      }
       signal.throwIfAborted();
       verified = true;
     }

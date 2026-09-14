@@ -128,6 +128,7 @@ export async function publicWalletResponses(fixture,definition) {
   for(const row of [fixture.publicWallet,fixture.publicWallet.parent])if(row)known.set(request('GetTransaction',{hash:encoded(hex(row.txid).reverse())}),{raw:hex(row.raw),height:row.minedHeight??target.height});
   return {submitted:()=>sent.map(row=>({...row})),response(method,payload){
     const key=encoded(payload);
+    if(method==='GetBlockRange'){check(key==='0a02080112020801','exact genesis handshake range');return {payload:concat(scalar(2,1),bytesField(3,new Uint8Array(32).fill(1)),bytesField(4,hex(definition.genesisHash).reverse()))};}
     if(method==='GetLightdInfo')return {payload:concat(text(1,'fixture'),text(2,'synthetic'),text(4,'regtest'),scalar(5,20),text(6,branch.toString(16).padStart(8,'0')),scalar(7,target.height),text(18,'v0.5.0'))};
     if(method==='GetLatestBlock')return {payload:concat(scalar(1,target.height),bytesField(2,hex(target.hash).reverse()))};
     if(method==='GetTreeState') {

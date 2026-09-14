@@ -3,7 +3,7 @@ import {defineNetwork,createLightClient,resolveBirthday} from '../../dist/src/in
 import {WalletSync} from '../../dist/src/wallet/sync.js';
 import {initialize as wireCodec} from '../../dist/src/runtime/lightwire-capsule.mjs';
 import {consensusContext,initialize as initializePrimitive} from '../../dist/src/runtime/primitive-capsule.mjs';
-import {scalar,bytesField,concat,revision} from '../clients/light-chain-reads-fixtures.mjs';
+import {scalar,bytesField,concat,revision,blockBytes} from '../clients/light-chain-reads-fixtures.mjs';
 const hex=value=>Uint8Array.from(value.match(/../g)??[],byte=>parseInt(byte,16));
 const encoded=value=>Array.from(value,b=>b.toString(16).padStart(2,'0')).join('');
 const reverse=value=>value.match(/../g).reverse().join('');
@@ -24,7 +24,7 @@ export async function emptyCompletionChecks(session,fixture,definition,reopened=
     async unary({method}){
       if(method==='GetLightdInfo')return concat(text(1,'fixture'),text(2,'synthetic'),text(4,'regtest'),scalar(5,20),text(6,consensusContext(definition.parametersFormat,definition.parameters,0).branchId.toString(16).padStart(8,'0')),scalar(7,0),text(18,'v0.5.0'));
       check(method==='GetTreeState','empty wallet only fetches pinned tree state');return tree;
-    },async *stream(){throw Error('empty wallet must not scan blocks');},
+    },async *stream({method,request}){check(method==='GetBlockRange'&&encoded(request)==='0a02080112020801','only genesis handshake range');yield blockBytes(1,undefined,hex(network.genesisHash).reverse());},
   }});
   const sync=new WalletSync(session,light,{pollIntervalMs:1000,maxBufferedUpdates:16});
   try {
@@ -59,7 +59,7 @@ export async function scanChecks(session,fixture,definition) {
       throw Error('unexpected fixture unary');
     },
     async *stream({method,request,signal}){
-      check(method==='GetBlockRange','compact range only');streams++;
+      check(method==='GetBlockRange','compact range only');if(encoded(request)==='0a02080112020801'){yield blockBytes(1,undefined,hex(network.genesisHash).reverse());return;}streams++;
       const range=ranges.get(encoded(request));check(range,'known fixture range');if(streams===1)firstRange=range;
       try {
         if(streams===2){stalled();await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));return;}

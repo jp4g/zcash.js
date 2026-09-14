@@ -238,11 +238,11 @@ try {
     assert.ok(fixture.pczt.publicWallet,'native public wallet database fixture');
     const responses=await publicWalletResponses(fixture.pczt,network),service={},handlers={};let afterSend;
     rpcServer=new Server({'grpc.max_receive_message_length':2*1024*1024+1024});
-    for(const method of ['GetLightdInfo','GetLatestBlock','GetTreeState','GetTransaction','GetAddressUtxos','SendTransaction']){
-      service[method]={path:'/cash.z.wallet.sdk.rpc.CompactTxStreamer/'+method,requestStream:false,responseStream:false,
+    for(const method of ['GetLightdInfo','GetLatestBlock','GetTreeState','GetTransaction','GetAddressUtxos','SendTransaction','GetBlockRange']){
+      service[method]={path:'/cash.z.wallet.sdk.rpc.CompactTxStreamer/'+method,requestStream:false,responseStream:method==='GetBlockRange',
         requestSerialize:Buffer.from,requestDeserialize:Buffer.from,responseSerialize:Buffer.from,responseDeserialize:Buffer.from};
-      handlers[method]=async(call,callback)=>{try{const response=responses.response(method,call.request);if(method==='SendTransaction'&&afterSend){const hook=afterSend;afterSend=undefined;await hook();}callback(response.status?{code:response.status,details:'fixture not found'}:null,response.payload??Buffer.alloc(0));}
-        catch(error){unexpected.push(String(error));callback({code:13,details:'fixture failed'});}};
+      handlers[method]=async(call,callback)=>{try{const response=responses.response(method,call.request);if(method==='SendTransaction'&&afterSend){const hook=afterSend;afterSend=undefined;await hook();}if(method==='GetBlockRange'){call.write(response.payload);call.end();return;}callback(response.status?{code:response.status,details:'fixture not found'}:null,response.payload??Buffer.alloc(0));}
+        catch(error){unexpected.push(String(error));if(method==='GetBlockRange')call.destroy(Object.assign(Error('fixture failed'),{code:13}));else callback({code:13,details:'fixture failed'});}};
     }
     rpcServer.addService(service,handlers);
     const port=await new Promise((resolve,reject)=>rpcServer.bindAsync('127.0.0.1:0',ServerCredentials.createInsecure(),(error,port)=>error?reject(error):resolve(port)));

@@ -1,3 +1,4 @@
+import { ObserverBuffer } from '../observer-buffer.js';
 import type { ChainPoint, ErrorInfo, LightClient, ObservationOptions, Op, SyncStatus } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { operation } from '../clients/light-chain-reads.js';
@@ -62,80 +63,53 @@ export class WalletSync {
     } catch {
       throw invalidArgument();
     }
-    const queue: SyncStatus[] = [];
-    let done = false,
-      error: unknown,
-      started = false,
-      reading = false;
-    let wake: (() => void) | undefined;
+    const buffer = new ObserverBuffer<SyncStatus>(this.observation.maxBufferedUpdates,
+      () => failure('RESOURCE_LIMIT', 'sync', 'configure', 'Sync observation buffer exceeded.'),
+      () => failure('RESOURCE_LIMIT', 'sync', 'configure', 'Concurrent sync observation reads are unsupported.'));
+    let started = false;
     let pending: ReturnType<typeof operation> | undefined;
     const subscriber: Subscriber = {
       push: (status) => {
-        if (done) return;
-        if (queue.length >= this.observation.maxBufferedUpdates) {
-          subscriber.finish(failure('RESOURCE_LIMIT', 'sync', 'configure', 'Sync observation buffer exceeded.'));
-        } else {
-          queue.push(structuredClone(status));
-          wake?.();
+        if (buffer.finished) return;
+        try {
+          buffer.push(structuredClone(status));
+        } catch (error) {
+          subscriber.finish(error);
         }
       },
-      finish: (caught) => {
-        if (done) return;
-        done = true;
-        error = caught;
-        queue.length = 0;
+      finish: (error) => {
+        if (buffer.finished) return;
+        buffer.close(error);
         pending?.close();
         this.subscribers.delete(subscriber);
         if (!this.subscribers.size) this.watchController?.abort();
-        wake?.();
       },
     };
     return {
       [Symbol.asyncIterator]() {
         return this;
       },
-      next: async () => {
-        if (reading) {
-          throw failure(
-            'RESOURCE_LIMIT',
-            'sync',
-            'configure',
-            'Concurrent sync observation reads are unsupported.',
-          );
-        }
-        reading = true;
+      next: () => buffer.next(async () => {
+        if (started) return;
+        started = true;
         try {
-          if (!started && !done) {
-            started = true;
-            // Native host admission checks arguments and caller signal before subscription.
-            const initial = await this.getSyncStatus(owned);
-            if (!this.light) throw unavailable();
-            if (!done) {
-              pending = operation(
-                owned.signal,
-                () => subscriber.finish(failure('ABORTED', 'sync', 'none', 'Sync observation aborted.')),
-              );
-              pending.check();
-              this.subscribers.add(subscriber);
-              subscriber.push(initial);
-              this.startWatching();
-            }
-          }
-          while (!done && !queue.length) {
-            await new Promise<void>((resolve) => {
-              wake = resolve;
-            });
-          }
-          if (error) throw error;
-          return done ? { done: true, value: undefined } : { done: false, value: queue.shift()! };
-        } catch (caught) {
-          subscriber.finish(caught);
-          throw caught;
-        } finally {
-          reading = false;
-          wake = undefined;
+          // Native host admission checks arguments and caller signal before subscription.
+          const initial = await this.getSyncStatus(owned);
+          if (!this.light) throw unavailable();
+          if (buffer.finished) return;
+          pending = operation(
+            owned.signal,
+            () => subscriber.finish(failure('ABORTED', 'sync', 'none', 'Sync observation aborted.')),
+          );
+          pending.check();
+          this.subscribers.add(subscriber);
+          subscriber.push(initial);
+          this.startWatching();
+        } catch (error) {
+          subscriber.finish(error);
+          throw error;
         }
-      },
+      }),
       return: async () => {
         subscriber.finish();
         if (!this.subscribers.size) await this.watching;

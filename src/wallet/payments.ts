@@ -1,3 +1,4 @@
+import { ObserverBuffer } from '../observer-buffer.js';
 import type { PaymentState, AccountId } from '../types.js';
 import type {
   NativePaymentState,
@@ -642,17 +643,9 @@ export class WalletPayments {
     const admission = operation(input.signal);
     admission.close();
     this.check();
-    const queue: { state: PaymentState; release: () => void }[] = [],
-      controller = new AbortController();
-    let running: Promise<void> | undefined,
-      finished = false,
-      reading = false,
-      error: unknown,
-      wake: (() => void) | undefined;
-    const clear = () => {
-      for (const row of queue) row.release();
-      queue.length = 0;
-    };
+    const buffer = new ObserverBuffer<PaymentState>(this.observation.maxBufferedUpdates, resource);
+    const controller = new AbortController();
+    let running: Promise<void> | undefined;
     const run = () => this.run(
       AbortSignal.any([input.signal ?? new AbortController().signal, controller.signal]),
       async (signal) => {
@@ -664,23 +657,18 @@ export class WalletPayments {
             if (source) value = await this.observe(value, source, signal);
             const state = this.project(value);
             if (state.revision !== revision) {
-              if (queue.length >= this.observation.maxBufferedUpdates) throw resource();
-              const release = this.wallet.session.reserveWorking(8 * JSON.stringify(state).length, async () => { });
-              queue.push({ state, release });
+              buffer.push(state, () => this.wallet.session.reserveWorking(
+                8 * JSON.stringify(state).length, async () => { },
+              ));
               revision = state.revision;
-              wake?.();
-              wake = undefined;
             }
             if (state.phase === 'abandoned') break;
             await pause(this.observation.pollIntervalMs, signal);
           }
         } catch (caught) {
-          if (!finished) error = caught;
-          clear();
+          buffer.close(caught);
         } finally {
-          finished = true;
-          wake?.();
-          wake = undefined;
+          buffer.end();
         }
       },
     );
@@ -688,47 +676,18 @@ export class WalletPayments {
       [Symbol.asyncIterator]() {
         return this;
       },
-      async next() {
-        if (reading) throw invalidArgument();
-        reading = true;
+      next: () => buffer.next(() => {
+        if (running) return;
         try {
-          if (!running && !finished) {
-            try {
-              running = run();
-              void running.catch((caught) => {
-                error = caught;
-                finished = true;
-                wake?.();
-              });
-            } catch (caught) {
-              error = caught;
-              finished = true;
-            }
-          }
-          while (!queue.length && !finished) {
-            await new Promise<void>((resolve) => {
-              wake = resolve;
-            });
-          }
-          if (error) {
-            clear();
-            throw error;
-          }
-          const row = queue.shift();
-          if (row) {
-            row.release();
-            return { done: false, value: row.state };
-          }
-          return { done: true, value: undefined };
-        } finally {
-          reading = false;
+          running = run();
+          void running.catch(error => buffer.close(error));
+        } catch (error) {
+          buffer.close(error);
         }
-      },
+      }),
       async return() {
-        finished = true;
+        buffer.close();
         controller.abort();
-        clear();
-        wake?.();
         await running?.catch(() => { });
         return { done: true, value: undefined };
       },

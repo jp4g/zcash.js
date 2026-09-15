@@ -1,3 +1,4 @@
+import { ObserverBuffer } from './observer-buffer.js';
 import type {
   PublicClient,
   Network,
@@ -418,79 +419,43 @@ export function createPublicClient(
     read: (signal: AbortSignal) => Promise<TransactionObservation>,
   ): AsyncIterableIterator<TransactionObservation> {
     checkSignal(signal);
-    const queue: TransactionObservation[] = [];
+    const buffer = new ObserverBuffer<TransactionObservation>(observation.maxBufferedUpdates,
+      () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Observation buffer exceeded.'));
     let pending: ReturnType<typeof operation> | undefined;
-    let started = false,
-      finished = false,
-      reading = false,
-      error: unknown,
-      wake: (() => void) | undefined,
-      running: Promise<void> | undefined;
+    let running: Promise<void> | undefined;
     let prior: Inclusion | null = null;
     async function run() {
       const owned = pending = operation(signal);
       try {
         owned.check();
         await owned.wait(ready(owned.signal));
-        while (!finished) {
+        while (!buffer.finished) {
           let value = await owned.wait(read(owned.signal));
           owned.check();
           if (prior
             && (value.inclusion?.blockHash !== prior.blockHash
               || value.inclusion?.height !== prior.height)) value = { ...value, priorInclusion: prior };
           if (value.inclusion) prior = { ...value.inclusion };
-          if (queue.length >= observation.maxBufferedUpdates) {
-            throw failure(
-              'RESOURCE_LIMIT',
-              'query',
-              'configure',
-              'Observation buffer exceeded.',
-            );
-          }
-          queue.push(structuredClone(value));
-          wake?.();
-          wake = undefined;
+          buffer.push(structuredClone(value));
           await pause(observation.pollIntervalMs, owned.signal);
         }
       } catch (caught) {
-        if (!finished) error = caught;
+        buffer.close(caught);
       } finally {
-        finished = true;
+        buffer.end();
         owned.close();
-        wake?.();
-        wake = undefined;
       }
     }
     return {
       [Symbol.asyncIterator]() {
         return this;
       },
-      async next() {
-        if (reading) throw invalidArgument();
-        if (finished && !error) return { done: true, value: undefined };
-        reading = true;
-        try {
-          if (!started) {
-            started = true;
-            running = run();
-          }
-          while (!queue.length && !finished) {
-            await new Promise<void>((resolve) => {
-              wake = resolve;
-            });
-          }
-          if (error) throw error;
-          if (queue.length) return { done: false, value: queue.shift()! };
-          return { done: true, value: undefined };
-        } finally {
-          reading = false;
-        }
-      },
+      next: () => buffer.next(() => {
+        running ??= run();
+      }),
       async return() {
-        finished = true;
-        queue.length = 0;
+        buffer.close();
         pending?.cancel();
-        wake?.();
         await running;
         return { done: true, value: undefined };
       },

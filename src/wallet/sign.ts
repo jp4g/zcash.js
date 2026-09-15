@@ -1,5 +1,5 @@
 import { signerSelector } from './signer-selector.js';
-import type { WalletClient, Signer, SignerCapabilities, PcztInspection } from '../types.js';
+import type { WalletClient, Signer, SignerCapabilities, PcztInspection, Proposal } from '../types.js';
 import type { openWalletRuntime } from '../runtime/wallet.js';
 import type { walletAccounts } from './accounts.js';
 import { WalletProposals, pcztArtifactBinding } from './proposals.js';
@@ -26,7 +26,6 @@ export function canAuthorize(capabilities: SignerCapabilities, info: PcztInspect
     return capabilities.authorizations.some(role => role.pool === pool && role.txVersion === info.transactionVersion
       && role.branchIds.includes(info.context.branchId) && role.pcztVersions.includes(info.pcztVersion)
       && (circuit === undefined ? role.circuitVersions.length === 0 : role.circuitVersions.includes(circuit))
-
       && (role.proofState !== 'required' || info.proofsComplete)
       && role.requiredFields.every(field => field === profile));
   });
@@ -37,6 +36,39 @@ export function walletSign(
   session: Session,
   accounts: Pick<ReturnType<typeof walletAccounts>, 'attachedSigner'>,
 ): WalletClient['sign'] {
+  async function verifyCustomAccount(
+    signer: Signer,
+    capabilities: SignerCapabilities,
+    proposal: Proposal,
+    signal: AbortSignal,
+  ) {
+    const accountId = proposal.accountIds[0];
+    const account = await session.accounts.get({ accountId, signal });
+    if (!account || !capabilities.exportableViewing.includes('ufvk')) throw mismatch();
+    const descriptor = await signer.getAccount({
+      network: proposal.context.network,
+      selector: await signerSelector(session, account, signal),
+      signal,
+    });
+    try {
+      const key = await viewing.export({
+        account: descriptor,
+        format: 'ufvk',
+        acknowledge: 'discloses-viewing-authority',
+        signal,
+      });
+      if (await session.accounts.checkKey({
+        accountId,
+        viewingKey: key,
+        signal,
+      }) !== 'ready') {
+        throw mismatch();
+      }
+    } finally {
+      await descriptor.viewing.dispose();
+    }
+  }
+
   return async (args) => {
     const input = snapshot(args, ['pczt', 'signer', 'signal']),
       binding = pcztArtifactBinding(input.pczt, session),
@@ -93,30 +125,7 @@ export function walletSign(
             throw mismatch();
           }
         } else {
-          const account = await session.accounts.get({ accountId, signal: pending.signal });
-          if (!account || !capabilities.exportableViewing.includes('ufvk')) throw mismatch();
-          const descriptor = await signer.getAccount({
-            network: proposal.context.network,
-            selector: await signerSelector(session, account, pending.signal),
-            signal: pending.signal,
-          });
-          try {
-            const key = await viewing.export({
-              account: descriptor,
-              format: 'ufvk',
-              acknowledge: 'discloses-viewing-authority',
-              signal: pending.signal,
-            });
-            if (await session.accounts.checkKey({
-              accountId,
-              viewingKey: key,
-              signal: pending.signal,
-            }) !== 'ready') {
-              throw mismatch();
-            }
-          } finally {
-            await descriptor.viewing.dispose();
-          }
+          await verifyCustomAccount(signer, capabilities, proposal, pending.signal);
         }
         const bytes = native
           ? retained.bytes

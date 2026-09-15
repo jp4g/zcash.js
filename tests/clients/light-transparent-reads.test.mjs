@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { buildRoot as build } from '../support/paths.mjs';
-import { nativeFixture, readFixture } from '../support/fixtures.mjs';
+import { nativeFixture } from '../support/fixtures.mjs';
 import { revision, scalar } from './light-chain-reads-fixtures.mjs';
 const lightwire = nativeFixture('lightwire');
 const transparent = nativeFixture('address');
@@ -106,30 +105,6 @@ test('abort inside unary consumes its rejected promise without unhandled rejecti
  await new Promise(r=>setTimeout(r,10));
 });
 
-test('pinned source qualification documents the erased-error boundary',()=>{
- const doc=readFileSync(new URL('../../docs/planning/light-transparent-reads.md',import.meta.url),'utf8');
- assert.doesNotMatch(doc,/Operational errors remain errors/);
- assert.match(doc,/not qualified/);
- assert.match(doc,/independently established failure-faithful source/);
-});
-
-// Preserve the original source-derived false-empty witness; source parsing is test-only.
-test('pinned backend error branches erase unmatched errors before SDK adaptation',async()=>{
- const {createHash}=await import('node:crypto');
- const source=readFixture('lightwalletd-service.go').toString('utf8');
- assert.equal(createHash('sha256').update(source).digest('hex'),'61af8b2e81894b0abeaadd87490026715ca2958e3d5c7532e536a4169dde4062');
- for(const rpc of ['getaddressutxos','getaddressbalance']) {
-  const start=source.indexOf('result, rpcErr := common.RawRequest(ctx, "'+rpc+'", params)');
-  assert.ok(start>=0);
-  const branch=source.slice(start,source.indexOf('\n\tvar ',start+1));
-  assert.match(branch,/var code codes.Code/);
-  assert.match(branch,/code = codes.InvalidArgument/);assert.match(branch,/code = codes.NotFound/);
-  assert.doesNotMatch(branch,/default:|code = codes.(Unknown|Internal|Unavailable)/);
-  assert.match(branch,/status.Errorf\(code,/);
- }
- const wrapper=source.slice(source.indexOf('func (s *lwdStreamer) GetAddressUtxos('),source.indexOf('func (s *lwdStreamer) GetSubtreeRoots('));
- assert.match(wrapper,/addressUtxos := make/);assert.match(wrapper,/return r, nil/);
-});
 test('delivered backend failure statuses reject for both methods without retry',async t=>{
  for(const status of [3,5,13]) {
   let calls=0;

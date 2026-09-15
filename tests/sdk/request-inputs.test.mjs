@@ -14,8 +14,10 @@ test('record copying is field-neutral and request boundaries explicitly own nest
   addresses[0] = 'changed';
   assert.deepEqual([...broadcast.bytes], [1, 2]);
   assert.deepEqual(lookup.addresses, ['first', 'second']);
-  const hostile = Object.defineProperty(['first'], '0', { get() { assert.fail('getter'); } });
+  let reads = 0;
+  const hostile = Object.defineProperty(['first'], '0', { get() { reads++; return 'first'; } });
   assert.throws(() => addressInput({ addresses: hostile }), { code: 'INVALID_ARGUMENT' });
+  assert.equal(reads, 0);
   assert.throws(() => addressInput({ addresses: [] }), { code: 'INVALID_ARGUMENT' });
   assert.throws(() => addressInput({ addresses: Array(1001).fill('address') }), { code: 'INVALID_ARGUMENT' });
   assert.throws(() => broadcastInput({ bytes: new Uint8Array(4 * 1024 * 1024 + 1) }), { code: 'RESOURCE_LIMIT' });

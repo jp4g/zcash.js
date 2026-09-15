@@ -21,6 +21,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Check wallet worker bundle
+        run: node scripts/build-wallet-worker.mjs "$RUNNER_TEMP/wallet-worker.mjs"
       - run: npm run docs:typecheck
       - run: npm run docs:check-recovery
       - run: npm run docs:build

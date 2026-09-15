@@ -7,7 +7,12 @@ const bufferOf = Object.getOwnPropertyDescriptor(typedArray, 'buffer')!.get!;
 const offsetOf = Object.getOwnPropertyDescriptor(typedArray, 'byteOffset')!.get!;
 const lengthOf = Object.getOwnPropertyDescriptor(typedArray, 'byteLength')!.get!;
 const bufferLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength')!.get!;
-export function ownBytes(bytes: unknown, protocol: () => Error, resourceLimit: () => Error, maximum = 4 * 1024 * 1024): Uint8Array {
+export function ownBytes(
+  bytes: unknown,
+  protocol: () => Error,
+  resourceLimit: () => Error,
+  maximum = 4 * 1024 * 1024,
+): Uint8Array {
   try {
     if (tag.call(bytes) !== 'Uint8Array') throw protocol();
     const buffer = bufferOf.call(bytes);
@@ -16,7 +21,9 @@ export function ownBytes(bytes: unknown, protocol: () => Error, resourceLimit: (
     const length = lengthOf.call(bytes);
     if (length > maximum) throw resourceLimit();
     return new Uint8Array(new Uint8Array(buffer, offsetOf.call(bytes), length));
-  } catch (error) { throw isZcashError(error) ? error : protocol(); }
+  } catch (error) {
+    throw isZcashError(error) ? error : protocol();
+  }
 }
 
 const resource = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Client input exceeds limit.');
@@ -38,12 +45,15 @@ export function snapshot(args: unknown, keys: readonly string[], maximum = 4 * 1
       output.addresses = copy;
     }
     return output;
-  } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
+  } catch (error) {
+    throw isZcashError(error) ? error : invalidArgument();
+  }
 }
 
 // Descriptor copying is shared; callers retain their existing error/ownership policies.
 function recordFields(value: unknown, keys: readonly string[]): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
+  if (!value || typeof value !== 'object'
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw invalidArgument();
   const output: Record<string, unknown> = Object.create(null);
   for (const key of Reflect.ownKeys(value)) {
     if (typeof key !== 'string' || !keys.includes(key)) throw invalidArgument();
@@ -61,5 +71,7 @@ export function copyRecord(value: unknown, keys: readonly string[]): Record<stri
   try {
     if (Array.isArray(value)) throw invalidArgument();
     return recordFields(value, keys);
-  } catch { throw invalidArgument(); }
+  } catch {
+    throw invalidArgument();
+  }
 }

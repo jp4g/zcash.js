@@ -14,13 +14,17 @@ function checkSignal(signal?: AbortSignal): void {
     if (unsupportedSignalProxy(signal)) throw invalidArgument();
     aborted = Reflect.apply(signalAborted, signal, []);
     if (typeof aborted !== 'boolean') throw invalidArgument();
-  } catch { throw invalidArgument(); }
+  } catch {
+    throw invalidArgument();
+  }
   // Actual cancellation wins even over a hostile public getter.
   if (aborted) throw failure('ABORTED', 'transport', 'none', 'Request aborted.');
   try {
     const shadow = Object.getOwnPropertyDescriptor(signal, 'aborted');
     if (shadow && (!Object.hasOwn(shadow, 'value') || typeof shadow.value !== 'boolean')) throw invalidArgument();
-  } catch { throw invalidArgument(); }
+  } catch {
+    throw invalidArgument();
+  }
 }
 
 function integer(value: unknown, maximum: number): number {
@@ -45,7 +49,8 @@ export async function getBlock(
     || Object.hasOwn(args, 'height') === Object.hasOwn(args, 'hash')) throw invalidArgument();
   let selector: string;
   if (Object.hasOwn(args, 'height')) {
-    if (typeof height !== 'number' || !Number.isInteger(height) || height < 0 || height > 0xffff_ffff) throw invalidArgument();
+    if (typeof height !== 'number' || !Number.isInteger(height) || height < 0
+      || height > 0xffff_ffff) throw invalidArgument();
     selector = String(height);
   } else selector = blockHash(requestedHash!);
 
@@ -56,20 +61,29 @@ export async function getBlock(
     checkSignal(caller);
     // readRpc owns the configured byte/deadline bounds and lossless JSON decoding.
     let value;
-    try { value = await readRpc(transport, 'getblock', [selector, 1], signal); }
-    catch (error) { if (rpcErrorCode(error) === (requestedHash === undefined ? -8 : -5)) return null; throw error; }
-    if (typeof value !== 'object' || value === null || Array.isArray(value) || value instanceof JsonNumber) throw protocolError();
+    try {
+      value = await readRpc(transport, 'getblock', [selector, 1], signal);
+    } catch (error) {
+      if (rpcErrorCode(error) === (requestedHash === undefined ? -8 : -5)) return null;
+      throw error;
+    }
+    if (typeof value !== 'object' || value === null || Array.isArray(value)
+      || value instanceof JsonNumber) throw protocolError();
     const resolvedHeight = integer(value.height, 0xffff_ffff);
     const time = integer(value.time, 0xffff_ffff);
     // Pinned node TrustedPreallocate: MAX_BLOCK_BYTES / MIN_TRANSPARENT_TX_SIZE = 2_000_000 / 54.
     const count = integer(value.nTx, 37_037);
     if (count === 0 || !Array.isArray(value.tx) || value.tx.length !== count) throw protocolError();
-    let hash, previousHash, txids;
+    let hash,
+      previousHash,
+      txids;
     try {
       hash = blockHash(value.hash as string);
       previousHash = blockHash(value.previousblockhash as string);
       txids = value.tx.map(value => txId(value as string));
-    } catch { throw protocolError(); }
+    } catch {
+      throw protocolError();
+    }
     if (new Set(txids).size !== count
       || (height !== undefined && resolvedHeight !== height)
       || (requestedHash !== undefined && hash !== requestedHash)) throw protocolError();
@@ -79,15 +93,20 @@ export async function getBlock(
     checkSignal(caller);
     if (header === null || header.point.height !== resolvedHeight || header.point.hash !== hash
       || header.previousHash !== previousHash || header.time !== time) throw protocolError();
-    return Object.freeze({ ...header, point: Object.freeze({ ...header.point }),
-      raw: header.raw.slice(), txids: Object.freeze(txids) });
+    return Object.freeze({
+      ...header,
+      point: Object.freeze({ ...header.point }),
+      raw: header.raw.slice(),
+      txids: Object.freeze(txids),
+    });
   } catch (error) {
     if (caller !== undefined && Reflect.apply(signalAborted, caller, [])) {
       checkSignal(caller);
     }
     throw error;
   } finally {
-    try { binding.close(); }
-    catch { /* Caller mutation must not replace the operation's result or error. */ }
+    try {
+      binding.close();
+    } catch { /* Caller mutation must not replace the operation's result or error. */ }
   }
 }

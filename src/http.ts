@@ -22,7 +22,9 @@ export function httpSourceId(transport: HttpTransport): string {
 }
 /** Private route identity; credentials supplied by headers are never part of this value. */
 export function httpEndpoint(transport: HttpTransport): string {
-  const state=transports.get(transport);if(!state)throw invalidArgument();return state.url;
+  const state = transports.get(transport);
+  if (!state) throw invalidArgument();
+  return state.url;
 }
 const readMethods = new Set(['getblockchaininfo', 'getblockhash', 'getblock', 'getblockheader',
   'getrawtransaction', 'getrawmempool', 'getaddressutxos', 'z_gettreestate', 'z_getsubtreesbyindex']);
@@ -49,7 +51,10 @@ export function http(url: string, options: TransportOptions): HttpTransport {
     const { sourceId, timeoutMs, readRetry, maxResponseBytes, headers } = options;
     record(readRetry, ['attempts', 'delayMs']);
     const snapshot: TransportOptions = {
-      sourceId, timeoutMs, maxResponseBytes, ...(headers === undefined ? {} : { headers }),
+      sourceId,
+      timeoutMs,
+      maxResponseBytes,
+      ...(headers === undefined ? {} : { headers }),
       readRetry: { attempts: readRetry.attempts, delayMs: readRetry.delayMs },
     };
     if (typeof snapshot.sourceId !== 'string' || snapshot.sourceId.trim().length === 0) throw invalidArgument();
@@ -63,7 +68,9 @@ export function http(url: string, options: TransportOptions): HttpTransport {
     const transport = Object.freeze({}) as HttpTransport;
     transports.set(transport, { url: endpoint.href, options: snapshot, nextId: 0n });
     return transport;
-  } catch { throw invalidArgument(); }
+  } catch {
+    throw invalidArgument();
+  }
 }
 
 function aborted(): ZcashError {
@@ -107,7 +114,8 @@ function requestHeaders(supplied: unknown): Headers {
 }
 
 function responseStatus(response: Response, maximum: number): ZcashError | undefined {
-  const httpError = response.ok ? undefined
+  const httpError = response.ok
+    ? undefined
     : transportError([408, 429, 500, 502, 503, 504].includes(response.status));
   const declared = response.headers.get('content-length');
   if (declared !== null) {
@@ -122,23 +130,30 @@ async function readText(read: () => Promise<ReadableStreamReadResult<Uint8Array>
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
   const chunks: string[] = [];
   let bytes = 0;
-  for (;;) {
+  for (; ;) {
     const chunk = await read();
     if (chunk.done) break;
     if (chunk.value.byteLength > maximum - bytes) throw resourceLimit();
     bytes += chunk.value.byteLength;
-    try { chunks.push(decoder.decode(chunk.value, { stream: true })); }
-    catch { throw protocolError(); }
+    try {
+      chunks.push(decoder.decode(chunk.value, { stream: true }));
+    } catch {
+      throw protocolError();
+    }
   }
-  try { chunks.push(decoder.decode()); }
-  catch { throw protocolError(); }
+  try {
+    chunks.push(decoder.decode());
+  } catch {
+    throw protocolError();
+  }
   return chunks.join('');
 }
 
 function parseResponse(text: string, id: string, httpError: ZcashError | undefined): Json {
   let result: Json;
-  try { result = parseEnvelope(text, id); }
-  catch (error) {
+  try {
+    result = parseEnvelope(text, id);
+  } catch (error) {
     // Servers may use HTTP 500 for a structured RPC failure. Preserve those
     // semantics; a non-JSON HTTP error page is still an HTTP transport failure.
     if (httpError && isZcashError(error) && error.code === 'PROTOCOL_MISMATCH') throw httpError;
@@ -149,7 +164,13 @@ function parseResponse(text: string, id: string, httpError: ZcashError | undefin
 }
 
 /** One deadline includes the header callback, dispatch, body and parsing. */
-async function attempt(state: State, body: string, id: string, caller?: AbortSignal, dispatched?: () => void): Promise<Json> {
+async function attempt(
+  state: State,
+  body: string,
+  id: string,
+  caller?: AbortSignal,
+  dispatched?: () => void,
+): Promise<Json> {
   if (caller?.aborted) throw aborted();
   const controller = new AbortController();
   let stopped: ZcashError | undefined;
@@ -168,19 +189,30 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
   try {
     let headers: Headers;
     try {
-      const supplied = state.options.headers ? await bounded(Promise.resolve().then(() => state.options.headers!())) : {};
+      const supplied = state.options.headers
+        ? await bounded(Promise.resolve().then(() => state.options.headers!()))
+        : {};
       headers = requestHeaders(supplied);
-    } catch { throw stopped ?? invalidArgument(); }
+    } catch {
+      throw stopped ?? invalidArgument();
+    }
     if (caller?.aborted) throw aborted();
     if (stopped) throw stopped;
     // Header callbacks and processing can block the timeout timer.
     if (performance.now() - started >= state.options.timeoutMs) throw timeout();
     // Cancel a late response even if a nonconforming injected fetch ignores abort.
     dispatched?.();
-    const fetching = fetch(state.url, { method: 'POST', body, headers, signal: controller.signal,
-      credentials: 'omit', redirect: 'error', cache: 'no-store' }).then(value => {
+    const fetching = fetch(state.url, {
+      method: 'POST',
+      body,
+      headers,
+      signal: controller.signal,
+      credentials: 'omit',
+      redirect: 'error',
+      cache: 'no-store',
+    }).then((value) => {
       response = value;
-      if (stopped) void value.body?.cancel().catch(() => {});
+      if (stopped) void value.body?.cancel().catch(() => { });
       return value;
     });
     response = await bounded(fetching);
@@ -202,9 +234,9 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
     caller?.removeEventListener('abort', onAbort);
     // Never await a foreign stream's cancellation promise past the deadline.
     if (reader) {
-      void reader.cancel().catch(() => {});
+      void reader.cancel().catch(() => { });
       reader.releaseLock();
-    } else if (response) void response.body?.cancel().catch(() => {});
+    } else if (response) void response.body?.cancel().catch(() => { });
     controller.abort();
   }
 }
@@ -234,8 +266,15 @@ async function delay(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) throw aborted();
   if (ms === 0) return;
   await new Promise<void>((resolve, reject) => {
-    const onAbort = () => { cancel(); signal?.removeEventListener('abort', onAbort); reject(aborted()); };
-    const cancel = schedule(ms, () => { signal?.removeEventListener('abort', onAbort); resolve(); });
+    const onAbort = () => {
+      cancel();
+      signal?.removeEventListener('abort', onAbort);
+      reject(aborted());
+    };
+    const cancel = schedule(ms, () => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    });
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
@@ -247,7 +286,9 @@ function ownParameters(method: string, params: readonly RpcParameter[]): RpcPara
     const input = parameters[0];
     record(input, ['addresses', 'chainInfo']);
     const { addresses, chainInfo } = input;
-    if (!Array.isArray(addresses) || addresses.length < 1 || addresses.length > 1024 || chainInfo !== true) throw invalidArgument();
+    if (!Array.isArray(addresses) || addresses.length < 1
+      || addresses.length > 1024
+      || chainInfo !== true) throw invalidArgument();
     const owned: string[] = [];
     const count = addresses.length;
     for (let index = 0; index < count; index++) {
@@ -263,7 +304,12 @@ function ownParameters(method: string, params: readonly RpcParameter[]): RpcPara
 }
 
 /** Internal read engine; no public raw-RPC escape hatch or broadcast replay. */
-export async function readRpc(transport: HttpTransport, method: string, params: readonly RpcParameter[], signal?: AbortSignal): Promise<Json> {
+export async function readRpc(
+  transport: HttpTransport,
+  method: string,
+  params: readonly RpcParameter[],
+  signal?: AbortSignal,
+): Promise<Json> {
   const state = transports.get(transport);
   if (!state || !readMethods.has(method) || !Array.isArray(params)
     || (signal !== undefined && !(signal instanceof AbortSignal))) throw invalidArgument();
@@ -271,8 +317,9 @@ export async function readRpc(transport: HttpTransport, method: string, params: 
   for (let index = 0; index < state.options.readRetry.attempts; index++) {
     const id = (++state.nextId).toString();
     const body = JSON.stringify({ jsonrpc: '2.0', id, method, params: parameters });
-    try { return await attempt(state, body, id, signal); }
-    catch (error) {
+    try {
+      return await attempt(state, body, id, signal);
+    } catch (error) {
       if (!isZcashError(error) || !error.retryable || index + 1 >= state.options.readRetry.attempts) throw error;
       await delay(state.options.readRetry.delayMs, signal);
     }
@@ -281,13 +328,28 @@ export async function readRpc(transport: HttpTransport, method: string, params: 
 }
 
 /** Internal single-attempt write. Before dispatch errors throw; afterward uncertainty is explicit. */
-export async function sendRawTransaction(transport: HttpTransport, hex: string, signal?: AbortSignal): Promise<{ result: Json } | { error: unknown }> {
+export async function sendRawTransaction(
+  transport: HttpTransport,
+  hex: string,
+  signal?: AbortSignal,
+): Promise<{ result: Json } | { error: unknown }> {
   const state = transports.get(transport);
   if (!state || typeof hex !== 'string' || !hex.length || hex.length > 4 * 1024 * 1024
-    || hex.length % 2 !== 0 || !/^[0-9a-f]+$/.test(hex) || (signal !== undefined && !(signal instanceof AbortSignal))) throw invalidArgument();
+
+    || hex.length % 2 !== 0
+    || !/^[0-9a-f]+$/.test(hex)
+    || (signal !== undefined && !(signal instanceof AbortSignal))) throw invalidArgument();
   const id = (++state.nextId).toString();
   const body = JSON.stringify({ jsonrpc: '2.0', id, method: 'sendrawtransaction', params: [hex] });
   let dispatched = false;
-  try { return { result: await attempt(state, body, id, signal, () => { dispatched = true; }) }; }
-  catch (error) { if (!dispatched) throw error; return { error }; }
+  try {
+    return {
+      result: await attempt(state, body, id, signal, () => {
+        dispatched = true;
+      }),
+    };
+  } catch (error) {
+    if (!dispatched) throw error;
+    return { error };
+  }
 }

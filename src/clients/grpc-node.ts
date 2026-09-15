@@ -7,7 +7,17 @@ import { recordNotFound } from './grpc-status.js';
 
 const service = '/cash.z.wallet.sdk.rpc.CompactTxStreamer/';
 const revision = 'lightwire:80575dbe59a9bf2e6b79e2391eb78679c453f1a0477292eb97ea3b58bb6c8b10:d8d0c8aaa5ceec7d5dcc188ef25b04011df2ec0254901620fce982fc13aeb32d';
-const unaryMethods = new Set(['GetLatestBlock', 'GetLightdInfo', 'GetTransaction', 'GetAddressUtxos', 'GetTaddressBalance', 'GetTreeState', 'SendTransaction']);
+const unaryMethods = new Set(
+  [
+    'GetLatestBlock',
+    'GetLightdInfo',
+    'GetTransaction',
+    'GetAddressUtxos',
+    'GetTaddressBalance',
+    'GetTreeState',
+    'SendTransaction',
+  ],
+);
 const streamMethods = new Set(['GetSubtreeRoots', 'GetBlockRange', 'GetTaddressTransactions', 'GetMempoolStream']);
 const aborted = () => failure('ABORTED', 'transport', 'none', 'Request aborted.');
 const timeout = () => failure('TIMEOUT', 'transport', 'none', 'Request timed out.', true);
@@ -48,7 +58,9 @@ function normalize(error: unknown, wireStatus = false): ZcashError {
 /** Node-only bounded protobuf adapter. No handshake, decoding, retries, or provider selection. */
 export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): CustomLightTransport {
   let endpoint: URL;
-  let sourceId: string, timeoutMs: number, headers: GrpcNodeOptions['headers'];
+  let sourceId: string,
+    timeoutMs: number,
+    headers: GrpcNodeOptions['headers'];
   const limits = { messageBytes: 4 * 1024 * 1024, totalBytes: 64 * 1024 * 1024, messages: 65536 };
   try {
     if (typeof url !== 'string' || /[\s\\?#]/.test(url) || !/^https?:\/\//.test(url)) throw invalidArgument();
@@ -62,10 +74,14 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
     if (options.limits !== undefined) {
       record(options.limits, Object.keys(limits));
       for (const key of Object.getOwnPropertyNames(options.limits) as (keyof typeof limits)[]) {
-        const value = options.limits[key]; integer(value, limits[key]); limits[key] = value;
+        const value = options.limits[key];
+        integer(value, limits[key]);
+        limits[key] = value;
       }
     }
-  } catch { throw invalidArgument(); }
+  } catch {
+    throw invalidArgument();
+  }
 
   function admit<M extends string>(args: Args<M>, methods: Set<string>): Args<M> {
     try {
@@ -83,27 +99,36 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
         signalAborted.call(signal);
       }
       return { method: args.method, request, ...(signal === undefined ? {} : { signal }) };
-    } catch (error) { throw isZcashError(error) ? error : invalidArgument(); }
+    } catch (error) {
+      throw isZcashError(error) ? error : invalidArgument();
+    }
   }
 
   function operation(signal?: AbortSignal) {
     // Private dependent signals observe native cancellation, not caller-dispatched events.
     const dependent = signal === undefined ? undefined : AbortSignal.any([signal]);
     const deadline = Date.now() + timeoutMs;
-    let stopped: ZcashError | undefined, client: Client | undefined, call: { cancel(): void } | undefined;
+    let stopped: ZcashError | undefined,
+      client: Client | undefined,
+      call: { cancel(): void } | undefined;
     let rejectStop!: (error: ZcashError) => void;
-    const interruption = new Promise<never>((_, reject) => { rejectStop = reject; });
-    void interruption.catch(() => {});
+    const interruption = new Promise<never>((_, reject) => {
+      rejectStop = reject;
+    });
+    void interruption.catch(() => { });
     const stop = (error: ZcashError) => {
       if (stopped) return;
-      stopped = error; rejectStop(error); cleanup();
+      stopped = error;
+      rejectStop(error);
+      cleanup();
     };
     const onAbort = () => stop(aborted());
     const timer = setTimeout(() => stop(timeout()), timeoutMs);
     function cleanup() {
       clearTimeout(timer);
       dependent?.removeEventListener('abort', onAbort);
-      call?.cancel(); client?.close();
+      call?.cancel();
+      client?.close();
     }
     if (signal) {
       dependent!.addEventListener('abort', onAbort, { once: true });
@@ -115,18 +140,29 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
       if (stopped) throw stopped;
     }
     return {
-      deadline, cleanup, cancel: onAbort, check,
+      deadline,
+      cleanup,
+      cancel: onAbort,
+      check,
       async bounded<T>(promise: Promise<T>): Promise<T> {
-        const value = await Promise.race([promise, interruption]); check(); return value;
+        const value = await Promise.race([promise, interruption]);
+        check();
+        return value;
       },
-      own(value: { cancel(): void }) { call = value; },
+      own(value: { cancel(): void }) {
+        call = value;
+      },
       async start() {
         check();
         const metadata = new Metadata();
         if (headers) {
           let supplied: unknown;
-          try { supplied = await this.bounded(Promise.resolve().then(headers)); }
-          catch { check(); throw invalidArgument(); }
+          try {
+            supplied = await this.bounded(Promise.resolve().then(headers));
+          } catch {
+            check();
+            throw invalidArgument();
+          }
           record(supplied);
           let bytes = 0;
           for (const key of Object.getOwnPropertyNames(supplied)) {
@@ -141,62 +177,96 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
         }
         check();
         // One owned channel per operation keeps disposal out of the custom transport contract.
-        client = new Client(`${endpoint.hostname}:${endpoint.port || (endpoint.protocol === 'https:' ? '443' : '80')}`, endpoint.protocol === 'https:' ? credentials.createSsl() : credentials.createInsecure(), {
-          'grpc.enable_retries': 0, 'grpc.max_receive_message_length': limits.messageBytes,
-          'grpc.max_send_message_length': limits.messageBytes,
-          'grpc.enable_http_proxy': 0,
-        });
+        client = new Client(
+          `${endpoint.hostname}:${endpoint.port || (endpoint.protocol === 'https:' ? '443' : '80')}`,
+          endpoint.protocol === 'https:' ? credentials.createSsl() : credentials.createInsecure(),
+          {
+            'grpc.enable_retries': 0,
+            'grpc.max_receive_message_length': limits.messageBytes,
+            'grpc.max_send_message_length': limits.messageBytes,
+            'grpc.enable_http_proxy': 0,
+          },
+        );
         return { client, metadata };
       },
     };
   }
   return Object.freeze({
-    kind: 'custom-lightwallet', sourceId, protocolRevision: revision,
+    kind: 'custom-lightwallet',
+    sourceId,
+    protocolRevision: revision,
     async unary(args: Args<LightUnaryMethod>) {
-      const owned = admit(args, unaryMethods), op = operation(owned.signal);
+      const owned = admit(args, unaryMethods),
+        op = operation(owned.signal);
       try {
         const { client, metadata } = await op.start();
         const response = await op.bounded(new Promise<Uint8Array>((resolve, reject) => {
           op.own(client.makeUnaryRequest(service + owned.method, Buffer.from, bytes => new Uint8Array(bytes),
             owned.request, metadata, { deadline: op.deadline }, (error, value) => {
-              if (error) reject(normalize(error, true)); else if (value === undefined) reject(failure('PROTOCOL_MISMATCH', 'transport', 'configure', 'Missing gRPC response.'));
-              else resolve(value);
+              if (error) reject(normalize(error, true));
+              else if (value === undefined) {
+                reject(
+                  failure('PROTOCOL_MISMATCH', 'transport', 'configure', 'Missing gRPC response.'),
+                );
+              } else resolve(value);
             }));
         }));
         if (response.length > limits.totalBytes) throw limit();
         return response;
-      } catch (error) { throw normalize(error); } finally { op.cleanup(); }
+      } catch (error) {
+        throw normalize(error);
+      } finally {
+        op.cleanup();
+      }
     },
     stream(args: Args<LightStreamMethod>): AsyncIterableIterator<Uint8Array> {
       const owned = admit(args, streamMethods);
-      let op: ReturnType<typeof operation> | undefined, finished = false, busy = false;
+      let op: ReturnType<typeof operation> | undefined,
+        finished = false,
+        busy = false;
       async function* run() {
         op = operation(owned.signal);
         try {
           const { client, metadata } = await op.start();
-          const call = client.makeServerStreamRequest(service + owned.method, Buffer.from, bytes => new Uint8Array(bytes),
-            owned.request, metadata, { deadline: op.deadline });
+          const call = client.makeServerStreamRequest(
+            service + owned.method,
+            Buffer.from,
+            bytes => new Uint8Array(bytes),
+            owned.request,
+            metadata,
+            { deadline: op.deadline },
+          );
           op.own(call);
-          call.on('error', () => {}); // Cancellation remains handled even between pulls.
-          const terminal = new Promise<void>((resolve, reject) => call.once('status', value => {
-            if (value.code === status.OK) resolve(); else reject(normalize(value, true));
+          call.on('error', () => { }); // Cancellation remains handled even between pulls.
+          const terminal = new Promise<void>((resolve, reject) => call.once('status', (value) => {
+            if (value.code === status.OK) resolve();
+            else reject(normalize(value, true));
           }));
-          void terminal.catch(() => {});
+          void terminal.catch(() => { });
           const iterator = call[Symbol.asyncIterator]();
-          let total = 0, count = 0;
-          for (;;) {
-            const item = await op.bounded(iterator.next().catch(error => { throw normalize(error, true); }));
+          let total = 0,
+            count = 0;
+          for (; ;) {
+            const item = await op.bounded(iterator.next().catch((error) => {
+              throw normalize(error, true);
+            }));
             if (item.done) break;
             total += item.value.length;
             if (total > limits.totalBytes || ++count > limits.messages) throw limit();
             yield item.value as Uint8Array;
           }
           await op.bounded(terminal);
-        } catch (error) { throw normalize(error); } finally { op.cleanup(); }
+        } catch (error) {
+          throw normalize(error);
+        } finally {
+          op.cleanup();
+        }
       }
       const iterator = run();
       return {
-        [Symbol.asyncIterator]() { return this; },
+        [Symbol.asyncIterator]() {
+          return this;
+        },
         async next() {
           if (finished) return { done: true, value: undefined };
           if (busy) throw invalidArgument();
@@ -206,12 +276,18 @@ export function createGrpcNodeTransport(url: string, options: GrpcNodeOptions): 
             const result = await iterator.next();
             if (result.done) finished = true;
             return result;
-          } catch (error) { finished = true; op?.cleanup(); throw normalize(error); }
-          finally { busy = false; }
+          } catch (error) {
+            finished = true;
+            op?.cleanup();
+            throw normalize(error);
+          } finally {
+            busy = false;
+          }
         },
         async return() {
-          finished = true; op?.cancel();
-          void iterator.return(undefined).catch(() => {});
+          finished = true;
+          op?.cancel();
+          void iterator.return(undefined).catch(() => { });
           return { done: true, value: undefined };
         },
       };

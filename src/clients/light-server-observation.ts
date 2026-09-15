@@ -9,11 +9,21 @@ type Codec = {
   encodeRequest(method: 'GetLightdInfo', json: string): Uint8Array;
   decodeResponse(method: 'GetLightdInfo', bytes: Uint8Array): unknown;
 };
-type Source = { readonly codec: Codec; readonly transport: Pick<ReturnType<typeof createGrpcWebByteTransport>, 'unary'>; readonly sourceId: string };
+type Source = {
+  readonly codec: Codec;
+  readonly transport: Pick<ReturnType<typeof createGrpcWebByteTransport>, 'unary'>;
+  readonly sourceId: string;
+};
 export type LightdObservation = {
-  readonly version: string; readonly vendor: string; readonly protocolRevision: 'v0.5.0';
-  readonly sourceId: string; readonly observedAt: string; readonly chainName: string;
-  readonly saplingActivationHeight: number; readonly branchId: string; readonly blockHeight: number;
+  readonly version: string;
+  readonly vendor: string;
+  readonly protocolRevision: 'v0.5.0';
+  readonly sourceId: string;
+  readonly observedAt: string;
+  readonly chainName: string;
+  readonly saplingActivationHeight: number;
+  readonly branchId: string;
+  readonly blockHeight: number;
   readonly taddrSupport: boolean;
 };
 const apply = Reflect.apply;
@@ -23,9 +33,12 @@ const apply = Reflect.apply;
 function method<T extends object, K extends keyof T>(owner: T, key: K): T[K] {
   try {
     const descriptor = Object.getOwnPropertyDescriptor(owner, key);
-    if (!descriptor || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'function') throw invalidArgument();
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')
+      || typeof descriptor.value !== 'function') throw invalidArgument();
     return descriptor.value;
-  } catch { throw invalidArgument(); }
+  } catch {
+    throw invalidArgument();
+  }
 }
 const protocol = () => failure('PROTOCOL_MISMATCH', 'transport', 'configure', 'Invalid light server metadata.');
 function height(value: unknown): number {
@@ -42,7 +55,8 @@ export async function readLightdInfo(source: Source, args: Op = {}): Promise<Lig
   const { codec, transport, sourceId } = copyRecord(source, ['codec', 'transport', 'sourceId']);
   const original = copyRecord(args, ['signal']).signal;
   if (typeof sourceId !== 'string' || !sourceId.trim()) throw invalidArgument();
-  const encode = method(codec, 'encodeRequest'), decode = method(codec, 'decodeResponse');
+  const encode = method(codec, 'encodeRequest'),
+    decode = method(codec, 'decodeResponse');
   const unary = method(transport, 'unary');
   const owned = await bridgeSignal(original);
   const { signal } = owned;
@@ -52,7 +66,11 @@ export async function readLightdInfo(source: Source, args: Op = {}): Promise<Lig
     const request: Uint8Array = apply(encode, codec, ['GetLightdInfo', '{}']);
     check(signal);
     stage = 'transport';
-    const bytes: Uint8Array = await apply(unary, transport, [{ method: 'GetLightdInfo', request, ...(signal ? { signal } : {}) }]);
+    const bytes: Uint8Array = await apply(
+      unary,
+      transport,
+      [{ method: 'GetLightdInfo', request, ...(signal ? { signal } : {}) }],
+    );
     check(signal);
     stage = 'codec';
     const dto = apply(decode, codec, ['GetLightdInfo', bytes]) as Record<string, unknown>;
@@ -63,14 +81,33 @@ export async function readLightdInfo(source: Source, args: Op = {}): Promise<Lig
       || typeof dto.chain_name !== 'string' || !dto.chain_name
       || typeof dto.consensus_branch_id !== 'string' || !/^[0-9a-f]{8}$/.test(dto.consensus_branch_id)
       || typeof dto.taddr_support !== 'boolean') throw protocol();
-    const saplingActivationHeight = height(dto.sapling_activation_height), blockHeight = height(dto.block_height);
+    const saplingActivationHeight = height(dto.sapling_activation_height),
+      blockHeight = height(dto.block_height);
     check(signal);
-    return { version: dto.version, vendor: dto.vendor, protocolRevision: 'v0.5.0', sourceId,
-      chainName: dto.chain_name, saplingActivationHeight, branchId: dto.consensus_branch_id,
-      blockHeight, taddrSupport: dto.taddr_support, observedAt: new Date().toISOString() };
+    return {
+      version: dto.version,
+      vendor: dto.vendor,
+      protocolRevision: 'v0.5.0',
+      sourceId,
+      chainName: dto.chain_name,
+      saplingActivationHeight,
+      branchId: dto.consensus_branch_id,
+      blockHeight,
+      taddrSupport: dto.taddr_support,
+      observedAt: new Date().toISOString(),
+    };
   } catch (error) {
     check(signal);
     if (isZcashError(error)) throw error;
-    throw stage === 'codec' ? protocol() : failure('TRANSPORT_ERROR', 'transport', 'configure', 'Light server request failed.');
-  } finally { owned.close(); }
+    throw stage === 'codec'
+      ? protocol()
+      : failure(
+          'TRANSPORT_ERROR',
+          'transport',
+          'configure',
+          'Light server request failed.',
+        );
+  } finally {
+    owned.close();
+  }
 }

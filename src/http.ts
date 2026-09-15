@@ -92,6 +92,62 @@ function schedule(ms: number, callback: () => void): () => void {
   return () => clearTimeout(timer);
 }
 
+function requestHeaders(supplied: unknown): Headers {
+  if (typeof supplied !== 'object' || supplied === null || Array.isArray(supplied)) throw invalidArgument();
+  const headers = new Headers();
+  for (const key of Reflect.ownKeys(supplied)) {
+    if (typeof key !== 'string') throw invalidArgument();
+    const value = (supplied as Record<string, unknown>)[key];
+    if (typeof value !== 'string') throw invalidArgument();
+    headers.set(key, value);
+  }
+  headers.set('content-type', 'application/json');
+  headers.set('accept', 'application/json');
+  return headers;
+}
+
+function responseStatus(response: Response, maximum: number): ZcashError | undefined {
+  const httpError = response.ok ? undefined
+    : transportError([408, 429, 500, 502, 503, 504].includes(response.status));
+  const declared = response.headers.get('content-length');
+  if (declared !== null) {
+    if (!/^[0-9]+$/.test(declared)) throw protocolError();
+    if (BigInt(declared) > BigInt(maximum)) throw resourceLimit();
+  }
+  return httpError;
+}
+
+/** Decode actual stream bytes; the request owner bounds reads and releases the reader. */
+async function readText(read: () => Promise<ReadableStreamReadResult<Uint8Array>>, maximum: number): Promise<string> {
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+  const chunks: string[] = [];
+  let bytes = 0;
+  for (;;) {
+    const chunk = await read();
+    if (chunk.done) break;
+    if (chunk.value.byteLength > maximum - bytes) throw resourceLimit();
+    bytes += chunk.value.byteLength;
+    try { chunks.push(decoder.decode(chunk.value, { stream: true })); }
+    catch { throw protocolError(); }
+  }
+  try { chunks.push(decoder.decode()); }
+  catch { throw protocolError(); }
+  return chunks.join('');
+}
+
+function parseResponse(text: string, id: string, httpError: ZcashError | undefined): Json {
+  let result: Json;
+  try { result = parseEnvelope(text, id); }
+  catch (error) {
+    // Servers may use HTTP 500 for a structured RPC failure. Preserve those
+    // semantics; a non-JSON HTTP error page is still an HTTP transport failure.
+    if (httpError && isZcashError(error) && error.code === 'PROTOCOL_MISMATCH') throw httpError;
+    throw error;
+  }
+  if (httpError) throw httpError;
+  return result;
+}
+
 /** One deadline includes the header callback, dispatch, body and parsing. */
 async function attempt(state: State, body: string, id: string, caller?: AbortSignal, dispatched?: () => void): Promise<Json> {
   if (caller?.aborted) throw aborted();
@@ -110,22 +166,11 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
   let response: Response | undefined;
   const bounded = <T>(promise: Promise<T>) => waitFor(promise, controller.signal, () => stopped);
   try {
-    const headers = new Headers({ 'content-type': 'application/json', accept: 'application/json' });
-    if (state.options.headers) {
-      let supplied: Readonly<Record<string, string>>;
-      try {
-        supplied = await bounded(Promise.resolve().then(() => state.options.headers!()));
-        if (typeof supplied !== 'object' || supplied === null || Array.isArray(supplied)) throw invalidArgument();
-        for (const key of Reflect.ownKeys(supplied)) {
-          if (typeof key !== 'string') throw invalidArgument();
-          const value = supplied[key];
-          if (typeof value !== 'string') throw invalidArgument();
-          headers.set(key, value);
-        }
-        headers.set('content-type', 'application/json');
-        headers.set('accept', 'application/json');
-      } catch { throw stopped ?? invalidArgument(); }
-    }
+    let headers: Headers;
+    try {
+      const supplied = state.options.headers ? await bounded(Promise.resolve().then(() => state.options.headers!())) : {};
+      headers = requestHeaders(supplied);
+    } catch { throw stopped ?? invalidArgument(); }
     if (caller?.aborted) throw aborted();
     if (stopped) throw stopped;
     // Header callbacks and processing can block the timeout timer.
@@ -139,37 +184,12 @@ async function attempt(state: State, body: string, id: string, caller?: AbortSig
       return value;
     });
     response = await bounded(fetching);
-    const httpError = response.ok ? undefined
-      : transportError([408, 429, 500, 502, 503, 504].includes(response.status));
-    const declared = response.headers.get('content-length');
-    if (declared !== null) {
-      if (!/^[0-9]+$/.test(declared)) throw protocolError();
-      if (BigInt(declared) > BigInt(state.options.maxResponseBytes)) throw resourceLimit();
-    }
+    const httpError = responseStatus(response, state.options.maxResponseBytes);
     if (!response.body) throw httpError ?? protocolError();
     reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
-    const chunks: string[] = [];
-    let bytes = 0;
-    for (;;) {
-      const chunk = await bounded(reader.read());
-      if (chunk.done) break;
-      if (chunk.value.byteLength > state.options.maxResponseBytes - bytes) throw resourceLimit();
-      bytes += chunk.value.byteLength;
-      try { chunks.push(decoder.decode(chunk.value, { stream: true })); }
-      catch { throw protocolError(); }
-    }
-    try { chunks.push(decoder.decode()); }
-    catch { throw protocolError(); }
-    let result: Json;
-    try { result = parseEnvelope(chunks.join(''), id); }
-    catch (error) {
-      // Servers may use HTTP 500 for a structured RPC failure. Preserve those
-      // semantics; a non-JSON HTTP error page is still an HTTP transport failure.
-      if (httpError && isZcashError(error) && error.code === 'PROTOCOL_MISMATCH') throw httpError;
-      throw error;
-    }
-    if (httpError) throw httpError;
+    const text = await readText(() => bounded(reader!.read()), state.options.maxResponseBytes);
+    if (stopped) throw stopped;
+    const result = parseResponse(text, id, httpError);
     // Synchronous parsing cannot be interrupted by a timer; check elapsed time.
     if (performance.now() - started >= state.options.timeoutMs) throw timeout();
     return result;

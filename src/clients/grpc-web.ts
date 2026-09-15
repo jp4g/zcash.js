@@ -66,7 +66,7 @@ function encode(request: Uint8Array): string {
   return btoa(binary);
 }
 
-async function* decode(read: () => Promise<ReadableStreamReadResult<Uint8Array>>, limits: Limits): AsyncGenerator<Uint8Array> {
+async function* decodeBase64(read: () => Promise<ReadableStreamReadResult<Uint8Array>>, limits: Limits): AsyncGenerator<Uint8Array> {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
   const quartet: number[] = [];
   let wire = 0, decoded = 0;
@@ -124,6 +124,80 @@ function trailers(bytes: Uint8Array): void {
   status(fields.get('grpc-status') ?? null);
 }
 
+function requestHeaders(supplied: unknown): Headers {
+  record(supplied);
+  const headers = new Headers();
+  let size = 0;
+  for (const key of Reflect.ownKeys(supplied) as string[]) {
+    const value = supplied[key];
+    if (typeof value !== 'string' || /[\r\n\0]/.test(value)
+      || /^(?:grpc-|content-|accept$|x-grpc-web$|x-user-agent$|host$|cookie$|referer$|origin$|user-agent$)/i.test(key)) throw invalidArgument();
+    size += key.length + value.length + 32;
+    if (size > 8192) throw invalidArgument();
+    headers.set(key, value);
+  }
+  headers.set('content-type', media); headers.set('accept', media);
+  headers.set('grpc-encoding', 'identity'); headers.set('grpc-accept-encoding', 'identity');
+  headers.set('x-grpc-web', '1'); headers.set('x-user-agent', 'grpc-web-javascript/0.1');
+  return headers;
+}
+
+function responseStatus(current: Response, limits: Limits): boolean {
+  let headerBytes = 0;
+  for (const [name, value] of current.headers) {
+    headerBytes += name.length + value.length + 32;
+    if (headerBytes > 8192) throw limit();
+  }
+  const declared = current.headers.get('content-length');
+  if (declared !== null) {
+    if (!/^[0-9]+$/.test(declared)) throw protocol();
+    if (BigInt(declared) > BigInt(limits.wireBytes)) throw limit();
+  }
+  if (current.status !== 200) throw transportError();
+  if (!/^application\/grpc-web-text(?:\+proto)?(?:\s*;\s*charset=utf-8)?$/i.test(current.headers.get('content-type') ?? '')
+    || (current.headers.has('grpc-encoding') && current.headers.get('grpc-encoding') !== 'identity')
+    || (current.headers.has('content-encoding') && current.headers.get('content-encoding') !== 'identity')
+    || current.headers.has('grpc-status-details-bin')) throw protocol();
+  const headersOnly = current.headers.has('grpc-status');
+  if (headersOnly) status(current.headers.get('grpc-status'));
+  return headersOnly;
+}
+
+/** Assemble messages and require exactly one terminal status, without owning the stream. */
+async function* decodeFrames(chunks: AsyncIterable<Uint8Array>, limits: Limits, terminal: boolean): AsyncGenerator<Uint8Array> {
+  const header = new Uint8Array(5);
+  let count = 0;
+  let headerUsed = 0, payload: Uint8Array | undefined, payloadUsed = 0;
+  for await (const chunk of chunks) {
+    let offset = 0;
+    while (offset < chunk.length) {
+      if (terminal) throw protocol();
+      if (!payload) {
+        const size = Math.min(5 - headerUsed, chunk.length - offset);
+        header.set(chunk.subarray(offset, offset + size), headerUsed);
+        offset += size; headerUsed += size;
+        if (headerUsed !== 5) continue;
+        if (header[0] !== 0 && header[0] !== 128) throw protocol();
+        const length = new DataView(header.buffer).getUint32(1);
+        if (length > (header[0] === 128 ? 8192 : limits.messageBytes)
+          || length > limits.decodedBytes) throw limit();
+        if (header[0] === 0 && ++count > limits.messages) throw limit();
+        payload = new Uint8Array(length);
+      }
+      const size = Math.min(payload.length - payloadUsed, chunk.length - offset);
+      payload.set(chunk.subarray(offset, offset + size), payloadUsed);
+      offset += size; payloadUsed += size;
+      if (payloadUsed !== payload.length) continue;
+      if (header[0] === 128) {
+        trailers(payload);
+        terminal = true;
+      } else yield payload;
+      payload = undefined; payloadUsed = 0; headerUsed = 0;
+    }
+  }
+  if (!terminal || headerUsed || payload) throw protocol();
+}
+
 function messages(url: string, args: Args<LightUnaryMethod | LightStreamMethod>, limits: Limits,
   options: GrpcWebByteOptions): AsyncIterableIterator<Uint8Array> {
   const controller = new AbortController();
@@ -162,29 +236,21 @@ function messages(url: string, args: Args<LightUnaryMethod | LightStreamMethod>,
     check();
     return value;
   }
+  async function* responseChunks(): AsyncGenerator<Uint8Array> {
+    for await (const chunk of decodeBase64(() => bounded(reader!.read()), limits)) {
+      check();
+      yield chunk;
+    }
+  }
   async function* run(): AsyncGenerator<Uint8Array> {
     try {
       const endpoint = new URL(url);
       endpoint.pathname = service + args.method;
-      const headers = new Headers();
-      if (options.headers) {
-        try {
-          const supplied = await bounded(Promise.resolve().then(() => options.headers!()));
-          record(supplied);
-          let size = 0;
-          for (const key of Reflect.ownKeys(supplied) as string[]) {
-            const value = supplied[key];
-            if (typeof value !== 'string' || /[\r\n\0]/.test(value)
-              || /^(?:grpc-|content-|accept$|x-grpc-web$|x-user-agent$|host$|cookie$|referer$|origin$|user-agent$)/i.test(key)) throw invalidArgument();
-            size += key.length + value.length + 32;
-            if (size > 8192) throw invalidArgument();
-            headers.set(key, value);
-          }
-        } catch { throw stopped ?? invalidArgument(); }
-      }
-      headers.set('content-type', media); headers.set('accept', media);
-      headers.set('grpc-encoding', 'identity'); headers.set('grpc-accept-encoding', 'identity');
-      headers.set('x-grpc-web', '1'); headers.set('x-user-agent', 'grpc-web-javascript/0.1');
+      let headers: Headers;
+      try {
+        const supplied = options.headers ? await bounded(Promise.resolve().then(() => options.headers!())) : {};
+        headers = requestHeaders(supplied);
+      } catch { throw stopped ?? invalidArgument(); }
       const body = encode(args.request);
       check();
       const current = await bounded(fetch(endpoint, { method: 'POST', headers, body, signal: controller.signal,
@@ -193,57 +259,14 @@ function messages(url: string, args: Args<LightUnaryMethod | LightStreamMethod>,
           if (stopped || finished) void value.body?.cancel().catch(() => {});
           return value;
         }));
-      let headerBytes = 0;
-      for (const [name, value] of current.headers) {
-        headerBytes += name.length + value.length + 32;
-        if (headerBytes > 8192) throw limit();
-      }
-      const declared = current.headers.get('content-length');
-      if (declared !== null) {
-        if (!/^[0-9]+$/.test(declared)) throw protocol();
-        if (BigInt(declared) > BigInt(limits.wireBytes)) throw limit();
-      }
-      if (current.status !== 200) throw transportError();
-      if (!/^application\/grpc-web-text(?:\+proto)?(?:\s*;\s*charset=utf-8)?$/i.test(current.headers.get('content-type') ?? '')
-        || (current.headers.has('grpc-encoding') && current.headers.get('grpc-encoding') !== 'identity')
-        || (current.headers.has('content-encoding') && current.headers.get('content-encoding') !== 'identity')
-        || current.headers.has('grpc-status-details-bin')) throw protocol();
-      const headersOnly = current.headers.has('grpc-status');
-      if (headersOnly) status(current.headers.get('grpc-status'));
+      const headersOnly = responseStatus(current, limits);
       if (!current.body) { if (headersOnly) return; throw protocol(); }
       reader = current.body.getReader();
-      const header = new Uint8Array(5);
-      let count = 0;
-      let headerUsed = 0, payload: Uint8Array | undefined, payloadUsed = 0, terminal = headersOnly;
-      for await (const chunk of decode(() => bounded(reader!.read()), limits)) {
+      for await (const payload of decodeFrames(responseChunks(), limits, headersOnly)) {
         check();
-        let offset = 0;
-        while (offset < chunk.length) {
-          if (terminal) throw protocol();
-          if (!payload) {
-            const size = Math.min(5 - headerUsed, chunk.length - offset);
-            header.set(chunk.subarray(offset, offset + size), headerUsed);
-            offset += size; headerUsed += size;
-            if (headerUsed !== 5) continue;
-            if (header[0] !== 0 && header[0] !== 128) throw protocol();
-            const length = new DataView(header.buffer).getUint32(1);
-            if (length > (header[0] === 128 ? 8192 : limits.messageBytes)
-              || length > limits.decodedBytes) throw limit();
-            if (header[0] === 0 && ++count > limits.messages) throw limit();
-            payload = new Uint8Array(length);
-          }
-          const size = Math.min(payload.length - payloadUsed, chunk.length - offset);
-          payload.set(chunk.subarray(offset, offset + size), payloadUsed);
-          offset += size; payloadUsed += size;
-          if (payloadUsed !== payload.length) continue;
-          if (header[0] === 128) {
-            trailers(payload);
-            terminal = true;
-          } else { check(); yield payload; check(); }
-          payload = undefined; payloadUsed = 0; headerUsed = 0;
-        }
+        yield payload;
+        check();
       }
-      if (!terminal || headerUsed || payload) throw protocol();
       check();
     } finally { cleanup(); }
   }

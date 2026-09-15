@@ -470,3 +470,54 @@ test('public RPC foundation owns structured reads and never replays dispatched w
   await assert.rejects(pending, { code: 'ABORTED' });
   assert.equal(requests.length, before + 1); release();
 });
+
+test('fragmented UTF-8 decoding keeps exact numbers and counts bytes rather than characters', async t => {
+  const text = '{"jsonrpc":"2.0","id":"1","result":{"text":"雪🙂","amount":9007199254740993}}';
+  const bytes = new TextEncoder().encode(text);
+  let body;
+  mockFetch(t, async () => {
+    let offset = 0;
+    body = new ReadableStream({ pull(controller) {
+      if (offset === bytes.length) controller.close();
+      else controller.enqueue(bytes.slice(offset, ++offset));
+    } });
+    return new Response(body);
+  });
+  const result = await call(sdk.http('https://synthetic.invalid', options({ maxResponseBytes: bytes.length })));
+  assert.equal(result.text, '雪🙂');
+  assert.equal(result.amount.text, '9007199254740993');
+  assert.equal(body.locked, false);
+  await assert.rejects(call(sdk.http('https://synthetic.invalid', options({ maxResponseBytes: bytes.length - 1 }))),
+    { code: 'RESOURCE_LIMIT' });
+  assert.equal(body.locked, false);
+});
+
+test('HTTP status translation preserves the distinction between RPC, JSON and UTF-8 failures', async t => {
+  let content;
+  mockFetch(t, async () => new Response(content, { status: 503 }));
+  const transport = sdk.http('https://synthetic.invalid', options());
+  content = '{"jsonrpc":"2.0","id":"1","error":{"code":-5,"message":"private-server-text"}}';
+  await assert.rejects(call(transport), error => internal.rpcErrorCode(error) === -5 && !error.retryable);
+  content = 'not a JSON response';
+  await assert.rejects(call(transport), { code: 'TRANSPORT_ERROR', retryable: true });
+  content = new Uint8Array([0xe2, 0x82]);
+  await assert.rejects(call(transport), { code: 'PROTOCOL_MISMATCH' });
+});
+
+test('cancellation at body-decoder completion cannot publish a successful RPC result', async t => {
+  const controller = new AbortController();
+  const decode = TextDecoder.prototype.decode;
+  t.mock.method(TextDecoder.prototype, 'decode', function (bytes, options) {
+    const result = decode.call(this, bytes, options);
+    if (bytes === undefined) queueMicrotask(() => controller.abort());
+    return result;
+  });
+  let body;
+  mockFetch(t, async (_url, init) => {
+    const current = response(JSON.parse(init.body));
+    body = current.body;
+    return current;
+  });
+  await assert.rejects(call(sdk.http('https://synthetic.invalid', options()), controller.signal), { code: 'ABORTED' });
+  assert.equal(body.locked, false);
+});

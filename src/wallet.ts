@@ -96,7 +96,7 @@ export async function createWalletClient(args:WalletOptions):Promise<WalletClien
     const proving=input.proving===undefined?undefined:provingCopy(input.proving);
     const options={network:input.network,runtime:ownedRuntime,storage,confirmations,observation,...(recovery?{recovery}:{}),...(light?{light}:{}),...(broadcaster?{broadcaster}:{})};
     wallet=await openWalletRuntime({runtime:ownedRuntime,storage,network:{identity:bound.definition.identity,genesisHash:bound.definition.genesisHash,parametersFormat:bound.definition.parametersFormat,parameters:bound.definition.parameters.bytes},signal:pending.signal});
-    pending.check();accounts=walletAccounts(wallet,input.network);sync=new WalletSync(wallet.session,light,observation);
+    pending.check();accounts=walletAccounts(wallet,input.network);sync=new WalletSync(wallet.session,light,observation,ownedRuntime.scanBatchSize);
     const proposals=new WalletProposals(wallet.session,input.network,proving);
     payments=new WalletPayments(wallet,proposals,options);
     const report=await payments.recover({signal:pending.signal});pending.check();

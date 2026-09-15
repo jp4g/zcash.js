@@ -218,3 +218,26 @@ test('overflow detaches only the slow subscriber', async () => {
   await assert.rejects(slow.next(), error => error.code === 'RESOURCE_LIMIT');
   await fast.return();
 });
+
+test('configured scan batches retain the aggregate native byte ceiling', async () => {
+  const hash = '03'.repeat(32), target = { height: 3, hash };
+  let scanned = 0;
+  const batches = [];
+  const session = { scan: {
+    async state() { return { revision: '1', maxScannedHeight: scanned || null }; },
+    async plan() { return { revision: '1', ranges: scanned === 3 ? [] : [{ start: scanned + 1, endExclusive: 4, priorState: { hash: null } }] }; },
+    async ingest({ blocks }) { batches.push(blocks.length); scanned += blocks.length; },
+    async complete() {},
+  }, enhancement: { async requests() { return { revision: '1', requests: [] }; } } };
+  const light = {
+    async getTreeState({ height }) { return { point: { height, hash }, encoded: new Uint8Array() }; },
+    async *streamCompactBlocks({ fromHeight, toHeight }) {
+      for (let height = fromHeight; height <= toHeight; height++) yield { point: { height, hash }, encoded: new Uint8Array(1024 * 1024 + 1) };
+    },
+  };
+  await syncWallet(session, light, target, undefined, 8);
+  assert.deepEqual(batches, [1, 1, 1]);
+  for (const size of [0, -1, 1.5, NaN, Infinity]) {
+    await assert.rejects(syncWallet(session, light, target, undefined, size), { code: 'INVALID_ARGUMENT' });
+  }
+});

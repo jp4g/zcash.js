@@ -117,7 +117,7 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
   try { pending.check(); } catch (error) { pending.close(); throw error; }
   // Same immutable executable and limits share authority; no key migration across owners.
   const key = JSON.stringify([baseline.manifestUrl, baseline.manifestSha256, threading.mode, ...(threading.mode === 'prefer-threaded' ? [threading.artifact.manifestUrl, threading.artifact.manifestSha256, threading.workers, threading.startupTimeoutMs] : []),
-    runtime.maxMemoryBytes, runtime.maxQueuedBytes, runtime.maxQueuedJobs, runtime.scanBatchSize, runtime.maxPcztBytes]);
+    runtime.maxMemoryBytes, runtime.maxQueuedBytes, runtime.maxQueuedJobs, runtime.maxPcztBytes]);
   let entry = owners.get(key);
   if (!entry) {
     const controller = new AbortController();

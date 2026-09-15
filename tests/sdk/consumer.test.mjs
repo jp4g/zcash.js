@@ -95,7 +95,7 @@ test('packed private package imports and typechecks in an isolated Node consumer
     const details=stats.toJson({all:false,warnings:true,modules:true});
     // Variable imports are confined to Node-only branches; never execute in this web target.
     assert.deepEqual(details.warnings.map(warning=>({module:warning.moduleName,message:warning.message})),queryOnly?[]:[
-      'grpc.js','runtime/wallet.js','wallet/host.js','wallet/host.js'
+      'grpc.js','wallet/host.js','wallet/host.js'
     ].map(name=>({module:'./node_modules/zcash.js/dist/src/'+name,message:'Critical dependency: the request of a dependency is an expression'})));
     const code=await readFile(join(consumer,'webpack/bundle.js'),'utf8');
     if(walletOnly){

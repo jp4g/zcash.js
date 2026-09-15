@@ -2,6 +2,35 @@
 import { fixture } from '../clients/public-chain-reads-fixtures.mjs';
 export async function runBrowser() {
   const { attachWalletWorker } = await import('/dist/src/wallet/host.js');
+  const { stageWalletWorkers } = await import('/dist/src/runtime/worker-platform.js');
+  const code = new TextEncoder().encode("self.onmessage = ({data}) => data.port.postMessage('ready');");
+  const platform = await stageWalletWorkers(() => code, true, () => {});
+  try {
+    for (const name of ['worker.mjs', 'thread-bootstrap.mjs']) {
+      const channel = platform.channels();
+      let worker;
+      try {
+        const ready = new Promise((resolve, reject) => {
+          channel.port1.onmessage = event => resolve(event.data);
+          worker = platform.spawn(name, { message: resolve, error: reject, messageerror: reject });
+          worker.postMessage({ port: channel.port2 }, [channel.port2]);
+        });
+        if (await ready !== 'ready') throw Error('platform worker transfer');
+      } finally {
+        worker?.removeEvents();
+        await worker?.terminate();
+        channel.port1.close();
+        channel.port2.close();
+      }
+    }
+  } finally {
+    platform.dispose();
+  }
+  for (const url of Object.values(platform.urls)) {
+    let revoked = false;
+    try { await fetch(url); } catch { revoked = true; }
+    if (!revoked) throw Error('platform asset was not revoked');
+  }
   const fixture = await (await fetch('/fixture.json')).json();
   const root = `sdk-host-${crypto.randomUUID()}`;
   const parameters = new TextEncoder().encode('{"encoding":"regtest","Overwinter":10,"Sapling":20,"Blossom":30,"Heartwood":40,"Canopy":50,"Nu5":60,"Nu6":70,"Nu6_1":80,"Nu6_2":90,"Nu6_3":100}');

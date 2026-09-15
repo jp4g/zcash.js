@@ -1,3 +1,5 @@
+import { nodeRuntime as node, stageWalletWorkers } from './worker-platform.js';
+import type { RuntimeWorker } from './worker-platform.js';
 import type { NetworkDefinition, Op, RuntimeOptions, WalletStorage, WasmArtifact, ZcashError } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { bindNetworkDefinition } from '../network-parameters.js';
@@ -10,7 +12,6 @@ import { acquireArtifacts, artifactEndpoint } from './artifacts.js';
 import { sameRecord, walletProfile } from './wallet-profile.js';
 import type { WalletRuntimeIdentity } from './wallet-profile.js';
 
-const node = typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string';
 const unavailable = () => failure('RUNTIME_UNAVAILABLE', 'runtime', 'configure', 'Wallet runtime unavailable.');
 const mismatch = () => failure('PROTOCOL_MISMATCH', 'runtime', 'configure', 'Wallet runtime profile mismatch.');
 const cancelled = () => failure('ABORTED', 'runtime', 'none', 'Wallet startup aborted.');
@@ -326,9 +327,8 @@ async function createOwner(
   forget: () => void,
   threaded = false,
 ) {
-  let worker: { postMessage(value: unknown, transfer: Transferable[]): void; terminate(): unknown } | undefined;
-  const children: typeof worker[] = [];
-  const childEvents: (() => void)[] = [];
+  let worker: RuntimeWorker | undefined;
+  const children: RuntimeWorker[] = [];
   let spawnChild: ((
     index: number,
     pool: { module: WebAssembly.Module; memory: WebAssembly.Memory },
@@ -346,8 +346,7 @@ async function createOwner(
     signers: new Map(),
     proving: { capacity: provingCapacity, bytes: 0, active: false },
   };
-  let removeAssets = () => { },
-    removeEvents = () => { };
+  let removeAssets = () => { };
   let destroying: Promise<void> | undefined,
     stopped: ZcashError | undefined;
   let nextId = 0;
@@ -360,8 +359,7 @@ async function createOwner(
       }));
       if (results.some(result => result.status === 'rejected')) throw unavailable();
     } finally {
-      removeEvents();
-      for (const remove of childEvents) remove();
+      for (const value of [worker, ...children]) value?.removeEvents();
       removeAssets();
     }
   });
@@ -494,8 +492,6 @@ async function createOwner(
       const { format: _format, files: _files, ...expected } = verified.manifest;
       void _format;
       void _files;
-      const urls: Record<string, string> = {};
-      let channels: () => MessageChannel;
       const childMessage = (index: number, raw: unknown) => {
         if (stopped) return;
         const data = raw && typeof raw === 'object' ? raw as Record<string, unknown> : undefined;
@@ -514,106 +510,34 @@ async function createOwner(
           }
         }
       };
-      if (node) {
-        const [fs, os, path, url, threads] = await Promise.all(
-          ['node:fs', 'node:os', 'node:path', 'node:url', 'node:worker_threads'].map(name => import(name)),
-        );
+      const platform = await stageWalletWorkers(name => verified.copyFile(name), threaded, check);
+      try {
         check();
-        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'zcash-wallet-runtime-'));
-        removeAssets = () => fs.rmSync(directory, { recursive: true, force: true });
-        for (const name of ['wallet.mjs', 'worker.mjs', 'node-fs.mjs', ...(threaded ? ['thread-bootstrap.mjs'] : [])]) {
-          const file = path.join(directory, name);
-          fs.writeFileSync(file, verified.copyFile(name), { flag: 'wx', mode: 0o600 });
-          urls[name] = url.pathToFileURL(file).href;
-        }
-        channels = () => new threads.MessageChannel();
-        startup.phase = 'executing';
-        const instance = new threads.Worker(new URL(urls['worker.mjs']!), { trackUnmanagedFds: true });
-        worker = instance;
-        const crash = () => stop(failure('WORKER_CRASHED', 'runtime', 'reopen', 'Wallet worker failed.'));
-        instance.on('message', message);
-        instance.on('messageerror', crash);
-        instance.on('error', crash);
-        instance.on('exit', crash);
-        spawnChild = (index, pool) => {
-          const child = new threads.Worker(new URL(urls['thread-bootstrap.mjs']!));
-          children.push(child);
-          const receive = (data: unknown) => childMessage(index, data);
-          child.on('message', receive);
-          child.on('error', crash);
-          child.on('messageerror', crash);
-          child.on('exit', crash);
-          childEvents.push(() => {
-            child.off('message', receive);
-            child.off('error', crash);
-            child.off('messageerror', crash);
-            child.off('exit', crash);
-          });
-          child.postMessage({
-            type: 'compute-initialize',
-            moduleUrl: urls['wallet.mjs'],
-            module: pool.module,
-            memory: pool.memory,
-            index,
-          });
-        };
-        removeEvents = () => {
-          instance.off('message', message);
-          instance.off('messageerror', crash);
-          instance.off('error', crash);
-          instance.off('exit', crash);
-        };
-      } else {
-        const created: string[] = [];
-        removeAssets = () => {
-          for (const url of created) URL.revokeObjectURL(url);
-        };
-        for (const name of ['wallet.mjs', 'worker.mjs', 'opfs.mjs', ...(threaded ? ['thread-bootstrap.mjs'] : [])]) {
-          urls[name] = URL.createObjectURL(
-            new Blob([verified.copyFile(name) as Uint8Array<ArrayBuffer>], { type: 'text/javascript' }),
-          );
-          created.push(urls[name]!);
-        }
-        channels = () => new MessageChannel();
-        startup.phase = 'executing';
-        const instance = new Worker(urls['worker.mjs']!, { type: 'module' });
-        worker = instance;
-        instance.onmessage = event => message(event.data);
-        instance.onerror = (event) => {
-          event.preventDefault();
-          stop(unavailable());
-        };
-        instance.onmessageerror = () => stop(mismatch());
-        spawnChild = (index, pool) => {
-          const child = new Worker(urls['thread-bootstrap.mjs']!, { type: 'module' });
-          children.push(child);
-          child.onmessage = event => childMessage(index, event.data);
-          child.onerror = (event) => {
-            event.preventDefault();
-            stop(
-              failure('WORKER_CRASHED', 'runtime', 'reopen', 'Wallet compute worker failed.'),
-            );
-          };
-          child.onmessageerror = () => stop(mismatch());
-          childEvents.push(() => {
-            child.onmessage = null;
-            child.onerror = null;
-            child.onmessageerror = null;
-          });
-          child.postMessage({
-            type: 'compute-initialize',
-            moduleUrl: urls['wallet.mjs'],
-            module: pool.module,
-            memory: pool.memory,
-            index,
-          });
-        };
-        removeEvents = () => {
-          instance.onmessage = null;
-          instance.onerror = null;
-          instance.onmessageerror = null;
-        };
+      } catch (error) {
+        platform.dispose();
+        throw error;
       }
+      removeAssets = platform.dispose;
+      const { urls, channels } = platform;
+      const crash = () => stop(failure('WORKER_CRASHED', 'runtime', 'reopen', 'Wallet worker failed.'));
+      const messageError = node ? crash : () => stop(mismatch());
+      startup.phase = 'executing';
+      worker = platform.spawn('worker.mjs', {
+        message,
+        error: node ? crash : () => stop(unavailable()),
+        messageerror: messageError,
+      });
+      spawnChild = (index, pool) => {
+        const child = platform.spawn('thread-bootstrap.mjs', {
+          message: data => childMessage(index, data),
+          error: () => stop(failure('WORKER_CRASHED', 'runtime', 'reopen', 'Wallet compute worker failed.')),
+          messageerror: messageError,
+        });
+        children.push(child);
+        child.postMessage({
+          type: 'compute-initialize', moduleUrl: urls['wallet.mjs'], module: pool.module, memory: pool.memory, index,
+        }, []);
+      };
       const wasm = verified.copyFile('bindings_bg.wasm');
       const ready = await request({
         type: 'initialize',

@@ -14,7 +14,9 @@ test('configuration normalization captures nested values and preserves callback 
   assert.throws(() => recoveryPolicy(input, false, true), { code: 'INVALID_ARGUMENT' });
   assert.throws(() => recoveryPolicy(input, true, false), { code: 'INVALID_ARGUMENT' });
   assert.throws(() => confirmationsPolicy({ trusted: -1, untrusted: 1, allowZeroConfirmationShielding: false }), { code: 'INVALID_ARGUMENT' });
-  assert.throws(() => observationOptions({ get pollIntervalMs() { assert.fail('getter'); }, maxBufferedUpdates: 1 }), { code: 'INVALID_ARGUMENT' });
+  let reads = 0;
+  assert.throws(() => observationOptions({ get pollIntervalMs() { reads++; return 1; }, maxBufferedUpdates: 1 }), { code: 'INVALID_ARGUMENT' });
+  assert.equal(reads, 0);
   const options = {
     kind: 'local', assets: [], cache: { kind: 'memory', maxBytes: 1 }, maxConcurrentProofs: 1,
     loadAsset(args) { assert.equal(this, options); return args; },

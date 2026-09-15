@@ -10,7 +10,7 @@ import type {
 import { networkBinding } from '../network.js';
 import { lightClientBinding } from '../light.js';
 import { publicClientBinding } from '../public.js';
-import { snapshot, ownBytes } from '../clients/owned-plumbing.js';
+import { snapshot, ownBytes, dataField } from '../clients/owned-plumbing.js';
 import { operation } from '../clients/light-chain-reads.js';
 import { failure, invalidArgument } from '../errors.js';
 import { blockHash, txId } from '../primitives.js';
@@ -32,19 +32,6 @@ function evidenceFields(value: unknown, keys: readonly string[]): Record<string,
     return snapshot(value, keys);
   } catch {
     throw protocol();
-  }
-}
-function field(object: object, key: string): unknown {
-  for (
-    let value: object | null = object, depth = 0;
-    value && depth < 16;
-    value = Object.getPrototypeOf(value), depth++
-  ) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor) {
-      if (!('value' in descriptor)) throw invalidArgument();
-      return descriptor.value;
-    }
   }
 }
 function point(value: unknown): ChainPoint {
@@ -129,15 +116,15 @@ export class PaymentSource {
     const registered = publicClientBinding(client as PublicClient),
       light = lightClientBinding(client as LightClient);
     this.registered = Boolean(registered ?? light);
-    const other = networkBinding((registered ?? light)?.network ?? field(client, 'network') as Network);
+    const other = networkBinding((registered ?? light)?.network ?? dataField(client, 'network') as Network);
     if (other.definition.binding !== this.bound.definition.binding) throw mismatch();
     this.endpoint = (registered ?? light)?.endpoint ?? null;
     this.protocolName = registered ? 'zcash-json-rpc/1' : 'lightwalletd-v0.5.0';
     for (const name of ['getTip', 'getTreeState', 'getTransaction', 'broadcastTransaction', 'getTransactionStatus']) {
-      const method = field(client, name);
+      const method = dataField(client, name);
       if (method === undefined && name === 'getTransactionStatus') continue;
       if (typeof method !== 'function') throw invalidArgument();
-      this.methods[name] = (...args: never[]) => Reflect.apply(method, this.client, args);
+      this.methods[name] = method as (...args: never[]) => unknown;
     }
   }
 

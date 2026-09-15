@@ -1,4 +1,4 @@
-import { signalAborted, admitSignal } from '../abort.js';
+import { signalAborted, admitSignal, waitFor } from '../abort.js';
 import type {
   BlockSelector,
   Network,
@@ -68,11 +68,7 @@ export function operation(signal: AbortSignal | undefined, release: () => void =
   const dependent = signal === undefined ? undefined : AbortSignal.any([signal]);
   let cancelled = false,
     closed = false;
-  let reject: (error: unknown) => void;
-  const interruption = new Promise<never>((_, fail) => {
-    reject = fail;
-  });
-  void interruption.catch(() => { });
+  const interruption = new AbortController();
   function close() {
     if (closed) return;
     closed = true;
@@ -83,7 +79,7 @@ export function operation(signal: AbortSignal | undefined, release: () => void =
   function cancel() {
     if (cancelled || closed) return;
     cancelled = true;
-    reject(aborted());
+    interruption.abort();
     close();
   }
   function check() {
@@ -100,7 +96,7 @@ export function operation(signal: AbortSignal | undefined, release: () => void =
     check,
     close,
     wait<T>(value: PromiseLike<T> | T): Promise<T> {
-      return Promise.race([value, interruption]);
+      return waitFor(value, interruption.signal, aborted);
     },
   };
 }

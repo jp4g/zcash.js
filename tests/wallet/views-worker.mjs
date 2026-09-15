@@ -68,9 +68,9 @@ async function receive(request) {
       if(request.fault==='entropy')cryptoObject.getRandomValues=()=>{throw Error('synthetic entropy unavailable');};
       if(request.fault==='quota')backend.write=()=>{throw Object.assign(Error('synthetic quota fault'),{code:'ENOSPC'});};
       try {
-        const methods={account_import:()=>session.accounts.import(args),account_list:()=>session.accounts.list(args),account_get:()=>session.accounts.get(args),address_current:()=>session.addresses.current(args),address_next:()=>session.addresses.next(args),address_list:()=>session.addresses.list(args),address_at:()=>session.addresses.at(args)};
+        const methods={account_import:1,account_list:1,account_get:1,address_current:1,address_next:1,address_list:1,address_at:1};
         if(!Object.hasOwn(methods,request.op))throw Error('INVALID_ARGUMENT');
-        const result=await methods[request.op]();reply({ok:true,result});
+        const result=await session.invoke(request.op,args);reply({ok:true,result});
       }
       finally {backend.sync=sync;backend.write=write;cryptoObject.getRandomValues=random;}
     }

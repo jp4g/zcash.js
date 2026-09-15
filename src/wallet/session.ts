@@ -1,38 +1,6 @@
-import type {
-  NativePcztBuildInput,
-  NativePcztArtifact,
-  NativeProposalInput,
-  NativeProposalIntent,
-  NativeProposalReview,
-  ProposalInventoryInput,
-  ProposalInventory,
-} from './proposals.js';
-import type {
-  NativePayment,
-  PaymentInventory,
-  PaymentInventoryInput,
-  PaymentObserve,
-  PaymentAttempt,
-  PaymentAttemptInput,
-  PaymentAttemptFinish,
-  NativeFinalized,
-  NativeFusedInput,
-  NativeFused,
-  PaymentReconcile,
-} from './payment-journal-types.js';
+import type { NativeWalletCalls } from './commands.js';
 import { failure } from '../errors.js';
-import type {
-  AccountRecord,
-  AccountsApi,
-  Birthday,
-  ConfirmationsPolicy,
-  Op,
-  ScanState,
-  ViewingImport,
-  WalletAddressesApi,
-  WalletBalance,
-} from '../types.js';
-import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../types.js';
+import type { AccountRecord } from '../types.js';
 
 /** Accepted, already initialized VIEW owner. Construct and consume in its worker. */
 export interface InitializedViews {
@@ -194,7 +162,10 @@ export class WalletSession {
     return this.completions.get(error);
   }
 
-  private invoke<T>(operation: string, args: object = {}): Promise<T> {
+  invoke<C extends keyof NativeWalletCalls>(
+    operation: C, args: Parameters<NativeWalletCalls[C]>[0],
+  ): Promise<ReturnType<NativeWalletCalls[C]>> {
+    args ??= {};
     if (this.closing) {
       const error = failure('CLOSED', 'runtime', 'none', 'Wallet session is closed.');
       this.completions.set(error, 'none');
@@ -214,7 +185,7 @@ export class WalletSession {
               'Native signer binding unavailable.',
             );
           }
-          return Reflect.apply(method, this.owner, [input.token, input.accountId]) as T;
+          return Reflect.apply(method, this.owner, [input.token, input.accountId]) as ReturnType<NativeWalletCalls[C]>;
         }
         if (operation === 'account_import_mnemonic_signer' || operation === 'account_create_mnemonic_signer') {
           const { mnemonic, passphrase, ...input } = args as MnemonicAccountInput;
@@ -226,9 +197,9 @@ export class WalletSession {
             undefined,
             mnemonic,
             passphrase,
-          ) as T;
+          ) as ReturnType<NativeWalletCalls[C]>;
         }
-        return this.owner.call(this.generation, this.instance, operation, args) as T;
+        return this.owner.call(this.generation, this.instance, operation, args) as ReturnType<NativeWalletCalls[C]>;
       } catch (error) {
         if (typeof error === 'object' && error !== null && !this.completions.has(error)) {
           let commit: unknown;
@@ -243,125 +214,6 @@ export class WalletSession {
     this.tail = result.catch(() => undefined);
     return result;
   }
-
-  readonly payments = {
-    abandon: (args: { operationId: string }) => this.invoke<NativePayment>('payment_abandon', args),
-    get: (args: { operationId: string }) => this.invoke<NativePayment | null>('payment_get', args),
-    list: (args: PaymentInventoryInput) => this.invoke<PaymentInventory>('payment_list', args),
-    reconcile: (args: PaymentReconcile) => this.invoke<NativePayment>('payment_reconcile', args),
-    observe: (args: PaymentObserve) => this.invoke<NativePayment>('payment_observe', args),
-    begin: (args: PaymentAttemptInput) => this.invoke<PaymentAttempt | null>('payment_attempt_begin', args),
-    finish: (args: PaymentAttemptFinish) => this.invoke<NativePayment>('payment_attempt_finish', args),
-    position: (args: { afterSequence: string }) => this.invoke<void>('payment_recovery_position', args),
-  };
-
-  readonly fused = { send: (args: NativeFusedInput) => this.invoke<NativeFused>('fused_send', args) };
-  readonly pczt = {
-
-    finalize: (
-      args: { operationId: string; artifactId: string; spend: Uint8Array; output: Uint8Array },
-    ) => this.invoke<NativeFinalized>('pczt_finalize', args),
-    finalized: (args: { operationId: string }) => this.invoke<NativeFused>('finalized_get', args),
-    prove: (
-      args: { operationId: string; artifactId: string; spend: Uint8Array; output: Uint8Array; maximum: number },
-    ) => this.invoke<NativePcztArtifact>('pczt_prove', args),
-    import: (
-      args: { operationId: string; bytes: Uint8Array; maximum: number },
-    ) => this.invoke<NativePcztArtifact>('pczt_import', args),
-    build: (args: NativePcztBuildInput) => this.invoke<NativePcztArtifact>('pczt_build', args),
-    get: (
-      args: { operationId: string; artifactId?: string },
-    ) => this.invoke<NativePcztArtifact | null>('pczt_get_artifact', args),
-  };
-
-  readonly proposals = {
-
-    lookup: (
-      args: NativeProposalIntent & { idempotencyKey: string },
-    ) => this.invoke<NativeProposalReview | null>('proposal_lookup_intent', args),
-    create: (args: NativeProposalInput) => this.invoke<NativeProposalReview>('proposal_create', args),
-    get: (args: { operationId: string }) => this.invoke<NativeProposalReview | null>('proposal_get', args),
-    list: (args: ProposalInventoryInput) => this.invoke<ProposalInventory>('proposal_list', args),
-  };
-
-  readonly mnemonic = {
-    create: (args: MnemonicAccountInput) => this.invoke<NativeCreatedAccount>('account_create_mnemonic_signer', args),
-    import: (args: MnemonicAccountInput) => this.invoke<NativeCreatedAccount>('account_import_mnemonic_signer', args),
-  };
-
-  readonly signers = {
-
-    bind: (
-      args: { token: number; accountId: string },
-    ) => this.invoke<'ready' | 'recovery-required'>('signer_bind', args),
-    unbind: (args: { token: number; accountId: string }) => this.invoke<void>('signer_unbind', args),
-  };
-
-  readonly accounts: Pick<AccountsApi, 'list' | 'get' | 'remove'> & {
-
-    viewingKey(args: { accountId: string }): Promise<string | null>;
-
-    checkKey(args: { accountId: string; viewingKey: string }): Promise<'ready' | 'recovery-required'>;
-
-    import(
-      args: Omit<ViewingImport, 'birthday'>
-        & {
-          readonly birthday: 'fullScan' | (Omit<Birthday, 'network'> & {
-            readonly parameters: Uint8Array; readonly genesis: Uint8Array;
-          });
-        }
-    ): Promise<AccountRecord>;
-
-  } = {
-    remove: args => this.invoke('account_remove', args),
-    viewingKey: args => this.invoke('account_viewing_key', args),
-    checkKey: args => this.invoke('account_check_key', args),
-    import: args => this.invoke('account_import', args),
-    list: args => this.invoke('account_list', args),
-    get: args => this.invoke('account_get', args),
-  };
-
-  readonly addresses: WalletAddressesApi = {
-    current: args => this.invoke('address_current', args),
-    next: args => this.invoke('address_next', args),
-    list: args => this.invoke('address_list', args),
-    at: args => this.invoke('address_at', args),
-  };
-
-  /** Amounts and scan revision come from one native database snapshot. */
-  getBalance(args: { accountId: string; confirmations: ConfirmationsPolicy } & Op): Promise<WalletBalance> {
-    return this.invoke('account_balance', args);
-  }
-
-  listNotes(args: Parameters<WalletClient['listNotes']>[0]): Promise<NotePage> {
-    return this.invoke('wallet_notes', args);
-  }
-
-  listUtxos(args: Parameters<WalletClient['listUtxos']>[0]): Promise<UtxoPage> {
-    return this.invoke('wallet_utxos', args);
-  }
-
-  getHistory(args: Parameters<WalletClient['getHistory']>[0]): Promise<HistoryPage> {
-    return this.invoke('wallet_history', args);
-  }
-
-  getTransaction(args: Parameters<WalletClient['getTransaction']>[0]): Promise<WalletTransaction | null> {
-    return this.invoke('wallet_transaction', args);
-  }
-
-  readonly scan = {
-    state: (args?: Op) => this.invoke<ScanState>('scan_state', args),
-    block: (args: { height: number } & Op) => this.invoke<ScanBlock>('scan_block_hash', args),
-    rewind: (args: ScanRewind & Op) => this.invoke<ScanBlock>('scan_rewind', args),
-    complete: (args: ScanCompletion & Op) => this.invoke<{ readonly revision: string }>('scan_complete', args),
-    plan: (args: { target: ScanTarget } & Op) => this.invoke<ScanPlan>('scan_plan', args),
-    ingest: (args: ScanBatch & Op) => this.invoke<ScanReceipt>('scan_ingest_batch', args),
-  };
-
-  readonly enhancement = {
-    requests: (args?: Op) => this.invoke<EnhancementRequests>('enhancement_requests', args),
-    apply: (args: EnhancementApply & Op) => this.invoke<{ revision: string }>('enhancement_apply', args),
-  };
 
   /** Drain accepted calls, close once, and reject new admission immediately.
    * The enclosing host must still destroy the dedicated worker, even on failure.

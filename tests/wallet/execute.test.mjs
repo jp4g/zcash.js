@@ -149,7 +149,15 @@ test('custom role negotiation admits unproven signing before proving, without re
             lockExpiryHeight: 121,
             totalFee: 10000n,
             steps: [
-              { index: 0, dependsOn: [], inputs: [], outputs: [], fee: 10000n, transactionVersion: 6, expiryHeight: 141 },
+              {
+                index: 0,
+                dependsOn: [],
+                inputs: [],
+                outputs: [],
+                fee: 10000n,
+                transactionVersion: 6,
+                expiryHeight: 141,
+              },
             ],
           };
         },

@@ -1,4 +1,4 @@
-import { delay, schedule as timeout } from '../abort.js';
+import { admitSignal, delay, schedule as timeout } from '../abort.js';
 import { observationOptions, recoveryPolicy } from '../options.js';
 import { ObserverBuffer } from '../observer-buffer.js';
 import type { PaymentState, AccountId } from '../types.js';
@@ -145,18 +145,16 @@ export class WalletPayments {
     work: (signal: AbortSignal) => Promise<T>,
     recovery = false,
   ): Promise<T> {
-    const caller = operation(signal);
-    let pending: ReturnType<typeof operation>,
-      release: (() => void) | undefined;
+    admitSignal(signal);
+    this.check(recovery);
+    const pending = operation(AbortSignal.any(signal ? [signal, this.stopped.signal] : [this.stopped.signal]));
+    let release: () => void;
     try {
-      caller.check();
-      this.check(recovery);
+      pending.check();
       if (this.active.size >= this.maxJobs) throw resource();
       release = this.wallet.session.reserveWorking(16384, async () => { });
-      pending = operation(AbortSignal.any([caller.signal, this.stopped.signal]));
     } catch (error) {
-      release?.();
-      caller.close();
+      pending.close();
       throw error;
     }
     const result = Promise.resolve().then(() => {
@@ -166,9 +164,8 @@ export class WalletPayments {
     this.active.add(result);
     void result.finally(() => {
       this.active.delete(result);
-      release!();
+      release();
       pending.close();
-      caller.close();
     }).catch(() => { });
     return result;
   }

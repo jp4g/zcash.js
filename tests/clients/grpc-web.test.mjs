@@ -477,3 +477,41 @@ test('foreign signal hook errors are sanitized while abort and timeout retain th
   assert.equal(cancelled, 2);
   assert.equal(calls, 2);
 });
+
+test('return during a partial frame unwinds both decoders and releases the reader', async t => {
+  let entered, cancelled = 0, pulls = 0, body, signal;
+  const stalled = new Promise(resolve => { entered = resolve; });
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    signal = init.signal;
+    body = new ReadableStream({
+      pull(controller) {
+        if (++pulls === 1) controller.enqueue(new TextEncoder().encode(base64(new Uint8Array([0, 0, 0, 0, 3, 1]))));
+        else entered();
+      },
+      cancel() { cancelled++; return new Promise(() => {}); },
+    }, { highWaterMark: 0 });
+    return new Response(body, { headers: { 'content-type': media } });
+  });
+  const iterator = stream(create());
+  const pending = assert.rejects(promptly(iterator.next()), { code: 'ABORTED' });
+  await promptly(stalled);
+  await promptly(iterator.return());
+  await pending;
+  assert.equal(cancelled, 1);
+  assert.equal(body.locked, false);
+  assert.equal(signal.aborted, true);
+});
+
+test('a terminal failure after an emitted message stays a trusted gRPC status', async t => {
+  t.mock.method(globalThis, 'fetch', async () => reply(base64(concat(
+    frame(new Uint8Array([7])), trailer('grpc-status: 5\r\ngrpc-message: private-secret\r\n'),
+  ))));
+  const iterator = stream(create());
+  assert.deepEqual([...(await iterator.next()).value], [7]);
+  await assert.rejects(iterator.next(), error => {
+    assert.equal(error.code, 'TRANSPORT_ERROR');
+    assert.equal(isGrpcNotFound(error), true);
+    assert.doesNotMatch(error.message, /private-secret/);
+    return true;
+  });
+});

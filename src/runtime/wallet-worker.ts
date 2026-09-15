@@ -35,119 +35,200 @@ function isPort(value: unknown): value is MessagePort {
 }
 function failed(code: string): never { throw new Error(code); }
 
-// Open requests serialize only acquisition; existing wallet ports keep their own queues.
-let opening = Promise.resolve();
-control.onmessage = ({ data }) => { opening = opening.then(() => handle(data)); };
-async function handle(raw: unknown) {
-  const data: Record<string, unknown> = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
-  let backend: { owned: boolean; release(): void } | undefined;
-  let owner: InitializedViews | undefined;
-  let nativeOpening = false;
-  let failure = 'RUNTIME_UNAVAILABLE';
-  try {
-    if (phase === 'new' && data?.type === 'compute-initialize') {
-      phase = 'starting';
+type OpenRequest = {
+  type: 'open'; id: unknown; port: MessagePort;
+  storage: {kind: 'memory'} | {kind: 'persistent'; location: string; hostUrl: string};
+  parametersFormat: string; parameters: Uint8Array; genesis: Uint8Array;
+};
+type ControlRequest = OpenRequest
+  | {type: 'initialize'; id: unknown; moduleUrl: string; wasm: Uint8Array; expected: unknown; maxMemoryBytes: unknown; workers: unknown}
+  | {type: 'compute-initialize'; moduleUrl: string; module: WebAssembly.Module; memory: WebAssembly.Memory; index: number}
+  | {type: 'pool-build'}
+  | {type: 'signers'; id: unknown; port: MessagePort};
+
+function openRequest(data: Record<string, unknown>): OpenRequest {
+  const storage = data.storage;
+  if (!storage || typeof storage !== 'object' || Array.isArray(storage)) failed('INVALID_ARGUMENT');
+  const record = storage as Record<string, unknown>;
+  let location: OpenRequest['storage'];
+  if (record.kind === 'memory') {
+    if (Object.keys(record).length !== 1) failed('INVALID_ARGUMENT');
+    location = {kind: 'memory'};
+  } else {
+    if (record.kind !== (node ? 'node-filesystem' : 'browser-opfs')) failed('INVALID_ARGUMENT');
+    const path = node ? record.path : record.name;
+    if (typeof path !== 'string' || !executableUrl(data.hostUrl)) failed('INVALID_ARGUMENT');
+    location = {kind: 'persistent', location: path, hostUrl: data.hostUrl};
+  }
+  if (!isPort(data.port) || !(data.genesis instanceof Uint8Array) || data.genesis.length !== 32
+    || !(data.parameters instanceof Uint8Array) || data.parameters.length < 1 || data.parameters.length > 256
+    || typeof data.parametersFormat !== 'string') failed('INVALID_ARGUMENT');
+  return {type: 'open', id: data.id, storage: location, port: data.port,
+    parametersFormat: data.parametersFormat, parameters: data.parameters, genesis: data.genesis};
+}
+
+function admit(data: Record<string, unknown>): ControlRequest {
+  switch (data.type) {
+    case 'compute-initialize':
+      if (phase !== 'new') failed('PROTOCOL_MISMATCH');
       if (!executableUrl(data.moduleUrl) || !(data.module instanceof WebAssembly.Module)
         || !(data.memory instanceof WebAssembly.Memory) || !(data.memory.buffer instanceof SharedArrayBuffer)
-        || typeof data.index !== 'number' || !Number.isSafeInteger(data.index) || data.index < 0 || data.index >= 8) failed('PROTOCOL_MISMATCH');
-      api = await import(data.moduleUrl);
-      // The generated initializer establishes the child's TLS/stack before its
-      // blocking native entry. The host may release the owner build meanwhile.
-      api.enterThreaded(data.module, data.memory, data.index, () => control.postMessage({type:'compute-loaded', index:data.index}));
-      failed('RUNTIME_UNAVAILABLE');
-    }
-    if (phase === 'starting' && data?.type === 'pool-build' && initializationId !== undefined) {
-      runtime = api.finishThreaded();
-      phase = 'ready';
-      control.postMessage({type:'ready', identity:api.runtimeIdentity, id:initializationId});
-      return;
-    }
-    if (phase === 'new' && data?.type === 'initialize') {
-      phase = 'starting';
+        || typeof data.index !== 'number' || !Number.isSafeInteger(data.index) || data.index < 0 || data.index >= 8)
+        failed('PROTOCOL_MISMATCH');
+      return {type: data.type, moduleUrl: data.moduleUrl, module: data.module, memory: data.memory, index: data.index};
+    case 'initialize':
+      if (phase !== 'new') failed('PROTOCOL_MISMATCH');
       if (!executableUrl(data.moduleUrl) || !(data.wasm instanceof Uint8Array)) failed('INVALID_ARGUMENT');
-      api = await import(data.moduleUrl);
-      if (phase !== 'starting') return;
-      const identity = api.runtimeIdentity;
-      if (!identity || !sameRecord(walletProfile, {
-        contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
-      }) || !sameRecord(data.expected, {
-        contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
-        buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
-      }) || !['baseline','threaded'].includes(identity.mode) || identity.memory?.shared !== (identity.mode === 'threaded')
-        || identity.memory.maximumPages !== 4096 || !Number.isSafeInteger(identity.memory.initialPages)
-        || identity.memory.initialPages < 1 || identity.memory.initialPages > identity.memory.maximumPages) failed('PROTOCOL_MISMATCH');
-      if (typeof data.maxMemoryBytes !== 'number' || !Number.isSafeInteger(data.maxMemoryBytes) || data.maxMemoryBytes < identity.memory.maximumPages * 65536) failed('RESOURCE_LIMIT');
-      if (identity.mode === 'threaded') {
-        if (typeof data.workers !== 'number' || !Number.isSafeInteger(data.workers) || data.workers < 1 || data.workers > 8) failed('RESOURCE_LIMIT');
-        if (typeof data.id !== 'number' || !Number.isSafeInteger(data.id)) failed('PROTOCOL_MISMATCH');
-        initializationId = data.id;
-        const pool = api.prepareThreaded(data.wasm, data.workers);
-        data.wasm.fill(0);
-        control.postMessage({type:'pool', id:data.id, module:pool.module, memory:pool.memory});
-        return;
-      }
-      runtime = api.initializeWalletRuntime(data.wasm);
-      data.wasm.fill(0);
-      phase = 'ready';
-      control.postMessage({ type: 'ready', identity, id: data.id });
-      return;
-    }
-    if (phase === 'ready' && data?.type === 'signers' && !signerPort) {
-      if (!isPort(data.port)) failed('PROTOCOL_MISMATCH');
-      installWalletWorker(undefined, data.port, () => runtime.invalid, runtime.signers);
-      signerPort = true;
-      control.postMessage({ type: 'signers-ready', id: data.id });
-      return;
-    }
-    if (phase !== 'ready' || data?.type !== 'open') failed('PROTOCOL_MISMATCH');
-    const rawStorage = data.storage;
-    if (!rawStorage || typeof rawStorage !== 'object' || Array.isArray(rawStorage)) failed('INVALID_ARGUMENT');
-    const storage = rawStorage as Record<string, unknown>;
-    if (!storage || (storage.kind !== 'memory' && (node ? storage.kind !== 'node-filesystem' : storage.kind !== 'browser-opfs'))
-      || (storage.kind !== 'memory' && !executableUrl(data.hostUrl)) || !isPort(data.port)
-      || !(data.genesis instanceof Uint8Array) || data.genesis.length !== 32
-      || !(data.parameters instanceof Uint8Array) || data.parameters.length < 1 || data.parameters.length > 256
-      || (storage.kind === 'memory' ? Object.keys(storage).length !== 1 : typeof (storage.kind === 'node-filesystem' ? storage.path : storage.name) !== 'string')) failed('INVALID_ARGUMENT');
-    if (typeof data.parametersFormat !== 'string') failed('INVALID_ARGUMENT');
+      return {type: data.type, id: data.id, moduleUrl: data.moduleUrl, wasm: data.wasm,
+        expected: data.expected, maxMemoryBytes: data.maxMemoryBytes, workers: data.workers};
+    case 'pool-build':
+      if (phase !== 'starting' || initializationId === undefined) failed('PROTOCOL_MISMATCH');
+      return {type: data.type};
+    case 'signers':
+      if (phase !== 'ready' || signerPort || !isPort(data.port)) failed('PROTOCOL_MISMATCH');
+      return {type: data.type, id: data.id, port: data.port};
+    case 'open':
+      if (phase !== 'ready') failed('PROTOCOL_MISMATCH');
+      return openRequest(data);
+    default: return failed('PROTOCOL_MISMATCH');
+  }
+}
+
+function checkIdentity(expected: unknown, maxMemoryBytes: unknown) {
+  const identity = api.runtimeIdentity;
+  if (!identity || !sameRecord(walletProfile, {
+    contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
+  }) || !sameRecord(expected, {
+    contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
+    buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
+  })) failed('PROTOCOL_MISMATCH');
+  if (!['baseline', 'threaded'].includes(identity.mode) || identity.memory?.shared !== (identity.mode === 'threaded')
+    || identity.memory.maximumPages !== 4096 || !Number.isSafeInteger(identity.memory.initialPages)
+    || identity.memory.initialPages < 1 || identity.memory.initialPages > identity.memory.maximumPages)
+    failed('PROTOCOL_MISMATCH');
+  if (typeof maxMemoryBytes !== 'number' || !Number.isSafeInteger(maxMemoryBytes)
+    || maxMemoryBytes < identity.memory.maximumPages * 65536) failed('RESOURCE_LIMIT');
+  return identity;
+}
+
+async function initialize(request: Extract<ControlRequest, {type: 'initialize'}>) {
+  phase = 'starting';
+  api = await import(request.moduleUrl);
+  const identity = checkIdentity(request.expected, request.maxMemoryBytes);
+  if (identity.mode === 'threaded') {
+    const {workers, id} = request;
+    if (typeof workers !== 'number' || !Number.isSafeInteger(workers) || workers < 1 || workers > 8) failed('RESOURCE_LIMIT');
+    if (typeof id !== 'number' || !Number.isSafeInteger(id)) failed('PROTOCOL_MISMATCH');
+    initializationId = id;
+    const pool = api.prepareThreaded(request.wasm, workers);
+    request.wasm.fill(0);
+    control.postMessage({type: 'pool', id, module: pool.module, memory: pool.memory});
+    return;
+  }
+  runtime = api.initializeWalletRuntime(request.wasm);
+  request.wasm.fill(0);
+  phase = 'ready';
+  control.postMessage({type: 'ready', identity, id: request.id});
+}
+
+async function initializeCompute(request: Extract<ControlRequest, {type: 'compute-initialize'}>) {
+  phase = 'starting';
+  api = await import(request.moduleUrl);
+  // Report loaded only after the generated initializer establishes the child's TLS/stack.
+  api.enterThreaded(request.module, request.memory, request.index,
+    () => control.postMessage({type: 'compute-loaded', index: request.index}));
+  failed('RUNTIME_UNAVAILABLE');
+}
+
+type Backend = {owned: boolean; release(): void};
+async function acquireStorage(storage: Extract<OpenRequest['storage'], {kind: 'persistent'}>): Promise<Backend> {
+  if (node) {
+    const filesystem = 'node:fs';
+    const fs = await import(filesystem);
+    try { fs.mkdirSync(storage.location, {mode: 0o700}); }
+    catch (error) { if ((error as {code?: string}).code !== 'EEXIST') throw error; }
+  }
+  const host = await import(storage.hostUrl);
+  return host.acquire(storage.location, {create: true});
+}
+
+const knownFailures = new Set(['INVALID_ARGUMENT', 'PROTOCOL_MISMATCH', 'RESOURCE_LIMIT',
+  'NETWORK_MISMATCH', 'SCHEMA_MISMATCH', 'VIEWING_SCHEMA_REQUIRED']);
+function failureInfo(error: unknown, fallback: string) {
+  let tag: unknown, code = fallback;
+  // Only fixed known tags cross the control channel; never filesystem or native text.
+  try { tag = typeof error === 'string' ? error : Object.getOwnPropertyDescriptor(error, 'message')?.value; }
+  catch { /* Unknown failure remains sanitized. */ }
+  try {
+    if (Object.getOwnPropertyDescriptor(error, 'code')?.value === 'EBUSY'
+      || error instanceof DOMException && error.name === 'NoModificationAllowedError') code = 'STORAGE_BUSY';
+  } catch { /* Keep the fixed fallback. */ }
+  const known = typeof tag === 'string' && knownFailures.has(tag);
+  if (known && typeof tag === 'string') code = tag;
+  return {code, known};
+}
+
+/** Acquisition owns cleanup until both the wallet port and its control receipt are installed. */
+async function openStorage(request: OpenRequest): Promise<{code: string; fatal: boolean} | undefined> {
+  let backend: Backend | undefined, owner: InitializedViews | undefined;
+  let nativeOpening = false, fallback = 'RUNTIME_UNAVAILABLE';
+  try {
     // Native document validation precedes storage acquisition.
-    api.consensusContext(data.parametersFormat, data.parameters, 0);
-    failure = 'STORAGE_ERROR';
-    let opened: unknown;
-    if (storage.kind === 'memory') { nativeOpening = true; opened = runtime.openMemory(data.parametersFormat, data.parameters, data.genesis); }
-    else {
-      const location = storage.kind === 'node-filesystem' ? storage.path : storage.name;
-      if (typeof location !== 'string' || !executableUrl(data.hostUrl)) failed('INVALID_ARGUMENT');
-      if (storage.kind === 'node-filesystem') {
-        const filesystem = 'node:fs';
-        const fs = await import(filesystem);
-        if (phase !== 'ready') failed('PROTOCOL_MISMATCH');
-        try { fs.mkdirSync(location, { mode: 0o700 }); }
-        catch (error) { if ((error as { code?: string }).code !== 'EEXIST') throw error; }
-      }
-      const host = await import(data.hostUrl);
-      if (phase !== 'ready') failed('PROTOCOL_MISMATCH');
-      backend = await host.acquire(location, { create: true });
-      if (phase !== 'ready') failed('PROTOCOL_MISMATCH');
-      nativeOpening = true;
-      opened = runtime.open(backend, data.parametersFormat, data.parameters, data.genesis);
-    }
+    api.consensusContext(request.parametersFormat, request.parameters, 0);
+    fallback = 'STORAGE_ERROR';
+    const {storage, parametersFormat, parameters, genesis} = request;
+    if (storage.kind === 'persistent') backend = await acquireStorage(storage);
+    nativeOpening = true;
+    const opened = storage.kind === 'memory'
+      ? runtime.openMemory(parametersFormat, parameters, genesis)
+      : runtime.open(backend, parametersFormat, parameters, genesis);
     owner = api.viewsForStorage(opened);
-    installWalletWorker(owner, data.port, () => runtime.invalid);
-    control.postMessage({ type: 'opened', id: data.id });
+    installWalletWorker(owner, request.port, () => runtime.invalid);
+    control.postMessage({type: 'opened', id: request.id});
+    return;
   } catch (error) {
-    if (phase !== 'ready') phase = 'failed';
-    // Only fixed known tags cross the control channel; never filesystem or native text.
-    let tag: unknown;
-    try { tag = typeof error === 'string' ? error : Object.getOwnPropertyDescriptor(error, 'message')?.value; } catch { /* Unknown failure remains sanitized. */ }
-    try { if (Object.getOwnPropertyDescriptor(error, 'code')?.value === 'EBUSY'
-      || error instanceof DOMException && error.name === 'NoModificationAllowedError') failure = 'STORAGE_BUSY'; } catch { /* Keep the fixed fallback. */ }
-    const allowed = ['INVALID_ARGUMENT', 'PROTOCOL_MISMATCH', 'RESOURCE_LIMIT', 'NETWORK_MISMATCH', 'SCHEMA_MISMATCH', 'VIEWING_SCHEMA_REQUIRED'];
-    if (typeof tag === 'string' && allowed.includes(tag)) failure = tag;
+    const info = failureInfo(error, fallback);
     let cleanupFailed = false;
     try { if (owner) owner.close(owner.generation, owner.instance); } catch { cleanupFailed = true; }
-    try { if (backend?.owned) backend.release(); } catch { cleanupFailed = true; failure = 'STORAGE_ERROR'; }
-    const fatal = cleanupFailed || data?.type !== 'open' || phase !== 'ready' || runtime?.invalid === true || nativeOpening && !(typeof tag === 'string' && allowed.includes(tag));
-    if (fatal) phase = 'failed';
-    control.postMessage({ type: 'failure', code: failure, id: data?.type === 'pool-build' ? initializationId : data?.id, fatal });
+    try { if (backend?.owned) backend.release(); } catch { cleanupFailed = true; info.code = 'STORAGE_ERROR'; }
+    return {code: info.code, fatal: cleanupFailed || runtime?.invalid === true || nativeOpening && !info.known};
+  }
+}
+
+function reportFailure(data: Record<string, unknown>, code: string, fatal: boolean) {
+  if (fatal) phase = 'failed';
+  control.postMessage({type: 'failure', code, id: data.type === 'pool-build' ? initializationId : data.id, fatal});
+}
+
+// Open requests serialize only acquisition; existing wallet ports keep their own queues.
+let opening = Promise.resolve();
+control.onmessage = ({data}) => { opening = opening.then(() => handle(data)); };
+async function handle(raw: unknown) {
+  const data: Record<string, unknown> = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? raw as Record<string, unknown> : {};
+  try {
+    const request = admit(data);
+    switch (request.type) {
+      case 'initialize': return await initialize(request);
+      case 'compute-initialize': return await initializeCompute(request);
+      case 'pool-build':
+        runtime = api.finishThreaded();
+        phase = 'ready';
+        control.postMessage({type: 'ready', identity: api.runtimeIdentity, id: initializationId});
+        return;
+      case 'signers':
+        installWalletWorker(undefined, request.port, () => runtime.invalid, runtime.signers);
+        signerPort = true;
+        control.postMessage({type: 'signers-ready', id: request.id});
+        return;
+      case 'open': {
+        const result = await openStorage(request);
+        if (result) reportFailure(data, result.code, result.fatal);
+      }
+    }
+  } catch (error) {
+    // Invalid open inputs can be corrected; all other control failures invalidate startup.
+    const fatal = data.type !== 'open' || phase !== 'ready' || runtime?.invalid === true;
+    reportFailure(data, failureInfo(error, 'RUNTIME_UNAVAILABLE').code, fatal);
   }
 }

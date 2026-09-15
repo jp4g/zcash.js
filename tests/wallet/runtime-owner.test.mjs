@@ -72,3 +72,68 @@ test('compute initialization failure never reports loaded', async t => {
   worker.postMessage({type:'compute-initialize',moduleUrl:pathToFileURL(join(root,'native.mjs')).href,module:new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0])),memory:new WebAssembly.Memory({initial:1,maximum:2,shared:true}),index:0});
   assert.equal((await answer)[0].type,'failure');assert.equal(answers.some(value=>value.type==='compute-loaded'),false);
 });
+
+for (const fault of ['acquire', 'native-known', 'native-unknown', 'consensus']) test(`storage opening contains ${fault} failure`, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'wallet-owner-boundary-'));
+  const worker = new Worker(new URL('../../dist/src/runtime/wallet-worker.js', import.meta.url));
+  const channels = [];
+  t.after(async () => {
+    for (const channel of channels) { channel.port1.close(); channel.port2.close(); }
+    await worker.terminate();
+    await rm(root, {recursive: true, force: true});
+  });
+  const identity = {...walletProfile, mode: 'baseline', buildSha256: '0'.repeat(64), dependencyGraphSha256: '1'.repeat(64),
+    memory: {initialPages: 321, maximumPages: 4096, shared: false}};
+  const {memory, ...expected} = identity;
+  const log = join(root, 'events');
+  await writeFile(join(root, 'native.mjs'), `
+    import {appendFileSync} from 'node:fs';
+    const log = event => appendFileSync(${JSON.stringify(log)}, event + '\\n');
+    let validations = 0, opens = 0;
+    export const runtimeIdentity = ${JSON.stringify(identity)};
+    export const consensusContext = () => { log('validate'); if (++validations === 1 && ${fault === 'consensus'}) throw Error('INVALID_ARGUMENT'); };
+    export const initializeWalletRuntime = () => ({invalid: false, open(backend) {
+      log('open');
+      if (++opens === 1 && ${fault.startsWith('native')}) throw Error(${JSON.stringify(fault === 'native-known' ? 'NETWORK_MISMATCH' : 'private native text')});
+      return backend;
+    }});
+    export const viewsForStorage = backend => ({generation: 1, instance: 'fixture', call() {}, close() {backend.release();}});
+  `);
+  await writeFile(join(root, 'host.mjs'), `
+    import {appendFileSync} from 'node:fs';
+    let acquisitions = 0;
+    export const acquire = async () => {
+      appendFileSync(${JSON.stringify(log)}, 'acquire\\n');
+      if (++acquisitions === 1 && ${fault === 'acquire'}) throw Error('private filesystem text');
+      return {owned: true, release() {this.owned = false; appendFileSync(${JSON.stringify(log)}, 'release\\n');}};
+    };
+  `);
+  const reply = async data => {
+    const answer = once(worker, 'message', {signal: AbortSignal.timeout(5000)});
+    worker.postMessage(data, data.port ? [data.port] : []);
+    return (await answer)[0];
+  };
+  await reply({id: 1, type: 'initialize', moduleUrl: pathToFileURL(join(root, 'native.mjs')).href,
+    wasm: new Uint8Array([0]), expected, maxMemoryBytes: 512 * 1024 * 1024});
+  const open = id => {
+    const channel = new MessageChannel(); channels.push(channel);
+    return reply({id, type: 'open', storage: {kind: 'node-filesystem', path: root},
+      hostUrl: pathToFileURL(join(root, 'host.mjs')).href, parametersFormat: 'zcash-js-network/1',
+      parameters: new Uint8Array([1]), genesis: new Uint8Array(32), port: channel.port2});
+  };
+  const first = await open(2);
+  assert.equal(first.type, 'failure');
+  assert.equal(first.fatal, fault === 'native-unknown');
+  assert.equal(first.code, fault === 'native-known' ? 'NETWORK_MISMATCH' : fault === 'consensus' ? 'INVALID_ARGUMENT' : 'STORAGE_ERROR');
+  assert.doesNotMatch(JSON.stringify(first), /private/);
+  const {readFile} = await import('node:fs/promises');
+  const events = (await readFile(log, 'utf8')).trim().split('\n');
+  assert.deepEqual(events, fault === 'consensus' ? ['validate'] : fault === 'acquire'
+    ? ['validate', 'acquire'] : ['validate', 'acquire', 'open', 'release']);
+  const second = await open(3);
+  assert.equal(second.type, fault === 'native-unknown' ? 'failure' : 'opened');
+  if (fault === 'native-unknown') {
+    assert.equal(second.fatal, true);
+    assert.equal((await readFile(log, 'utf8')).trim().split('\n').length, events.length);
+  }
+});

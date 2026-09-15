@@ -41,6 +41,8 @@ Both range endpoints are inclusive. This example retains only block points; proc
 
 Other methods include `getTip`, `getServerInfo`, `getTransaction`, `getTreeState`, `getSubtreeRoots`, `getAddressUtxos`, `getAddressBalance`, `streamAddressTransactions`, and `streamMempool`. A transparent address balance is an exact bigint but is not a shielded wallet balance.
 
-Use an `AbortController` to stop a long stream, or break a `for await` loop. Do not pull the same iterator concurrently. Provider failures are errors, not empty balances or empty successful streams.
+Use an `AbortController` to stop a long stream, or break a `for await` loop. Do not pull the same iterator concurrently.
+
+Reported transport and protocol failures reject. Some backends can hide failures behind empty replies, which the SDK cannot distinguish from valid empty results. Check your provider's behavior before treating an empty result as complete.
 
 For an application-owned byte transport, `CustomLightTransport` accepts bounded protobuf messages at the supported protocol revision. The Node-only `zcash.js/grpc-node` entry exports `createGrpcNodeTransport`; ordinary applications can use `grpc` without importing that lower-level adapter.

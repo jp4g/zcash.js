@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitepress';
 
 const planning = [
@@ -16,35 +17,13 @@ const research = [
   ['API inspiration', 'transaction-api-inspiration-review'],
 ].map(([text, slug]) => ({ text, link: `/research/${slug}` }));
 
-const book = [
-  ['Status & scope', 'README'],
-  ['End-to-end walkthrough', 'walkthrough'],
-  ['Design principles', 'principles'],
-  ['Installation & imports', 'installation'],
-  ['Networks & exact amounts', 'networks-amounts'],
-  ['Public client', 'public-client'],
-  ['Light client', 'light-client'],
-  ['Wallet, runtime & storage', 'wallet-runtime'],
-  ['Accounts, recovery & signers', 'accounts-signers'],
-  ['Receive addresses', 'receive-addresses'],
-  ['Sync & scan status', 'sync'],
-  ['Balances, history & inventory', 'queries'],
-  ['Send & shield', 'send-shield'],
-  ['Reviewed proposals', 'proposals'],
-  ['Local signing & external PCZT', 'signing'],
-  ['Pending payments & recovery', 'operations'],
-  ['Errors & lifecycle', 'errors-lifecycle'],
-  ['Security & privacy', 'security-privacy'],
-  ['Node & browser limits', 'platforms'],
-  ['Full API reference', 'reference'],
-  ['Exact declarations', 'public-api'],
-  ['Rust/WASM host contract', 'host-contract'],
-  ['Host operation mapping', 'host-mapping'],
-].map(([text, slug]) => ({ text, link: `/api/${slug}` }));
+const summary = readFileSync(new URL('../api/SUMMARY.md', import.meta.url), 'utf8');
+const book = [...summary.matchAll(/^- \[(.+?)\]\(([^)]+)\.md\)$/gm)]
+  .map(([, text, slug]) => ({ text, link: `/api/${slug}` }));
 
 export default defineConfig({
   title: 'zcash.js',
-  description: 'Proposed Zcash TypeScript API, planning decisions and source research. Pre-implementation; no usable SDK.',
+  description: 'Practical TypeScript guides for zcash.js clients, wallets, signing, and payment recovery.',
   lang: 'en-US',
   base: '/',
   cleanUrls: false,
@@ -52,7 +31,7 @@ export default defineConfig({
   themeConfig: {
     siteTitle: 'zcash.js / docs',
     nav: [
-      { text: 'API · proposed', link: '/api/README', activeMatch: '/api/' },
+      { text: 'API guide', link: '/api/README', activeMatch: '/api/' },
       { text: 'Walkthrough', link: '/api/walkthrough' },
       { text: 'Research', link: '/research/zakura-api-capability-map', activeMatch: '/research/' },
     ],
@@ -62,7 +41,7 @@ export default defineConfig({
         { text: 'Repository overview', link: '/repository' },
         { text: 'Contributing', link: '/contributing' },
       ] },
-      { text: 'Proposed v1 API book', items: book },
+      { text: 'Developer guide', items: book },
       { text: 'Planning · retained decisions', collapsed: true, items: planning },
       { text: 'Research · source evidence', collapsed: true, items: research },
     ],
@@ -82,7 +61,6 @@ export default defineConfig({
             let href = token.attrGet('href');
             if (!href || /^(?:[a-z]+:|\/\/)/i.test(href)) continue;
             href = href
-              .replace(/^(?:\.\.\/)?README\.md(?=#|$)/, '/repository')
               .replace(/^(?:\.\.\/)?CONTRIBUTING\.md(?=#|$)/, '/contributing')
               .replace(/^docs\//, '/')
               .replace(/^(?:\.\/)?\.\.\//, '/')

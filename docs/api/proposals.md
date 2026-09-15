@@ -1,31 +1,32 @@
-# Reviewed immutable proposals
+# Review a proposal before execution
 
-::: tip Proposed Contract
-`propose` chooses a reviewable plan; it does not sign or broadcast. `send({ proposal })` executes exactly that retained plan and rejects stale state instead of replanning.
-:::
+A proposal binds the selected inputs, outputs, fees, and consensus context. Review every step: one payment operation can require several transactions.
 
-<<< ./examples/proposals.ts
+```ts
+import { parseZec } from 'zcash.js';
+import type { AccountRecord, Proposal, WalletClient } from 'zcash.js';
 
-## What the reviewer approves
+export async function reviewedSend(
+  wallet: WalletClient,
+  account: AccountRecord,
+  recipient: string,
+  requestId: string,
+  approve: (proposal: Proposal) => Promise<boolean>,
+) {
+  const proposal = await wallet.propose({
+    accountId: account.id, to: recipient, amount: parseZec('0.00125'),
+    idempotencyKey: requestId,
+  });
+  if (!await approve(proposal)) {
+    await wallet.operations.abandon({ operationId: proposal.operationId });
+    return null;
+  }
+  return wallet.send({ proposal });
+}
+```
 
-Show all steps and dependencies, selected inputs and their pools, recipients/amounts/memos, change and step-funding outputs, each fee and total fee. Recipient addresses remain exact. Change and step-funding addresses may be `null`
-until native construction chooses them; show these as unresolved wallet-owned
-outputs, not placeholder addresses. Their pool, amount and ownership intent remain
-part of the plan. Review network, target height/branch, transaction versions,
-expiry and lock expiry. Explain transparent disclosure and pool crossing before approval.
+Show recipients, amounts, input pools, changes, total fee, expiry, and dependencies. Keep the SDK-returned proposal intact. Passing `{ proposal }` executes that reviewed proposal; do not combine it with a new amount or recipient. SDK handles are bound to their owning wallet and cannot be reconstructed by parsing saved JSON.
 
-`operationId` is durable work identity, `proposalId` identifies the retained plan, and `reviewCommitment` binds review effects. The proposal commitment binds explicit recipient intent and internal-output
-constraints; it does not claim to commit an unresolved address string. Native
-execution must verify that change is wallet-controlled and step-funding is consumed
-by the intended dependency. Wallet control does not bypass confirmation or maturity
-rules. `revision` supports freshness checks. Account IDs are metadata, not proof of native getter availability. The application review callback in the example is application UX, not an SDK `approve` method or a transferable approval token.
+`operations.abandon` retires an unbuilt proposal and releases its proposal locks. Once artifacts or finalized transactions exist, it can reject. Abandoning an operation is not a way to undo broadcast.
 
-The proposal is opaque and instance-bound. Readonly JavaScript fields alone do not make a `Uint8Array` immutable: Rust must retain/copy and revalidate canonical effects. Editing displayed output, fee, memo, network or selected inputs cannot change the retained approved plan.
-
-## Staleness and locks
-
-Revalidate after long review/proving, reorg, expiry and wallet mutation. `STALE_PROPOSAL`, `INPUT_LOCKED` or `REVIEW_MISMATCH` must not trigger an automatic new proposal. A new plan needs new review, and unresolved earlier spend evidence still needs reconciliation.
-
-Locks are advisory wallet reservations, not consensus locks. Timeout/abort does not release them or invalidate a submitted transaction. Unknown chain tip cannot justify expiring another operation's lock.
-
-For reviewed shielding, `propose({ kind: 'shield', accountId, ... })` creates a proposal consumed by `send({ proposal })`; `shield` itself has no proposal overload.
+For external signing, `build({ proposal })` creates a PCZT artifact. The next chapter explains signing and explicit local finalization.

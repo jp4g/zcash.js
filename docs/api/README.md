@@ -1,35 +1,39 @@
-# Proposed v1 API book
+# zcash.js developer guide
 
-::: warning Partial private implementation
-The private SDK now exposes public, light and wallet clients, with scoped synthetic Node filesystem and Firefox OPFS qualification. See [local installation](installation.md) and the [qualification requirements](host-contract.md). This book preserves the frozen [issue #1](https://github.com/jp4g/zcash.js/issues/1) contract; full acceptance remains incomplete, including #97, #102 and healthy threading. No published package is claimed. Embedded examples remain compile-only contracts.
-:::
+Build a Zcash application with TypeScript: read the chain, maintain a local wallet, receive funds, review a payment, and recover its state after a restart.
 
-Start with the [end-to-end walkthrough](walkthrough.md), then follow the chapters in sidebar order. A stakeholder should be able to explain who owns the account, what has actually been submitted, and what survives a restart before reviewing the implementation boundary.
+The SDK is implemented and experimental. The package is currently private: install a local build, not an assumed npm release. Public and light queries use the included codecs. Wallet operations also need a compatible, authenticated WASM runtime package supplied by your application.
 
-## Status and scope
+## Choose your starting point
 
-V1 targets **transparent, Sapling and Ironwood**, with one TypeScript product for Node and browsers. Transparent receipt/spending/shielding remains subject to owned scripts, maturity and recovery constraints. Sapling and Ironwood each require scanning, transaction and local proving qualification. Ironwood uses an Orchard receiver encoding; legacy Orchard is not a supported `Pool`. Historical legacy accounting remains visible.
+| I want to… | Start here |
+| --- | --- |
+| Install the SDK and make a first request | [Installation](installation.md) |
+| Query blocks and transactions without a wallet | [Public client](public-client.md) |
+| Read lightwallet data or stream blocks | [Light client](light-client.md) |
+| Keep accounts, balances, and transaction history | [Open a wallet](wallet-runtime.md) |
+| Follow a complete wallet workflow | [Wallet walkthrough](walkthrough.md) |
+| Recover after an interrupted payment | [Operations and recovery](operations.md) |
+| Find a specific export or method | [API reference](reference.md) |
 
-The public client queries chain data, the light client supplies lightwallet data, and the wallet client owns local state. Each constructs independently; optional composition holds those same instances. No default network, endpoint, account, signer, provider failover or project infrastructure is supplied.
+## Three clients, different jobs
 
-Excluded from v1: Sprout and legacy Orchard spending/automatic migration; mnemonic/seed generation; raw spending-key export; persistent secret custody; UIVK wallet import and less-common key imports; concrete Ledger support; remote proving; multisig; remote-wallet RPC. No WebZjs API or snapshot compatibility, full-node consensus validator, release topology or license is established.
+- `createPublicClient`: stateless JSON-RPC queries and transaction observation.
+- `createLightClient`: lightwallet queries and streams over native gRPC in Node or gRPC-Web in a browser.
+- `createWalletClient`: a local database, scanning, accounts, proposals, signing, and recorded payment operations.
 
-## How to read the book
+Clients are independent. Pass a light client to a wallet to enable sync; pass a broadcaster explicitly to enable submission. `createZcashClient({ public, light, wallet })` groups existing instances and checks their networks; it does not create or own them.
 
-- **Proposed Contract** identifies behavior required of a future implementation.
-- **Compile-only contract** identifies examples or declarations; typechecking does not establish runtime support.
-- **Unimplemented** identifies missing product work, not every exported SDK method.
-- **Requires Qualification** identifies claims that need functional evidence before support can be advertised.
+## A first example
 
-The [declarations](public-api.md) remain the exact signature baseline. [D01–D26](../planning/decision-log.md) govern settled scope; this book preserves them. D26 amends opening to recover all recorded operations without a separately persisted ID, under the [recovery policy](operations.md). Research and historical candidate snippets are secondary evidence, not alternate current APIs. The [host contract](host-contract.md) adds a versioned review boundary. Issue #1 freezes the authenticated `WasmArtifact` manifest declaration and clarifies that zero-birthday account creation uses coherent local database state after explicit sync, failing `SYNC_REQUIRED` before mutation when unavailable/stale.
+```ts
+import { formatZec, parseZec } from 'zcash.js';
 
-## Review route
+const amount = parseZec('0.00125');
+console.log(amount);           // 125000n zatoshis
+console.log(formatZec(amount)); // "0.00125"
+```
 
-1. [Walk through a wallet lifecycle](walkthrough.md), including interruption and restart.
-2. Read [principles](principles.md) and [installation notation](installation.md), then networks, clients, accounts and queries.
-3. Review sending, immutable proposals, signer roles and recovery together.
-4. Inspect the [full API reference](reference.md) and [Rust/WASM mapping](host-mapping.md).
+Amounts are `bigint`. Keep user-entered ZEC as a string until `parseZec` validates it.
 
-::: info Requires Qualification
-G0–G6 design/implementation-readiness gates and F1–F8 functional gates are not marked complete by this book. TypeScript and site builds establish documentation consistency only. Storage durability, scanner liveness, protocol interoperability, proving and device support remain unvalidated.
-:::
+The chapters below use ordinary TypeScript and the actual package exports. Examples with function parameters expect your application to supply those values. Typechecking verifies the API calls; it does not supply network endpoints, runtime artifacts, accounts, or funds.

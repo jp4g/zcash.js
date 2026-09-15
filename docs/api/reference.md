@@ -1,62 +1,53 @@
-# Full API reference
+# API reference
 
-::: tip Proposed Contract
-The complete declaration file is included on the [declaration page](public-api.md), with every exported type, field, overload and error code. This index groups the entire public surface by task; there are no additional runtime exports or package subpaths implied.
-:::
+Use the chapter links for examples. The [package entry point](https://github.com/jp4g/zcash.js/blob/main/src/index.ts) lists actual exports; the [source contracts](https://github.com/jp4g/zcash.js/blob/main/src/types.ts) contain complete TypeScript shapes. Your editor reads the same declarations from the installed package.
 
-## Factories, composition and foundational types
+## Package exports
 
-`defineNetwork`, `accountIndex`, `diversifierIndex`, `txId`, `blockHash` validate inputs. `parseZec(value: string): bigint` and `formatZec(zatoshis: bigint): string` convert decimal ZEC strings and exact bigint zatoshis without floating-point arithmetic. See [networks and amounts](networks-amounts.md) for `NetworkDefinition`, `Network`, `ConsensusContext`, `AccountId`, `AccountIndex`, `DiversifierIndex`, `TxId`, `BlockHash`, `Pool`, `ShieldedPool`, `ReceiverType`, `SecretInput`, `NonEmpty`, `Op` and `Disposable`.
+| Export | Purpose | Guide |
+| --- | --- | --- |
+| `defineNetwork` | Validate and register network parameters | [Networks](networks-amounts.md) |
+| `parseZec`, `formatZec` | Exact ZEC/zatoshi conversion | [Amounts](networks-amounts.md) |
+| `accountIndex`, `diversifierIndex`, `txId`, `blockHash` | Validate typed identifiers | [Identifiers](networks-amounts.md) |
+| `http`, `createPublicClient` | JSON-RPC transport and public reads | [Public client](public-client.md) |
+| `grpc`, `createLightClient` | Lightwallet transport and reads | [Light client](light-client.md) |
+| `createWalletClient` | Open the local wallet and recover recorded work | [Wallet setup](wallet-runtime.md) |
+| `createZcashClient` | Group existing same-network clients | [Introduction](README.md) |
+| `resolveBirthday` | Resolve a scan starting point | [Accounts](accounts-signers.md) |
+| `accountFromViewingKey`, `viewing`, `addresses` | Standalone viewing and address operations | [Receiving](receive-addresses.md) |
+| `createCustomSigner`, `pczt` | Signer integration and standalone PCZT tools | [Signing](signing.md) |
+| `isZcashError` | Narrow a structured SDK failure | [Errors](errors-lifecycle.md) |
 
-`http`, `grpc`, `createPublicClient`, `createLightClient`, `createWalletClient`, `createZcashClient` construct the proposed clients/transports. See [public](public-client.md), [light](light-client.md) and [wallet](wallet-runtime.md) chapters for `TransportOptions`, `HttpTransport`, `GrpcTransport`, `LightUnaryMethod`, `LightStreamMethod`, `CustomLightTransport`, `ObservationOptions`, `WalletOptions`, `RecoveryPolicy`, `RecoveryReport`, `WalletStorage`, `RuntimeOptions`, `WasmArtifact`, `ArtifactManifest`, `ArtifactFile`, `RuntimeDiagnostic`, `AssetRequirement`, `LocalProvingOptions`, `ConfirmationsPolicy` and `TransactionPolicy`. `ZcashClient` composition references existing instances without disposal ownership.
+`zcash.js/grpc-node` additionally exports `createGrpcNodeTransport` for explicit Node byte-transport use.
 
-## PublicClient
+## Wallet methods
 
-- `getTip`, `getBlock`, `getBlockHeader`: `ChainTip`, `BlockSelector`, `PublicBlock`, `BlockHeader`, `ChainPoint`, `BlockHash` and `SourceObservation`.
-- `getTransaction`, `getTransactionStatus`: `PublicTransaction`, `TransactionObservation`, `Inclusion`.
-- `getUtxos`, `getTreeState`, `getSubtreeRoots`: `PublicUtxos/PublicUtxo`, `TreeState`, `SubtreeRequest/SubtreeRoot`.
-- `broadcastTransaction`, `waitForTransaction`, `watchTransaction`: `BroadcastReport`, `WaitOptions`, `ConfirmedTransaction`, observations.
+| Group | Methods | Effect |
+| --- | --- | --- |
+| `accounts` | `create`, `import`, `list`, `get`, `remove`, `attachSigner`, `detachSigner` | Local account records and signer bindings |
+| `addresses` | `current`, `next`, `list`, `at` | Read or record receive-address exposure |
+| Planning | `propose` | Retain an immutable proposal and its locks |
+| Execution | `send`, `shield` | Plan/execute and explicitly dispatch payment work |
+| Stages | `build`, `prove`, `sign`, `finalize` | Prepare artifacts; finalize retains bytes without submission |
+| `pczt` | `export`, `import` | Exchange artifacts associated with an operation |
+| `operations` | `list`, `get`, `resume`, `abandon` | Inspect/recover work or retire an unbuilt proposal |
+| Submission | `broadcast` | Submit retained bytes for an operation |
+| Queries | `getBalance`, `getHistory`, `getTransaction`, `listNotes`, `listUtxos` | Read local scan/accounting state |
+| Sync | `sync`, `getSyncStatus`, `watchSync` | Scan or observe progress |
+| Lifetime | `close` | Drain work and close the wallet |
 
-See [public client](public-client.md) for null/error distinctions, endpoint trust, bounds and dispatch semantics.
+A `PendingPayment` exposes `operationId`, `snapshot`, `events`, `broadcast`, and `wait`. A wallet exposes `network` and the startup `recovery` report.
 
-## LightClient
+## Public and light methods
 
-`getTip`, `getServerInfo`, `getTransaction`, `getAddressUtxos`, `getAddressBalance`, `getTreeState`, `getSubtreeRoots`, `streamCompactBlocks`, `streamAddressTransactions`, `streamMempool`, `broadcastTransaction`. It shares public DTOs and adds `LightServerInfo`, `HeightRange`, `CompactBlock`. See [light client](light-client.md) for inclusive ranges, protobuf revision, uint64 sentinels and pull-bounded streams.
+| Public client | Light client |
+| --- | --- |
+| `getTip` | `getTip`, `getServerInfo` |
+| `getBlock`, `getBlockHeader` | `streamCompactBlocks` |
+| `getTransaction`, `getTransactionStatus` | `getTransaction` |
+| `getUtxos` | `getAddressUtxos`, `getAddressBalance` |
+| `getTreeState`, `getSubtreeRoots` | `getTreeState`, `getSubtreeRoots` |
+| `watchTransaction`, `waitForTransaction` | `streamAddressTransactions`, `streamMempool` |
+| `broadcastTransaction` | `broadcastTransaction` |
 
-## WalletClient resources
-
-`AccountsApi` (`accounts.create/import/list/get/remove/attachSigner/detachSigner`): `AccountCreate`, `MnemonicImport`, `ViewingImport`, `CreatedAccount`, `AccountRecord`, `SignerBinding`, `Birthday`. `resolveBirthday` is standalone. Mnemonic import returns a signer; UFVK import returns a record. [Account contract](accounts-signers.md).
-
-`WalletAddressesApi` (`addresses.current/next/list/at`): `AccountAddressArgs`, `AddressRequest`, `AddressRecord`. Current returns string/null; next/at persist exposure. [Receive contract](receive-addresses.md).
-
-`pczt.export/import`: `WalletPcztApi`, `PcztExchange`, `PcztArtifact`, associated with a known wallet operation. [Signing contract](signing.md).
-
-`operations.list/get/resume`: `OperationsApi`, `OperationPage`, `PageArgs`, `PaymentState`, `PendingPayment`. Opening automatically recovers all database operations. `wallet.recovery` reports local completion and startup observation/deferred counts. List can be wallet-wide; resume selects a handle and has no signing/dispatch effect. [Recovery contract](operations.md).
-
-## WalletClient flat methods
-
-`send`, `shield`, `propose`: `Payment`, `MemoInput`, `SendIntent`, `ShieldIntent`, `ExecuteOptions`, `Proposal`, `ReviewedInput/ReviewedOutput`. Send takes intent or exact proposal; shield takes intent; propose accepts send or tagged shield intent. [Payments](send-shield.md) and [review](proposals.md).
-
-`build`, `prove`, `sign`, `finalize`: single-step `PcztArtifact` roles; finalize stores without dispatch. `broadcast` takes operation ID. These do not expose universal local staging. [Signing routes](signing.md).
-
-`getBalance`, `getHistory`, `getTransaction`, `listNotes`, `listUtxos`: `WalletBalance/BalanceBuckets`, `HistoryPage/HistoryEntry`, `WalletTransaction/TransactionOutput`, `Memo`, `ObservedPool`, `InventoryFilter/InventoryState/SpendState`, `WalletNote/WalletUtxo`, `NotePage/UtxoPage`, `ScanState`. [Queries](queries.md).
-
-`sync`, `watchSync`, `getSyncStatus`: `SyncStatus`, `ScanState`, optional pinned `ChainPoint` and cancellation. `close` is idempotent and preserves ownership of injected resources. [Sync](sync.md) and [lifecycle](errors-lifecycle.md).
-
-## PendingPayment
-
-`snapshot`, `events`, `broadcast`, `wait`. `SubmissionAttempt` retains started/acknowledged/rejected/unknown results separately from inclusion/expiry. `PaymentConfirmation` contains all required confirmed transactions plus snapshot. `WaitOptions` defaults to one positive confirmation and no deadline. [Operations](operations.md).
-
-## Standalone viewing, addresses and signers
-
-`accountFromViewingKey`, `viewing.export/toIncoming`: `AccountDescriptor`, `ViewKeyHandle`, `ViewingApi`; explicit viewing disclosure, UFVK/UIVK codecs without UIVK wallet import. `addresses.derive/find/decode/selectReceiver`: `AddressApi`, `DecodedAddress`, `SelectedReceiver`; derivation has no wallet exposure side effect. [Accounts](accounts-signers.md) and [addresses](receive-addresses.md).
-
-`createCustomSigner`, `Signer.getCapabilities/getAccount/authorize`, disposable `MemorySigner`: `SignerCapabilities`, `SignerSelector`, `SigningRequest/SigningResult`. Negotiation and actual key/effect checks precede acceptance. No concrete hardware adapter or raw secret export. [Signing](signing.md).
-
-## Standalone PCZT and errors
-
-`pczt.parse/serialize/inspect/combine/redact`: `PcztApi`, disposable `PcztHandle`, `PcztInspection`. Explicit consensus context and bounds; versioned redaction profiles. No wallet association is inferred.
-
-`isZcashError`: narrows unknown values to `ZcashError`. `ErrorInfo` and `ErrorCode` define every machine code, stage, recovery hint and sanitized message; optional private state attachments preserve partial work. Read the [error chapter](errors-lifecycle.md) before using `retryable`.
-
-For implementation review, each group maps to the [H1 command catalog](host-mapping.md). Exact fields and signatures follow on the [declaration page](public-api.md); all examples import that same source for compile-only checking.
+Most asynchronous methods accept an optional `signal`. Pass only the documented options: unknown fields can reject. Streams need sequential consumption and explicit cleanup. Source observations include `sourceId` and `observedAt`; they are source evidence, not a full-node consensus verdict.

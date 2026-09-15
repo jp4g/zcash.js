@@ -1,21 +1,62 @@
-# Receive addresses
+# Receive addresses and viewing
 
-::: tip Proposed Contract
-Use explicit account IDs. `current` reads and returns a string or null; it never allocates. `next` and `at` persist exposure before returning an `AddressRecord`.
-:::
+## Issue an address from a wallet
 
-<<< ./examples/receive.ts
+```ts
+import type { AccountRecord, WalletClient } from 'zcash.js';
 
-## Default and explicit receivers
+export async function receiveAddress(wallet: WalletClient, account: AccountRecord) {
+  const issued = await wallet.addresses.next({
+    accountId: account.id,
+    request: { format: 'unified', transparent: 'omit', sapling: 'require', ironwood: 'require' },
+  });
+  return issued.address;
+}
+```
 
-Omitting `request`, or using `{ format: 'unified' }`, includes/requires every available supported receiver on the account. This links those receivers and permits transparent receipt. The example instead explicitly omits transparent receipt and requires both shielded receivers. Missing required receivers fail without fallback.
+`next` commits address exposure before returning. Display the returned string in your receive UI or QR code. `current({ accountId, request })` is a local read returning a string or `null`; it does not allocate an address. `list` returns issued records. `at({ accountId, index, request })` exposes an exact derivation index and is a write.
 
-A custom unified request must require at least one of Sapling or Ironwood. Transparent-only uses `{ format: 'transparent' }`; it is not a unified address. `receiverTypes` describes encodings, while `intendedPools` describes use. The `orchard` receiver is reused for Ironwood; it does not add legacy Orchard to `Pool`.
+Use `{ format: 'transparent' }` for a transparent address. Explicit unified receiver requirements can fail when the account lacks the required viewing components.
 
-## Indexes and exposure
+## Derive without a wallet database
 
-`addresses.list` returns issued records. `at` writes at an exact checked diversifier index and cannot search forward. Changing receivers at an exposed index can fail `ADDRESS_ALREADY_EXPOSED`. Transparent child-index/discovery ranges constrain what is safe to recover; arbitrary indices can fail `DISCOVERY_RANGE_UNSAFE`.
+```ts
+import { accountFromViewingKey, addresses, diversifierIndex } from 'zcash.js';
+import type { Network } from 'zcash.js';
 
-Standalone `addresses.derive` is exact-index derivation; `find` searches from an index with explicit `maxAttempts` for valid diversifiers. Neither registers wallet exposure. `decode` retains known receivers and unknown typecodes; `selectReceiver` needs an explicit pool and consensus context. Parsing unknown container items does not authorize unsupported routing.
+export async function deriveAddress(network: Network, encoded: string) {
+  const account = await accountFromViewingKey({
+    network, format: 'ufvk', encoded, enabledPools: ['transparent', 'sapling', 'ironwood'],
+  });
+  try {
+    return await addresses.find({
+      account,
+      start: diversifierIndex(0n),
+      maxAttempts: 100,
+      request: { format: 'unified' },
+    });
+  } finally {
+    await account.viewing.dispose();
+  }
+}
+```
 
-For stakeholder review, decide which receiver disclosures the receive screen explains before it displays or shares the address. Do not put generated addresses in logs or telemetry.
+Standalone derivation does not record address exposure in a wallet. Prefer wallet address methods for wallet receive flows. `addresses.derive` tries an exact index; `find` performs a bounded search. `addresses.decode` inspects an address, and `addresses.selectReceiver` chooses a supported receiver for a consensus context.
+
+`viewing.toIncoming({ account })` creates a separate incoming-viewing descriptor. Dispose each descriptor's viewing handle independently. `viewing.export` requires explicit `acknowledge: 'discloses-viewing-authority'` because a viewing key reveals private account information.
+
+## Inspect and select a receiver
+
+Use a real consensus context, such as the context of a reviewed proposal.
+
+```ts
+import { addresses } from 'zcash.js';
+import type { ConsensusContext, Pool } from 'zcash.js';
+
+export async function receiver(context: ConsensusContext, encoded: string, pool: Pool) {
+  const address = await addresses.decode({ network: context.network, address: encoded });
+  return addresses.selectReceiver({ address, pool, context });
+}
+```
+
+Decoding exposes known receivers and unknown typecodes. A decodable address is not automatically usable for every pool or transaction context.

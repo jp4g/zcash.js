@@ -1,3 +1,4 @@
+import { observationOptions, recoveryPolicy } from '../options.js';
 import { ObserverBuffer } from '../observer-buffer.js';
 import type { PaymentState, AccountId } from '../types.js';
 import type {
@@ -129,38 +130,13 @@ export class WalletPayments {
   ) {
     networkBinding(options.network);
     this.durability = options.storage.kind === 'memory' ? 'ephemeral' : 'durable';
-    const observation = snapshot(options.observation, ['pollIntervalMs', 'maxBufferedUpdates']);
-    this.observation = {
-      pollIntervalMs: positive(observation.pollIntervalMs),
-      maxBufferedUpdates: positive(observation.maxBufferedUpdates),
-    };
+    this.observation = observationOptions(options.observation);
     this.maxJobs = positive(options.runtime.maxQueuedJobs);
     this.light = options.light === undefined ? undefined : new PaymentSource(options.light, options.network);
     this.broadcaster = options.broadcaster === undefined
       ? undefined
       : new PaymentSource(options.broadcaster, options.network);
-    const recovery = options.recovery === undefined
-      ? this.light
-        ? { mode: 'online', timeoutMs: 15000 } as const
-        : { mode: 'offline' } as const
-      : snapshot(options.recovery, ['mode', 'timeoutMs', 'rebroadcast']);
-    if (recovery.mode === 'offline') {
-      if (Object.hasOwn(recovery, 'timeoutMs')
-        || Object.hasOwn(recovery, 'rebroadcast')) throw invalidArgument();
-      this.policy = { mode: 'offline' };
-    } else if (recovery.mode === 'online') {
-      if (!this.light) throw invalidArgument();
-      positive(recovery.timeoutMs);
-      const retry = recovery.rebroadcast === undefined
-        ? undefined
-        : snapshot(recovery.rebroadcast, ['mode', 'maxAttempts', 'minIntervalMs']);
-      if (retry && (retry.mode !== 'previously-dispatched' || !this.broadcaster)) throw invalidArgument();
-      if (retry) {
-        positive(retry.maxAttempts);
-        positive(retry.minIntervalMs);
-      }
-      this.policy = { mode: 'online', timeoutMs: recovery.timeoutMs, ...(retry ? { rebroadcast: retry } : {}) };
-    } else throw invalidArgument();
+    this.policy = recoveryPolicy(options.recovery, Boolean(this.light), Boolean(this.broadcaster));
     this.operations = Object.freeze(
       {
         abandon: args => this.abandon(args),

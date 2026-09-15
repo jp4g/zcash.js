@@ -65,7 +65,7 @@ function artifact(value: unknown): WasmArtifact {
   artifactEndpoint(result);
   return result;
 }
-function runtimeOptions(value: unknown): RuntimeOptions {
+export function runtimeOptions(value: unknown): RuntimeOptions {
   const fields = record(
     value,
     [
@@ -104,7 +104,7 @@ function runtimeOptions(value: unknown): RuntimeOptions {
     ...(diagnostic === undefined ? {} : { onDiagnostic: event => Reflect.apply(diagnostic, fields, [event]) }),
   };
 }
-function walletStorage(value: unknown): WalletStorage {
+export function walletStorage(value: unknown): WalletStorage {
   const storage = record(value, ['kind', 'path', 'name']);
   if (storage.kind !== 'memory' && storage.kind !== (node ? 'node-filesystem' : 'browser-opfs')) throw unavailable();
   if (storage.kind === 'memory') {

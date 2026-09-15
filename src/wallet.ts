@@ -1,3 +1,5 @@
+import { confirmationsPolicy, observationOptions, recoveryPolicy } from './options.js';
+import { provingOptions } from './wallet/proving-assets.js';
 import type {
   WalletClient,
   WalletOptions,
@@ -6,11 +8,9 @@ import type {
   PublicClient,
   Network,
   Op,
-  LocalProvingOptions,
-  AssetRequirement,
   SyncStatus,
 } from './types.js';
-import { openWalletRuntime } from './runtime/wallet.js';
+import { openWalletRuntime, runtimeOptions, walletStorage } from './runtime/wallet.js';
 import { networkBinding } from './network.js';
 import { lightClientBinding } from './light.js';
 import { publicClientBinding } from './public.js';
@@ -148,29 +148,6 @@ function capture<T extends LightClient | PublicClient>(client: T, network: Netwo
   }
   return Object.freeze(copy) as unknown as T;
 }
-function provingCopy(options: LocalProvingOptions): LocalProvingOptions {
-  const input = snapshot(options, ['kind', 'assets', 'loadAsset', 'cache', 'maxConcurrentProofs']);
-  if (typeof input.loadAsset !== 'function' || !Array.isArray(input.assets)) throw invalidArgument();
-  const length = Object.getOwnPropertyDescriptor(input.assets, 'length')?.value;
-  if (!Number.isInteger(length) || length < 0 || length > 2) throw invalidArgument();
-  const assets = Array.from({ length }, (_, index) => {
-    const item = Object.getOwnPropertyDescriptor(input.assets, String(index));
-    if (!item || !('value' in item)) throw invalidArgument();
-    const value = snapshot(
-      item.value as AssetRequirement,
-      ['pool', 'circuitVersion', 'assetId', 'format', 'digest', 'byteLength'],
-    );
-    return { ...value, digest: snapshot(value.digest, ['algorithm', 'hex']) };
-  });
-  const load = input.loadAsset;
-  return {
-    ...input,
-    assets,
-    cache: snapshot(input.cache, ['kind', 'namespace', 'maxBytes']),
-    loadAsset: args => Reflect.apply(load, options, [args]),
-  };
-}
-
 /** Own the configured components and their lifetime; native code owns wallet state. */
 export async function createWalletClient(args: WalletOptions): Promise<WalletClient> {
   const input = snapshot(
@@ -197,82 +174,17 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
   try {
     pending.check();
     const bound = networkBinding(input.network);
-    const runtime = snapshot(
-      input.runtime,
-      [
-        'baseline',
-        'threading',
-        'maxMemoryBytes',
-        'maxQueuedBytes',
-        'maxQueuedJobs',
-        'scanBatchSize',
-        'maxPcztBytes',
-        'onDiagnostic',
-      ],
-    );
-    const threading = snapshot(runtime.threading, ['mode', 'artifact', 'workers', 'startupTimeoutMs']);
-    const ownedRuntime = {
-      ...runtime,
-      baseline: snapshot(runtime.baseline, ['manifestUrl', 'manifestSha256']),
-      threading: threading.mode === 'prefer-threaded'
-        ? {
-            ...threading,
-            artifact: snapshot(threading.artifact, ['manifestUrl', 'manifestSha256']),
-          }
-        : threading,
-    };
-    const storage = snapshot(input.storage, ['kind', 'path', 'name']);
-    const confirmations = snapshot(input.confirmations, ['trusted', 'untrusted', 'allowZeroConfirmationShielding']);
-    for (const count of [
-      confirmations.trusted,
-      confirmations.untrusted,
-    ]) {
-      if (!Number.isInteger(count) || count < 0 || count > 0xffff_ffff) {
-        throw invalidArgument();
-      }
-    }
-    if (typeof confirmations.allowZeroConfirmationShielding !== 'boolean') throw invalidArgument();
+    const runtime = runtimeOptions(input.runtime);
+    const storage = walletStorage(input.storage);
+    const confirmations = confirmationsPolicy(input.confirmations);
     const policy = input.transactionPolicy === undefined ? undefined : policyCopy(input.transactionPolicy);
     if (policy
       && Object.keys(confirmations).some(
         key => confirmations[key as keyof typeof confirmations]
           !== policy.confirmations[key as keyof typeof confirmations],
       )) throw invalidArgument();
-    const observation = snapshot(input.observation, ['pollIntervalMs', 'maxBufferedUpdates']);
-    for (const value of [
-      observation.pollIntervalMs,
-      observation.maxBufferedUpdates,
-    ]) {
-      if (!Number.isSafeInteger(value) || value <= 0) {
-        throw invalidArgument();
-      }
-    }
-    const recovery = input.recovery === undefined
-      ? undefined
-      : snapshot(input.recovery, ['mode', 'timeoutMs', 'rebroadcast']);
-    if (recovery?.mode === 'online' && recovery.rebroadcast !== undefined) {
-      Object.assign(
-        recovery,
-        { rebroadcast: snapshot(recovery.rebroadcast, ['mode', 'maxAttempts', 'minIntervalMs']) },
-      );
-    }
-    if (recovery) {
-      if (recovery.mode === 'offline') {
-        if (Object.keys(recovery).some(key => key !== 'mode')) throw invalidArgument();
-      } else if (recovery.mode === 'online') {
-        if (!input.light || !Number.isSafeInteger(recovery.timeoutMs)
-          || recovery.timeoutMs <= 0) throw invalidArgument();
-        if (recovery.rebroadcast) {
-          const retry = recovery.rebroadcast;
-          if (!input.broadcaster || retry.mode !== 'previously-dispatched'
-            || ![retry.maxAttempts, retry.minIntervalMs].every(
-              value => Number.isSafeInteger(value) && value > 0,
-            )) {
-            throw invalidArgument();
-          }
-        }
-      } else throw invalidArgument();
-    }
+    const observation = observationOptions(input.observation);
+    const recovery = recoveryPolicy(input.recovery, Boolean(input.light), Boolean(input.broadcaster));
     const light = input.light === undefined ? undefined : capture(input.light, input.network, true);
     const broadcaster = input.broadcaster === undefined
       ? undefined
@@ -281,19 +193,19 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
           input.network,
           field(input.broadcaster, 'getTransactionStatus') === undefined,
         );
-    const proving = input.proving === undefined ? undefined : provingCopy(input.proving);
+    const proving = input.proving === undefined ? undefined : provingOptions(input.proving);
     const options = {
       network: input.network,
-      runtime: ownedRuntime,
+      runtime,
       storage,
       confirmations,
       observation,
-      ...(recovery ? { recovery } : {}),
+      recovery,
       ...(light ? { light } : {}),
       ...(broadcaster ? { broadcaster } : {}),
     };
     wallet = await openWalletRuntime({
-      runtime: ownedRuntime,
+      runtime,
       storage,
       network: {
         identity: bound.definition.identity,
@@ -305,7 +217,7 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
     });
     pending.check();
     accounts = walletAccounts(wallet, input.network);
-    sync = new WalletSync(wallet.session, light, observation, ownedRuntime.scanBatchSize);
+    sync = new WalletSync(wallet.session, light, observation, runtime.scanBatchSize);
     const proposals = new WalletProposals(wallet.session, input.network, proving);
     payments = new WalletPayments(wallet, proposals, options);
     const report = await payments.recover({ signal: pending.signal });

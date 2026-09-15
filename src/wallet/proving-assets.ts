@@ -46,10 +46,51 @@ const builtin = <K extends keyof Builtins>(name: K) =>
     process?: { getBuiltinModule?<T extends keyof Builtins>(name: T): Builtins[T] };
   }).process?.getBuiltinModule?.(name);
 
+export function provingOptions(options: LocalProvingOptions): LocalProvingOptions {
+  const input = snapshot(options, ['kind', 'assets', 'loadAsset', 'cache', 'maxConcurrentProofs']);
+  if (input.kind !== 'local' || input.maxConcurrentProofs !== 1
+    || typeof input.loadAsset !== 'function'
+    || !Array.isArray(input.assets)) throw invalidArgument();
+  const length = Object.getOwnPropertyDescriptor(input.assets, 'length')?.value;
+  if (!Number.isInteger(length) || length < 0 || length > 2) throw invalidArgument();
+  const requirements = Object.freeze(Array.from({ length }, (_, i) => {
+    const field = Object.getOwnPropertyDescriptor(input.assets, String(i));
+    if (!field || !('value' in field)) throw invalidArgument();
+    const value = snapshot(
+      field.value as AssetRequirement,
+      ['pool', 'circuitVersion', 'assetId', 'format', 'digest', 'byteLength'],
+    );
+    const digest = snapshot(value.digest, ['algorithm', 'hex']);
+    const expected = saplingAssets.find(asset => asset.assetId === value.assetId);
+    if (!expected || value.pool !== expected.pool
+      || value.circuitVersion !== expected.circuitVersion
+      || value.format !== expected.format
+      || value.byteLength !== expected.byteLength
+
+      || !['sha256', 'blake2b512'].includes(digest.algorithm)
+      || digest.hex !== expected[digest.algorithm]) throw fail('ASSET_INTEGRITY');
+    return Object.freeze({ ...value, digest: Object.freeze(digest) });
+  }));
+  if (new Set(requirements.map(value => value.assetId)).size !== length) throw invalidArgument();
+  const cache = snapshot(input.cache, ['kind', 'namespace', 'maxBytes']);
+  if (!Number.isSafeInteger(cache.maxBytes) || cache.maxBytes < 1
+    || !['memory', 'persistent'].includes(cache.kind)) throw invalidArgument();
+  if (cache.kind === 'persistent') {
+    if (typeof cache.namespace !== 'string' || !cache.namespace.length
+      || cache.namespace.length > 256) throw invalidArgument();
+  } else if (Object.hasOwn(cache, 'namespace')) throw invalidArgument();
+  const load = input.loadAsset;
+  return Object.freeze<LocalProvingOptions>({
+    ...input,
+    assets: requirements,
+    cache: Object.freeze(cache),
+    loadAsset: args => Reflect.apply(load, options, [args]),
+  });
+}
+
 /** Fixed canonical asset inventory; caches never receive wallet data or witnesses. */
 export class ProvingAssets {
   private readonly requirements: readonly AssetRequirement[];
-  private readonly options: LocalProvingOptions;
   private readonly load: LocalProvingOptions['loadAsset'];
   private readonly cache: LocalProvingOptions['cache'];
   private readonly memory = new Map<string, Uint8Array>();
@@ -57,40 +98,9 @@ export class ProvingAssets {
   private readonly abort = new AbortController();
   private running: Promise<{ spend: Uint8Array; output: Uint8Array }> | undefined;
   constructor(options: LocalProvingOptions) {
-    const input = snapshot(options, ['kind', 'assets', 'loadAsset', 'cache', 'maxConcurrentProofs']);
-    if (input.kind !== 'local' || input.maxConcurrentProofs !== 1
-      || typeof input.loadAsset !== 'function'
-      || !Array.isArray(input.assets)) throw invalidArgument();
-    const length = Object.getOwnPropertyDescriptor(input.assets, 'length')?.value;
-    if (!Number.isInteger(length) || length < 0 || length > 2) throw invalidArgument();
-    this.requirements = Object.freeze(Array.from({ length }, (_, i) => {
-      const field = Object.getOwnPropertyDescriptor(input.assets, String(i));
-      if (!field || !('value' in field)) throw invalidArgument();
-      const value = snapshot(
-        field.value as AssetRequirement,
-        ['pool', 'circuitVersion', 'assetId', 'format', 'digest', 'byteLength'],
-      );
-      const digest = snapshot(value.digest, ['algorithm', 'hex']);
-      const expected = saplingAssets.find(asset => asset.assetId === value.assetId);
-      if (!expected || value.pool !== expected.pool
-        || value.circuitVersion !== expected.circuitVersion
-        || value.format !== expected.format
-        || value.byteLength !== expected.byteLength
-
-        || !['sha256', 'blake2b512'].includes(digest.algorithm)
-        || digest.hex !== expected[digest.algorithm]) throw fail('ASSET_INTEGRITY');
-      return Object.freeze({ ...value, digest: Object.freeze(digest) });
-    }));
-    if (new Set(this.requirements.map(value => value.assetId)).size !== length) throw invalidArgument();
-    const cache = snapshot(input.cache, ['kind', 'namespace', 'maxBytes']);
-    if (!Number.isSafeInteger(cache.maxBytes) || cache.maxBytes < 1
-      || !['memory', 'persistent'].includes(cache.kind)) throw invalidArgument();
-    if (cache.kind === 'persistent') {
-      if (typeof cache.namespace !== 'string' || !cache.namespace.length
-        || cache.namespace.length > 256) throw invalidArgument();
-    } else if (Object.hasOwn(cache, 'namespace')) throw invalidArgument();
-    this.cache = Object.freeze(cache);
-    this.options = options;
+    const input = provingOptions(options);
+    this.requirements = input.assets;
+    this.cache = input.cache;
     this.load = input.loadAsset;
   }
 
@@ -141,7 +151,7 @@ export class ProvingAssets {
         } else {
           const delivered = await pending.wait(
             Promise.resolve().then(
-              () => Reflect.apply(this.load, this.options, [{ requirement, signal: pending.signal }]),
+              () => this.load({ requirement, signal: pending.signal }),
             ),
           );
           this.check();

@@ -1,0 +1,31 @@
+{
+  "revision": "63d08edb99b1d88e4899c27e61cc955fca5e35d6",
+  "buildSha256": "b6a930766ec48f2d3b669b7302ad97964eda3a41bd4edf0c1fad2019aac8af78",
+  "manifestSha256": "49b8d1b68cb851c473c184bb7986842718d652cdd31995a47ae82bb23565499b",
+  "files": [
+    {
+      "url": "primitive.mjs",
+      "byteLength": 6438,
+      "sha256": "c92efd6bb0919b2f7e3aec7969d2b786bd24a6445f9a7a661cfbe9c8586b98bf",
+      "kind": "module",
+      "mediaType": "text/javascript"
+    },
+    {
+      "url": "worker.mjs",
+      "byteLength": 2267,
+      "sha256": "11eec5917ad2c02a4e93407eb6aeb73daf1b8e6cdcb3d2bab0d21b67c6963fb0",
+      "kind": "worker",
+      "mediaType": "text/javascript"
+    },
+    {
+      "url": "bindings_bg.wasm",
+      "byteLength": 305488,
+      "sha256": "a6ce789d7107fe9ce570cf3a8717c27da4f2292de09b3809a2a230710e510dc8",
+      "kind": "wasm",
+      "mediaType": "application/wasm"
+    }
+  ],
+  "acceptedRevision": "acaf7069e466c82ce1be2c45ebafb75a92b59ee9",
+  "acceptedBuildSha256": "09ae852de689eb47fba35dfefaae81397d280f5c2542bccdee9747954efad575",
+  "sdkBase": "cf1a82dc5c7ec4a0bcfc1d6997b372fbc201013b"
+}

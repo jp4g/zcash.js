@@ -1,3 +1,4 @@
+import { delay } from '../abort.js';
 import { observationOptions } from '../options.js';
 import { ObserverBuffer } from '../observer-buffer.js';
 import type { ChainPoint, ErrorInfo, LightClient, ObservationOptions, Op, SyncStatus } from '../types.js';
@@ -140,26 +141,7 @@ export class WalletSync {
           }
         }
         if (controller.signal.aborted || !this.subscribers.size) break;
-        await new Promise<void>((resolve) => {
-          const finish = () => {
-            clearTimeout(timer);
-            controller.signal.removeEventListener('abort', finish);
-            resolve();
-          };
-          let remaining = this.observation.pollIntervalMs;
-          const tick = () => {
-            if (remaining <= 0) {
-              finish();
-              return;
-            }
-            const delay = Math.min(remaining, 2_147_483_647);
-            remaining -= delay;
-            timer = setTimeout(tick, delay);
-          };
-          let timer: ReturnType<typeof setTimeout>;
-          tick();
-          controller.signal.addEventListener('abort', finish, { once: true });
-        });
+        await delay(this.observation.pollIntervalMs, controller.signal);
       }
     })().finally(() => {
       this.watching = undefined;

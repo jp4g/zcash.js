@@ -1,3 +1,4 @@
+import { delay } from './abort.js';
 import { addressInput, broadcastInput } from './clients/request-inputs.js';
 import { observationOptions } from './options.js';
 import { ObserverBuffer } from './observer-buffer.js';
@@ -345,7 +346,7 @@ export function createPublicClient(
         iterator = client.watchTransaction({ txid: id, signal: pending.signal })[Symbol.asyncIterator]();
         const deadline = owned.timeoutMs === undefined
           ? undefined
-          : pause(owned.timeoutMs, pending.signal).then(() => {
+          : delay(owned.timeoutMs, pending.signal, observationAborted).then(() => {
               throw failure('TIMEOUT', 'query', 'none', 'Transaction wait timed out.');
             });
         for (; ;) {
@@ -437,7 +438,7 @@ export function createPublicClient(
               || value.inclusion?.height !== prior.height)) value = { ...value, priorInclusion: prior };
           if (value.inclusion) prior = { ...value.inclusion };
           buffer.push(structuredClone(value));
-          await pause(observation.pollIntervalMs, owned.signal);
+          await delay(observation.pollIntervalMs, owned.signal, observationAborted);
         }
       } catch (caught) {
         buffer.close(caught);
@@ -464,30 +465,7 @@ export function createPublicClient(
   clients.set(client, Object.freeze({ network, endpoint: httpEndpoint(transport) }));
   return Object.freeze(client);
 }
-function pause(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const start = performance.now();
-    let timer: ReturnType<typeof setTimeout>;
-    function done() {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', abort);
-    }
-    function abort() {
-      done();
-      reject(failure('ABORTED', 'query', 'none', 'Observation aborted.'));
-    }
-    function tick() {
-      const left = ms - (performance.now() - start);
-      if (left <= 0) {
-        done();
-        resolve();
-      } else timer = setTimeout(tick, Math.min(left, 2147483647));
-    }
-    signal.addEventListener('abort', abort, { once: true });
-    if (signal.aborted) abort();
-    else tick();
-  });
-}
+const observationAborted = () => failure('ABORTED', 'query', 'none', 'Observation aborted.');
 
 function checkSignal(signal?: AbortSignal): void {
   if (signal === undefined) return;

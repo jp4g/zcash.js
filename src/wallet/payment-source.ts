@@ -9,6 +9,9 @@ import {blockHash,txId} from '../primitives.js';
 import {initialize} from '../runtime/lightwire-capsule.mjs';
 const protocol=()=>failure('PROTOCOL_MISMATCH','observation','configure','Payment source returned inconsistent evidence.');
 const mismatch=()=>failure('NETWORK_MISMATCH','observation','configure','Payment source network does not match the wallet.');
+function evidenceFields(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  try { return snapshot(value, keys); } catch { throw protocol(); }
+}
 function field(object:object,key:string):unknown {
   for(let value:object|null=object,depth=0;value&&depth<16;value=Object.getPrototypeOf(value),depth++){
     const descriptor=Object.getOwnPropertyDescriptor(value,key);
@@ -16,7 +19,7 @@ function field(object:object,key:string):unknown {
   }
 }
 function point(value:unknown):ChainPoint {
-  const p=snapshot(value,['height','hash']);
+  const p=evidenceFields(value,['height','hash']);
   if(typeof p.height !== 'number'||typeof p.hash !== 'string'||!Number.isInteger(p.height)||p.height<0||p.height>0xffffffff)throw protocol();
   try{return {height:p.height,hash:blockHash(p.hash)};}catch{throw protocol();}
 }
@@ -28,6 +31,32 @@ function checkedHash(value: unknown) {
 function observationState(value: unknown): TransactionObservation['state'] {
   if (value === 'notSeen' || value === 'mempool' || value === 'mined' || value === 'offMainChain' || value === 'unknown') return value;
   throw protocol();
+}
+function observationEvidence(evidence: unknown, id: TxId, source: string) {
+  const value = evidenceFields(evidence, ['txid', 'state', 'inclusion', 'tip', 'priorInclusion', 'sourceId', 'observedAt']);
+  if (value.txid !== id || sourceId(value.sourceId) !== source) throw protocol();
+  const state = observationState(value.state);
+  let priorInclusion: TransactionObservation['priorInclusion'] = null;
+  if (value.priorInclusion !== null) {
+    const prior = evidenceFields(value.priorInclusion, ['height', 'blockHash', 'confirmations']);
+    if (typeof prior.height !== 'number' || !Number.isInteger(prior.height) || prior.height < 0 || prior.height > 0xffffffff)
+      throw protocol();
+    if (prior.confirmations !== null && (typeof prior.confirmations !== 'number'
+      || !Number.isSafeInteger(prior.confirmations) || prior.confirmations < 0)) throw protocol();
+    try {
+      priorInclusion = {height: prior.height, blockHash: prior.blockHash === null ? null : checkedHash(prior.blockHash), confirmations: null};
+    } catch { throw protocol(); }
+  }
+  let claimed: {height: number; blockHash: ReturnType<typeof blockHash> | null} | null = null;
+  if (state === 'mined') {
+    const inclusion = evidenceFields(value.inclusion, ['height', 'blockHash', 'confirmations']);
+    if (typeof inclusion.height !== 'number' || !Number.isInteger(inclusion.height)
+      || inclusion.height < 0 || inclusion.height > 0xffffffff) throw protocol();
+    try {
+      claimed = {height: inclusion.height, blockHash: inclusion.blockHash === null ? null : checkedHash(inclusion.blockHash)};
+    } catch { throw protocol(); }
+  } else if (value.inclusion !== null) throw protocol();
+  return {state, priorInclusion, claimed};
 }
 const same=(a:ChainPoint,b:ChainPoint)=>a.height===b.height&&a.hash===b.hash;
 
@@ -59,7 +88,7 @@ export class PaymentSource {
   }
   private async tree(height:number,signal:AbortSignal):Promise<ChainPoint & {sourceId:string}>{
     if(!Number.isInteger(height)||height<0||height>0xffffffff)throw protocol();
-    const value=snapshot(await this.call('getTreeState',{height,signal}),['network','point','sapling','ironwood','encoded','sourceId','observedAt']);
+    const value=evidenceFields(await this.call('getTreeState',{height,signal}),['network','point','sapling','ironwood','encoded','sourceId','observedAt']);
     if(networkBinding(value.network).definition.binding!==this.bound.definition.binding)throw mismatch();
     const p=point(value.point);if(p.height!==height)throw protocol();
     const bytes=ownBytes(value.encoded,protocol,protocol,65536);
@@ -68,56 +97,56 @@ export class PaymentSource {
     if (!decoded || typeof decoded !== 'object' || !('height' in decoded) || !('hash' in decoded)) throw protocol();
     if(decoded.height!==String(p.height)||decoded.hash!==p.hash)throw protocol();return {...p,sourceId:sourceId(value.sourceId)};
   }
-  async verify(signal:AbortSignal):Promise<string>{const pending=operation(signal);try{pending.check();if(this.registered){const tip=snapshot(await pending.wait(this.call('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);point({height:tip.height,hash:tip.hash});return sourceId(tip.sourceId);}const tree=await pending.wait(this.tree(0,pending.signal));if(tree.hash!==this.network.genesisHash)throw mismatch();return tree.sourceId;}finally{pending.close();}}
-  async observe(id:TxId,signal:AbortSignal):Promise<TransactionObservation>{
-    const pending=operation(signal);
-    try{
-      pending.check();const verifiedSource=await pending.wait(this.verify(pending.signal));
-      const before=snapshot(await pending.wait(this.call('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);
-      const tip=point({height:before.height,hash:before.hash}),source=sourceId(before.sourceId);
-      if(source!==verifiedSource)throw protocol();
-      let evidence:unknown;
-      if(this.methods.getTransactionStatus)evidence=await pending.wait(this.call('getTransactionStatus',{txid:id,signal:pending.signal}));
-      else{
-        const result=await pending.wait(this.call('getTransaction',{txid:id,signal:pending.signal}));
-        if(result===null)evidence={txid:id,state:'notSeen',inclusion:null,tip:null,priorInclusion:null,sourceId:source,observedAt:new Date().toISOString()};
-        else{
-          const transaction=snapshot(result,['txid','raw','observation','sourceId','observedAt']);
-          if(transaction.txid!==id||transaction.sourceId!==source)throw protocol();
-          evidence=transaction.observation;
-          const raw=ownBytes(transaction.raw,protocol,protocol,2*1024*1024),observation=snapshot(evidence,['txid','state','inclusion','tip','priorInclusion','sourceId','observedAt']);
-          const height=observation.state==='mined'?snapshot(observation.inclusion,['height','blockHash','confirmations']).height:null;
-          if(height!==null&&(typeof height !== 'number'||!Number.isInteger(height)||height<0||height>0xffffffff))throw protocol();
-          const heights=height===null?[0,...this.bound.definition.parameters.heights.filter(h=>h!==null)]:[height];
-          const branches=new Set(heights.map(h=>this.bound.codec.consensusContext(this.bound.definition.parametersFormat,this.bound.definition.parameters.bytes,h).branchId));
-          let matches=false;for(const branch of branches){try{if(this.bound.codec.decodeTransaction(raw,branch).display===id){matches=true;break;}}catch{/* Existing native decoder tries registered branch contexts. */}}
-          if(!matches)throw protocol();
-        }
+  async verify(signal:AbortSignal):Promise<string>{const pending=operation(signal);try{pending.check();if(this.registered){const tip=evidenceFields(await pending.wait(this.call('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);point({height:tip.height,hash:tip.hash});return sourceId(tip.sourceId);}const tree=await pending.wait(this.tree(0,pending.signal));if(tree.hash!==this.network.genesisHash)throw mismatch();return tree.sourceId;}finally{pending.close();}}
+  private decodeEvidence(result: unknown, id: TxId, source: string) {
+    if (result === null) return {state: 'notSeen' as const, priorInclusion: null, claimed: null};
+    const transaction = evidenceFields(result, ['txid', 'raw', 'observation', 'sourceId', 'observedAt']);
+    if (transaction.txid !== id || transaction.sourceId !== source) throw protocol();
+    const evidence = observationEvidence(transaction.observation, id, source);
+    const raw = ownBytes(transaction.raw, protocol, protocol, 2 * 1024 * 1024);
+    const heights = evidence.claimed === null
+      ? [0, ...this.bound.definition.parameters.heights.filter(h => h !== null)] : [evidence.claimed.height];
+    const branches = new Set(heights.map(height => this.bound.codec.consensusContext(
+      this.bound.definition.parametersFormat, this.bound.definition.parameters.bytes, height,
+    ).branchId));
+    for (const branch of branches) {
+      try {
+        if (this.bound.codec.decodeTransaction(raw, branch).display === id) return evidence;
+      } catch { /* Existing native decoder tries registered branch contexts. */ }
+    }
+    throw protocol();
+  }
+  async observe(id: TxId, signal: AbortSignal): Promise<TransactionObservation> {
+    const pending = operation(signal);
+    try {
+      pending.check();
+      const verifiedSource = await pending.wait(this.verify(pending.signal));
+      const before = evidenceFields(await pending.wait(this.call('getTip', {signal: pending.signal})), ['height', 'hash', 'sourceId', 'observedAt']);
+      const tip = point({height: before.height, hash: before.hash}), source = sourceId(before.sourceId);
+      if (source !== verifiedSource) throw protocol();
+      const method = this.methods.getTransactionStatus ? 'getTransactionStatus' : 'getTransaction';
+      pending.check();
+      const reply = await pending.wait(this.call(method, {txid: id, signal: pending.signal}));
+      const evidence = method === 'getTransactionStatus'
+        ? observationEvidence(reply, id, source) : this.decodeEvidence(reply, id, source);
+      let inclusion: TransactionObservation['inclusion'] = null;
+      if (evidence.claimed) {
+        pending.check();
+        const claimed = evidence.claimed, p = await pending.wait(this.tree(claimed.height, pending.signal));
+        if (p.sourceId !== source || p.height > tip.height || (p.height === tip.height && p.hash !== tip.hash)
+          || (claimed.blockHash !== null && claimed.blockHash !== p.hash)) throw protocol();
+        inclusion = {height: p.height, blockHash: p.hash, confirmations: tip.height - p.height + 1};
       }
-      const value=snapshot(evidence,['txid','state','inclusion','tip','priorInclusion','sourceId','observedAt']);
-      if(value.txid!==id||sourceId(value.sourceId)!==source)throw protocol();
-      const state = observationState(value.state);
-      let inclusion:TransactionObservation['inclusion']=null,priorInclusion:TransactionObservation['priorInclusion']=null;
-      if(value.priorInclusion!==null){
-        const prior=snapshot(value.priorInclusion,['height','blockHash','confirmations']);
-        if(typeof prior.height !== 'number'||!Number.isInteger(prior.height)||prior.height<0||prior.height>0xffffffff)throw protocol();
-        if(prior.confirmations!==null&&(typeof prior.confirmations !== 'number'||!Number.isSafeInteger(prior.confirmations)||prior.confirmations<0))throw protocol();
-        try{priorInclusion={height:prior.height,blockHash:prior.blockHash===null?null:checkedHash(prior.blockHash),confirmations:null};}catch{throw protocol();}
-      }
-      if(value.state==='mined'){
-        const claimed=snapshot(value.inclusion,['height','blockHash','confirmations']);
-        if (typeof claimed.height !== 'number') throw protocol();
-        const p=await pending.wait(this.tree(claimed.height,pending.signal));
-        if(p.sourceId!==source||p.height>tip.height||(p.height===tip.height&&p.hash!==tip.hash)||(claimed.blockHash!==null&&claimed.blockHash!==p.hash))throw protocol();
-        inclusion={height:p.height,blockHash:p.hash,confirmations:tip.height-p.height+1};
-      }else if(value.inclusion!==null)throw protocol();
-      const after=snapshot(await pending.wait(this.call('getTip',{signal:pending.signal})),['height','hash','sourceId','observedAt']);
-      if(after.sourceId!==source||!same(tip,point({height:after.height,hash:after.hash})))throw protocol();
-      pending.check();return {txid:txId(id),state,inclusion,tip,priorInclusion,sourceId:source,observedAt:new Date().toISOString()};
-    }finally{pending.close();}
+      pending.check();
+      const after = evidenceFields(await pending.wait(this.call('getTip', {signal: pending.signal})), ['height', 'hash', 'sourceId', 'observedAt']);
+      if (after.sourceId !== source || !same(tip, point({height: after.height, hash: after.hash}))) throw protocol();
+      pending.check();
+      return {txid: txId(id), state: evidence.state, inclusion, tip, priorInclusion: evidence.priorInclusion,
+        sourceId: source, observedAt: new Date().toISOString()};
+    } finally { pending.close(); }
   }
   async broadcast(bytes:Uint8Array,id:TxId,expectedSource:string,signal:AbortSignal):Promise<BroadcastReport>{
-    const reply=snapshot(await this.call('broadcastTransaction',{bytes,signal}),['txid','outcome','diagnosticCode','sourceId','observedAt']);
+    const reply=evidenceFields(await this.call('broadcastTransaction',{bytes,signal}),['txid','outcome','diagnosticCode','sourceId','observedAt']);
     if(reply.txid!==id)throw protocol();
     const outcome = reply.outcome;
     if (outcome !== 'acknowledged' && outcome !== 'rejected' && outcome !== 'unknown') throw protocol();

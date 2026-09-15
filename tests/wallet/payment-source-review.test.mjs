@@ -81,3 +81,42 @@ test('registered payment sources use their native handshake; structural copies s
   await assert.rejects(new PaymentSource({...client},network).verify(signal),{code:'TRANSPORT_ERROR'});
   assert.equal(trees,1,'unregistered copy cannot bypass genesis validation');
 });
+
+
+test('observation validates mined claims before requesting inclusion evidence', async () => {
+  for (const change of [{height: '19'}, {height: -1}, {height: 0x100000000}, {blockHash: 'bad'}]) {
+    const {client, state} = fixture(), original = client.getTransactionStatus;
+    client.getTransactionStatus = async () => {
+      const reply = await original();
+      Object.assign(reply.inclusion, change);
+      return reply;
+    };
+    await assert.rejects(new PaymentSource(client, network).observe(txid, new AbortController().signal), {code: 'PROTOCOL_MISMATCH'});
+    assert.equal(state.calls, 2, 'only genesis verification and the initial tip are fetched');
+  }
+});
+
+test('observation rejects response accessors without invoking them', async () => {
+  const {client, state} = fixture(), original = client.getTransactionStatus;
+  let reads = 0;
+  client.getTransactionStatus = async () => {
+    const reply = await original();
+    Object.defineProperty(reply, 'state', {get() { reads++; return 'mined'; }});
+    return reply;
+  };
+  await assert.rejects(new PaymentSource(client, network).observe(txid, new AbortController().signal), {code: 'PROTOCOL_MISMATCH'});
+  assert.equal(reads, 0);
+  assert.equal(state.calls, 2);
+});
+
+test('cancellation during observation validation prevents the next network request', async () => {
+  const {client, state} = fixture(), original = client.getTransactionStatus, controller = new AbortController();
+  client.getTransactionStatus = async () => new Proxy(await original(), {
+    getOwnPropertyDescriptor(target, key) {
+      if (key === 'state') controller.abort();
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  await assert.rejects(new PaymentSource(client, network).observe(txid, controller.signal), {code: 'ABORTED'});
+  assert.equal(state.calls, 2);
+});

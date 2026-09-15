@@ -101,3 +101,20 @@ test('unspent raw-plus-script overflow rejects the whole inventory before any co
   const value=unspentFixture(2),get=value.light.getTransaction;value.light.getTransaction=async args=>({...await get(args),raw:new Uint8Array(1024*1024)});
   await assert.rejects(applyEnhancement(value.session,value.light,'0',value.request),{code:'RESOURCE_LIMIT'});assert.equal(value.commits.length,0);
 });
+
+
+test('unspent item validation rejects accessors and malformed fields before fetching transactions', async () => {
+  for (const change of [{outputIndex: '0'}, {value: 1}, {minedHeight: 51}, {txid: {}}, {minedHeight: undefined}]) {
+    const fixture = unspentFixture(1);
+    Object.assign(fixture.items[0], change);
+    await assert.rejects(applyEnhancement(fixture.session, fixture.light, '0', fixture.request), {code: 'PROTOCOL_MISMATCH'});
+    assert.equal(fixture.control.raw, 0);
+    assert.equal(fixture.commits.length, 0);
+  }
+  const fixture = unspentFixture(1);
+  let reads = 0;
+  Object.defineProperty(fixture.items[0], 'value', {get() { reads++; return 1n; }});
+  await assert.rejects(applyEnhancement(fixture.session, fixture.light, '0', fixture.request), {code: 'PROTOCOL_MISMATCH'});
+  assert.equal(reads, 0);
+  assert.equal(fixture.control.raw, 0);
+});

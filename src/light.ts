@@ -1,3 +1,4 @@
+import { addressInput, broadcastInput } from './clients/request-inputs.js';
 import type { CustomLightTransport, GrpcTransport, LightClient, Network, Op } from './types.js';
 import { networkBinding } from './network.js';
 import { grpcAdapter, grpcBinding } from './grpc.js';
@@ -206,13 +207,13 @@ export function createLightClient(
       ['height', 'hash'],
       (v, a) => chain.getTreeState(v.wire, transport, network, family, a),
     ),
-    getAddressUtxos: args => unary(
-      args,
+    getAddressUtxos: async args => unary(
+      addressInput(args),
       ['addresses'],
       (v, a) => transparent.getAddressUtxos(v.address, v.wire, transport, family, a),
     ),
-    getAddressBalance: args => unary(
-      args,
+    getAddressBalance: async args => unary(
+      addressInput(args),
       ['addresses'],
       (v, a) => transparent.getAddressBalance(v.address, v.wire, transport, family, a),
     ),
@@ -233,8 +234,8 @@ export function createLightClient(
       (v, a) => transactions.streamAddressTransactions(source(v), a),
     ),
     streamMempool: (args = {}) => stream(args, [], (v, a) => transactions.streamMempool(source(v), a)),
-    broadcastTransaction: args => unary(
-      args,
+    broadcastTransaction: async args => unary(
+      broadcastInput(args),
       ['bytes'],
       (v, a) => transactions.broadcastTransaction(source(v), a),
       true,

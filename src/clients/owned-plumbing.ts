@@ -1,4 +1,4 @@
-import { failure, invalidArgument, isZcashError } from '../errors.js';
+import { invalidArgument, isZcashError } from '../errors.js';
 
 // Internal byte admission shared by finite light-client reads.
 const typedArray = Object.getPrototypeOf(Uint8Array.prototype);
@@ -26,25 +26,12 @@ export function ownBytes(
   }
 }
 
-const resource = () => failure('RESOURCE_LIMIT', 'query', 'configure', 'Client input exceeds limit.');
-export function snapshot<T extends object>(args: T, keys: readonly string[], maximum?: number): T;
-export function snapshot(args: unknown, keys: readonly string[], maximum?: number): Record<string, unknown>;
-export function snapshot(args: unknown, keys: readonly string[], maximum = 4 * 1024 * 1024): Record<string, unknown> {
+/** Copy allowed data properties. Nested values stay with their domain-specific owner. */
+export function snapshot<T extends object>(args: T, keys: readonly string[]): T;
+export function snapshot(args: unknown, keys: readonly string[]): Record<string, unknown>;
+export function snapshot(args: unknown, keys: readonly string[]): Record<string, unknown> {
   try {
-    const output = recordFields(args, keys);
-    if ('bytes' in output) output.bytes = ownBytes(output.bytes, invalidArgument, resource, maximum);
-    if ('addresses' in output) {
-      const values = output.addresses;
-      if (!Array.isArray(values) || !values.length || values.length > 1000) throw invalidArgument();
-      const copy: string[] = [];
-      for (let index = 0; index < values.length; index++) {
-        const field = Object.getOwnPropertyDescriptor(values, String(index));
-        if (!field || !Object.hasOwn(field, 'value') || typeof field.value !== 'string') throw invalidArgument();
-        copy.push(field.value);
-      }
-      output.addresses = copy;
-    }
-    return output;
+    return recordFields(args, keys);
   } catch (error) {
     throw isZcashError(error) ? error : invalidArgument();
   }

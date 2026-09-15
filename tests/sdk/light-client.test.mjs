@@ -81,3 +81,18 @@ test('unmined native decoding admits registered branches independent of current 
   const stream = client.streamAddressTransactions({ address: 'invalid', fromHeight: 20, toHeight: 20 });
   await assert.rejects(stream.next(), { code: 'INVALID_ARGUMENT' });
 });
+
+test('address and broadcast inputs are owned before asynchronous client readiness', async () => {
+  const { client, raw } = await fixture();
+  const addresses = [token];
+  const balance = client.getAddressBalance({ addresses });
+  const utxos = client.getAddressUtxos({ addresses });
+  const broadcast = client.broadcastTransaction({ bytes: raw });
+  addresses[0] = 'invalid-mutated-address';
+  raw.fill(0);
+  assert.equal((await balance).value, 42n);
+  assert.deepEqual((await utxos).items, []);
+  assert.equal((await broadcast).outcome, 'acknowledged');
+  await assert.rejects(client.getAddressBalance({ addresses: [] }), { code: 'INVALID_ARGUMENT' });
+  await assert.rejects(client.broadcastTransaction({ bytes: null }), { code: 'INVALID_ARGUMENT' });
+});

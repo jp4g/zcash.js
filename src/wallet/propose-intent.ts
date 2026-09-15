@@ -85,7 +85,7 @@ function payment(value: Payment): { to: string; amount: bigint; memo?: Uint8Arra
   const input = snapshot(value, ['to', 'amount', 'memo']);
   let memo: Uint8Array | undefined;
   if (input.memo !== undefined) {
-    const field = snapshot(input.memo, ['text', 'bytes'], 512);
+    const field = snapshot(input.memo, ['text', 'bytes']);
     if (Object.keys(field).length !== 1) throw invalidArgument();
     if (Object.hasOwn(field, 'text')) {
       if (typeof field.text !== 'string') throw invalidArgument();

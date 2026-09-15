@@ -52,12 +52,18 @@ test('complete internal PublicClient composes all eleven methods with native cod
     }
     tipHeight=1;tipHash=blockOne.verbose.hash;
 
-    assert.equal((await client.getUtxos({addresses:[address]})).items[0].value,42n);
+    const addresses = [address];
+    const lookup = client.getUtxos({ addresses });
+    addresses[0] = 'mutated-address';
+    assert.equal((await lookup).items[0].value, 42n);
     const tree=await client.getTreeState({height:1});
     assert.equal(wire().decodeResponse('GetTreeState',tree.encoded).orchard_tree,'000000');
     const roots=[];for await(const root of client.getSubtreeRoots({pool:'sapling',startIndex:0n,limit:1}))roots.push(root);
     assert.equal(roots[0].completingBlock.hash,blockOne.verbose.hash);
-    assert.equal((await client.broadcastTransaction({bytes:Uint8Array.from(Buffer.from(vector.hex,'hex'))})).outcome,'acknowledged');
+    const raw = Uint8Array.from(Buffer.from(vector.hex, 'hex'));
+    const broadcast = client.broadcastTransaction({ bytes: raw });
+    raw.fill(0);
+    assert.equal((await broadcast).outcome, 'acknowledged');
     assert.equal((await client.waitForTransaction({txid:vector.display,timeoutMs:1000})).confirmations,1);
     const watch=client.watchTransaction({txid:vector.display})[Symbol.asyncIterator]();
     const initial=(await watch.next()).value;assert.equal(initial.state,'mined');

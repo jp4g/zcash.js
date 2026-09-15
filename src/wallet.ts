@@ -1,3 +1,4 @@
+import { addressInput, broadcastInput } from './clients/request-inputs.js';
 import { confirmationsPolicy, observationOptions, recoveryPolicy } from './options.js';
 import { provingOptions } from './wallet/proving-assets.js';
 import type {
@@ -41,11 +42,11 @@ function field(value: object, key: string): unknown {
   }
   return undefined;
 }
-function callInput<T extends Op>(args: T, maximum?: number): T {
+function callInput<T extends Op>(args: T): T {
   try {
     const keys = Object.getOwnPropertyNames(args);
     if (keys.length > 32) throw invalidArgument();
-    return snapshot(args, keys, maximum);
+    return snapshot(args, keys);
   } catch (error) {
     throw isZcashError(error) ? error : invalidArgument();
   }
@@ -97,7 +98,11 @@ function capture<T extends LightClient | PublicClient>(client: T, network: Netwo
     if (typeof method !== 'function') throw invalidArgument();
     const stream = name.startsWith('stream') || name === 'getSubtreeRoots' || name === 'watchTransaction';
     copy[name] = (args: Op = {}) => {
-      const input = callInput(args);
+      const input = name === 'broadcastTransaction'
+        ? broadcastInput(args)
+        : ['getAddressUtxos', 'getAddressBalance', 'getUtxos'].includes(name)
+            ? addressInput(args)
+            : callInput(args);
       if (!stream) {
         return (async () => {
           const pending = operation(input.signal);
@@ -237,7 +242,7 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
       return (args) => {
         check();
         const original = defaults && args === undefined ? {} : args;
-        const owned = callInput(original as A, runtimeOwner.session.pczt.maximum);
+        const owned = callInput(original as A);
         const caller = operation(owned.signal);
         let work: ReturnType<typeof operation>;
         try {

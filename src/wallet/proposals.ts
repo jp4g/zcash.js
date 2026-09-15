@@ -351,7 +351,8 @@ export class WalletProposals {
   }
 
   async import(args: Parameters<WalletPcztApi['import']>[0]): Promise<PcztArtifact> {
-    const input = snapshot(args, ['operationId', 'bytes', 'signal'], this.session.pczt.maximum);
+    const input = snapshot(args, ['operationId', 'bytes', 'signal']);
+    // Host admission owns the bounded byte copy before queuing native work.
     const value = await this.session.pczt.import(input);
     return this.projectArtifact(value, input.operationId);
   }

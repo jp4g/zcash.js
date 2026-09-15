@@ -30,12 +30,11 @@ test('settled waits and closed bridges release their cancellation listeners', as
   assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
 });
 
-test('record snapshots preserve their distinct ownership and error policies', () => {
+test('record snapshots are shallow and preserve their distinct error policies', () => {
   const bytes = new Uint8Array([7]);
   assert.equal(owned.copyRecord({ bytes }, ['bytes']).bytes, bytes);
   const snapshot = owned.snapshot({ bytes }, ['bytes']);
-  bytes.fill(0);
-  assert.equal(snapshot.bytes[0], 7);
+  assert.equal(snapshot.bytes, bytes);
   let foreign;
   try { abort.admitSignal(null); } catch (error) { foreign = error; }
   const hostile = new Proxy({}, { ownKeys() { throw foreign; } });

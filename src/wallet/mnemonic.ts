@@ -70,7 +70,6 @@ export async function createMnemonicAccount(
         ...snapshot(
           args,
           ['format', 'parameters', 'genesis', 'height', 'branch', 'bytes', 'maximum', 'signal'],
-          wallet.owner.maxPcztBytes,
         ),
         token,
       });

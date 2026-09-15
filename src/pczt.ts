@@ -85,7 +85,8 @@ export const pczt = Object.freeze<PcztApi>({
       throw invalidArgument();
     }
     if (!Number.isInteger(maximum) || maximum < 1 || maximum > 0xffffffff) throw invalidArgument();
-    const input = snapshot(args, ['bytes', 'context', 'maxBytes', 'signal'], maximum);
+    const input = snapshot(args, ['bytes', 'context', 'maxBytes', 'signal']);
+    const bytes = ownBytes(input.bytes, invalidArgument, resource, maximum);
     if (input.maxBytes !== maximum) throw invalidArgument();
     const context = snapshot(input.context, ['network', 'targetHeight', 'branchId']),
       bound = networkBinding(context.network);
@@ -102,7 +103,7 @@ export const pczt = Object.freeze<PcztApi>({
         genesis,
         context.targetHeight,
         context.branchId,
-        input.bytes,
+        bytes,
         maximum,
       ),
       value => value.dispose(),

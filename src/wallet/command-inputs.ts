@@ -93,7 +93,7 @@ export function prepareCommand(command: WalletCommand, args: object, pcztMaximum
       );
     case 'pczt_import':
       return result(
-        { ...fields(args as unknown, ['operationId', 'bytes', 'signal'], maximum), maximum },
+        { ...fields(args as unknown, ['operationId', 'bytes', 'signal']), maximum },
         { fields: { bytes: { bytes: maximum } } },
       );
     case 'payment_attempt_begin':

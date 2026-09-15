@@ -1,3 +1,4 @@
+import { addressInput, broadcastInput } from './clients/request-inputs.js';
 import { observationOptions } from './options.js';
 import { ObserverBuffer } from './observer-buffer.js';
 import type {
@@ -195,7 +196,7 @@ export function createPublicClient(
     getBlockHeader: args => unary(args, ['height', 'hash'], a => chain.getBlockHeader(source, a)),
     getTransaction: args => unary(args, ['txid'], a => transaction(txId(a.txid), a.signal)),
     getTransactionStatus: args => unary(args, ['txid'], a => status(txId(a.txid), a.signal)),
-    getUtxos: args => unary(args, ['addresses'], async (a) => {
+    getUtxos: async args => unary(addressInput(args), ['addresses'], async (a) => {
       const { address } = await codecs();
       let addresses: string[];
       try {
@@ -306,7 +307,7 @@ export function createPublicClient(
         yield* roots;
       });
     },
-    broadcastTransaction: args => unary(args, ['bytes'], async (a) => {
+    broadcastTransaction: async args => unary(broadcastInput(args), ['bytes'], async (a) => {
       const raw = a.bytes;
       if (!raw.length || raw.length > 2 * 1024 * 1024) throw invalidArgument();
       const decoded = decode(raw);

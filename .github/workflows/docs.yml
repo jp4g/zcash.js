@@ -25,4 +25,25 @@ jobs:
         run: node scripts/build-wallet-worker.mjs "$RUNNER_TEMP/wallet-worker.mjs"
       - run: npm run docs:typecheck
       - run: npm run docs:check-recovery
-      - run: npm run docs:build
+      - run: npm run docs:build -- --base /zcash.js/
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

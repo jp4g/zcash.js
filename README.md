@@ -2,7 +2,7 @@
 
 An experimental TypeScript SDK for Zcash chain queries and local wallets on Node and browsers.
 
-**[Read the developer guide](docs/api/README.md)** · [First request](docs/api/installation.md) · [Wallet walkthrough](docs/api/walkthrough.md) · [API reference](docs/api/reference.md)
+**[Read the developer guide](https://jp4g.github.io/zcash.js/api/README.html)** · [First request](docs/api/installation.md) · [Wallet walkthrough](docs/api/walkthrough.md) · [API reference](docs/api/reference.md)
 
 ## What it provides
 
@@ -32,7 +32,7 @@ npm run docs:build
 npm run docs:dev
 ```
 
-The local guide runs at `http://127.0.0.1:4173/`. Its displayed TypeScript snippets are checked against the actual package entry point. [GitBook setup](docs/api/gitbook.md) uses the same Markdown chapters and navigation; no separate documentation copy is generated.
+The local guide runs at `http://127.0.0.1:4173/`. Its displayed TypeScript snippets are checked against the actual package entry point. GitHub Pages deploys automatically after checks pass on `main`. [Publishing instructions](docs/api/gitbook.md) also cover optional GitBook Git Sync using the same Markdown chapters.
 
 [Contributing](CONTRIBUTING.md) describes the PR workflow. Retained planning and research live under `docs/planning` and `docs/research`; they do not override the implemented API.
 

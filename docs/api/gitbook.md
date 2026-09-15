@@ -2,7 +2,13 @@
 
 This guide uses ordinary Markdown and TypeScript fences, so the same chapters work in GitBook, on GitHub, and in the local VitePress preview. `SUMMARY.md` is the reading order. Internal specifications and historical planning documents are outside that navigation.
 
-## Connect GitBook
+## GitHub Pages
+
+The [hosted guide](https://jp4g.github.io/zcash.js/) deploys from `main` after the project checks pass. The existing workflow builds VitePress with `--base /zcash.js/`, uploads the static site, and deploys it to GitHub Pages. Repository Settings → Pages uses **GitHub Actions** as its source.
+
+To check the production build locally, run `npm run docs:build -- --base /zcash.js/`, then `npm run docs:preview -- --base /zcash.js/` and open `http://127.0.0.1:4173/zcash.js/`. An ordinary local build or dev server still uses `/`.
+
+## Optional GitBook Git Sync
 
 1. Create or open your GitBook documentation space and enable GitHub Git Sync.
 2. Grant GitBook access to `jp4g/zcash.js` and select `main`.

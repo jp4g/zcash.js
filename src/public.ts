@@ -1,3 +1,4 @@
+import { observationOptions } from './options.js';
 import { ObserverBuffer } from './observer-buffer.js';
 import type {
   PublicClient,
@@ -74,9 +75,7 @@ export function createPublicClient(
     source = { transport, sourceId };
   const { definition, codec } = networkBinding(network),
     family = definition.parameters.encoding;
-  const observation = snapshot(input.observation, ['pollIntervalMs', 'maxBufferedUpdates']);
-  positive(observation.pollIntervalMs);
-  positive(observation.maxBufferedUpdates);
+  const observation = observationOptions(input.observation);
   const stamp = () => ({ sourceId, observedAt: new Date().toISOString() });
   let verified = false;
   let native: Promise<

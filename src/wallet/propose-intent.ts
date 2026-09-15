@@ -1,3 +1,4 @@
+import { confirmationsPolicy } from '../options.js';
 import type { Payment, Pool, SyncStatus, TransactionPolicy, WalletClient } from '../types.js';
 import { snapshot, ownBytes } from '../clients/owned-plumbing.js';
 import { operation } from '../clients/light-chain-reads.js';
@@ -57,10 +58,7 @@ export function policyCopy(value: TransactionPolicy): TransactionPolicy {
     || !['disallow', 'allow-owned'].includes(input.transparent)
     || !['sapling', 'ironwood'].includes(input.changePool)
     || input.feeRule !== 'zip317-standard') throw invalidArgument();
-  const confirmations = snapshot(input.confirmations, ['trusted', 'untrusted', 'allowZeroConfirmationShielding']);
-  uint(confirmations.trusted);
-  uint(confirmations.untrusted);
-  if (typeof confirmations.allowZeroConfirmationShielding !== 'boolean') throw invalidArgument();
+  const confirmations = confirmationsPolicy(input.confirmations);
   const expiry = snapshot(input.expiry, ['kind', 'blocks']);
   if (expiry.kind === 'offset') {
     uint(expiry.blocks, true);

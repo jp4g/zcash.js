@@ -1,3 +1,4 @@
+import { observationOptions } from '../options.js';
 import { ObserverBuffer } from '../observer-buffer.js';
 import type { ChainPoint, ErrorInfo, LightClient, ObservationOptions, Op, SyncStatus } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
@@ -43,13 +44,7 @@ export class WalletSync {
     private readonly scanBatchSize = 16,
   ) {
     if (!Number.isSafeInteger(scanBatchSize) || scanBatchSize < 1) throw invalidArgument();
-    if (!observation || typeof observation !== 'object') throw invalidArgument();
-    const poll = Object.getOwnPropertyDescriptor(observation, 'pollIntervalMs');
-    const buffer = Object.getOwnPropertyDescriptor(observation, 'maxBufferedUpdates');
-    if (!poll || !buffer || !Object.hasOwn(poll, 'value') || !Object.hasOwn(buffer, 'value')
-      || !Number.isSafeInteger(poll.value) || poll.value <= 0
-      || !Number.isSafeInteger(buffer.value) || buffer.value <= 0) throw invalidArgument();
-    this.observation = { pollIntervalMs: poll.value, maxBufferedUpdates: buffer.value };
+    this.observation = observationOptions(observation);
   }
 
   watchSync(args: Op = {}): AsyncIterableIterator<SyncStatus> {

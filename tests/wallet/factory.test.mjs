@@ -3,6 +3,7 @@ import test,{mock} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {MessageChannel} from 'node:worker_threads';
+import { runtimeOptions, walletStorage } from '../../dist/src/runtime/wallet.js';
 import {defineNetwork} from '../../dist/src/network.js';
 import {networkDefinition} from '../sdk/light-client-fixture.mjs';
 import {attachWalletWorker} from '../../dist/src/wallet/host.js';
@@ -15,7 +16,7 @@ test('public wallet factory admission, ownership, recovery and close',async()=>{
   let opened=0,closed=0,releaseOpen,gate,received,callbacks=0,onAbort,reentrant,scanGate,scanEntered;const calls=[];
   const sessions=[];
   let scanFixture;
-  mock.module('../../dist/src/runtime/wallet.js',{namedExports:{openWalletRuntime:async options=>{
+  mock.module('../../dist/src/runtime/wallet.js',{namedExports:{runtimeOptions,walletStorage,openWalletRuntime:async options=>{
     opened++;received=options;if(gate)await gate;
     const channel=new MessageChannel();installWalletWorker({generation:1,instance:'factory',close(){closed++;},call(_g,_i,command,args){
       calls.push({command,args});
@@ -44,6 +45,11 @@ test('public wallet factory admission, ownership, recovery and close',async()=>{
     const mismatched={...defaults(),transactionPolicy:{spendPools:['sapling'],transparent:'disallow',changePool:'sapling',feeRule:'zip317-standard',confirmations:{trusted:2,untrusted:3,allowZeroConfirmationShielding:false},expiry:{kind:'offset',blocks:40},lockExpiryBlocks:10,shieldingThreshold:1n,freshness:{mode:'require-synced',maxLagBlocks:0}}};
     await assert.rejects(createWalletClient(mismatched),{code:'INVALID_ARGUMENT'});assert.equal(opened,0);
     await assert.rejects(createWalletClient({...defaults(),light:{network:foreign}}),{code:'NETWORK_MISMATCH'});assert.equal(opened,0);
+    await assert.rejects(createWalletClient({
+      ...defaults(),
+      proving: { kind: 'local', assets: [], loadAsset() {}, cache: { kind: 'memory', maxBytes: 1 }, maxConcurrentProofs: 2 },
+    }), { code: 'INVALID_ARGUMENT' });
+    assert.equal(opened, 0, 'invalid proving options must fail before runtime acquisition');
     const light={network};for(const method of ['getTip','getServerInfo','getTransaction','getAddressUtxos','getAddressBalance','getTreeState','getSubtreeRoots','streamCompactBlocks','streamAddressTransactions','streamMempool','broadcastTransaction'])light[method]=function(args){assert.equal(this,light);callbacks++;args.signal?.addEventListener('abort',()=>onAbort?.(),{once:true});return new Promise(()=>{});};
     const args={...defaults(),light};gate=new Promise(resolve=>{releaseOpen=resolve;});const creating=createWalletClient(args);
     args.confirmations.trusted=99;args.runtime.baseline.manifestUrl='https://changed.test/';args.observation.pollIntervalMs=1000;light.getTip=()=>{throw Error('mutated method');};

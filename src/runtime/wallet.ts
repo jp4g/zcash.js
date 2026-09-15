@@ -202,9 +202,9 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
   const children: typeof worker[] = [];
   const childEvents: (() => void)[] = [];
   let spawnChild: ((index: number, pool: { module: WebAssembly.Module; memory: WebAssembly.Memory }) => void) | undefined;
-  let admitted = false, executionStarted = false, poolReady = false;
-  let poolStarted = false;
-  const loaded = new Set<number>();
+  const startup: {phase: 'assets' | 'executing' | 'pool' | 'ready' | 'admitted'; loaded: Set<number>} = {
+    phase: 'assets', loaded: new Set(),
+  };
   const sessions = new Set<ReturnType<typeof attachWalletWorker>>();
   const budget: WalletQueueBudget = { jobs: 0, bytes: 0, active: false, wake: new Set(), signers: new Map(), proving: {capacity:provingCapacity,bytes:0,active:false} };
   let removeAssets = () => {}, removeEvents = () => {};
@@ -212,7 +212,7 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
   let nextId = 0;
   const waiting = new Map<number, { resolve(value: Record<string, unknown>): void; reject(error: unknown): void }>();
   const destroy = () => destroying ??= Promise.resolve().then(async () => {
-    if (admitted) forget();
+    if (startup.phase === 'admitted') forget();
     try {
       const results = await Promise.allSettled([worker, ...children].map(async value => { await value?.terminate(); }));
       if (results.some(result => result.status === 'rejected')) throw unavailable();
@@ -221,7 +221,7 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
   });
   const stop = (error: ZcashError) => {
     if (stopped) return;
-    stopped = error; if (admitted) forget();
+    stopped = error; if (startup.phase === 'admitted') forget();
     for (const request of waiting.values()) request.reject(error);
     waiting.clear();
     for (const session of sessions) session.crashed();
@@ -245,8 +245,8 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
     const data = raw as Record<string, unknown>;
     if (typeof data.id !== 'number' || !Number.isSafeInteger(data.id)) { stop(mismatch()); return; }
     if (threaded && data?.type === 'pool') {
-      if (poolStarted || !waiting.has(data.id) || !(data.module instanceof WebAssembly.Module) || !(data.memory instanceof WebAssembly.Memory) || !(data.memory.buffer instanceof SharedArrayBuffer)) { stop(mismatch()); return; }
-      poolStarted = true;
+      if (startup.phase !== 'executing' || !waiting.has(data.id) || !(data.module instanceof WebAssembly.Module) || !(data.memory instanceof WebAssembly.Memory) || !(data.memory.buffer instanceof SharedArrayBuffer)) { stop(mismatch()); return; }
+      startup.phase = 'pool';
       try { for (let i = 0; i < workers; i++) spawnChild!(i, { module: data.module, memory: data.memory }); } catch { stop(unavailable()); }
       return;
     }
@@ -260,8 +260,9 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
       pending.reject(known ? failure(known, known.startsWith('STORAGE') || known === 'MIGRATION_REQUIRED' ? 'storage' : 'runtime', 'configure', 'Wallet startup failed.') : unavailable());
     } else {
       if (data?.type === 'ready') {
-        poolReady = true;
-        if (threaded && (!poolStarted || loaded.size !== workers)) { pending.reject(mismatch()); stop(mismatch()); return; }
+        const poolLoaded = startup.phase === 'pool' && startup.loaded.size === workers;
+        startup.phase = 'ready';
+        if (threaded && !poolLoaded) { pending.reject(mismatch()); stop(mismatch()); return; }
       }
       pending.resolve(data);
     }
@@ -283,11 +284,11 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
       const childMessage = (index: number, raw: unknown) => {
         if (stopped) return;
         const data = raw && typeof raw === 'object' ? raw as Record<string, unknown> : undefined;
-        if (data?.type !== 'compute-loaded' || data.index !== index || loaded.has(index)) {
+        if (startup.phase !== 'pool' || data?.type !== 'compute-loaded' || data.index !== index || startup.loaded.has(index)) {
           stop(failure('WORKER_CRASHED','runtime','reopen','Wallet compute worker failed.')); return;
         }
-        loaded.add(index);
-        if (loaded.size === workers) {
+        startup.loaded.add(index);
+        if (startup.loaded.size === workers) {
           try { worker!.postMessage({type:'pool-build'}, []); } catch { stop(unavailable()); }
         }
       };
@@ -302,7 +303,7 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
           urls[name] = url.pathToFileURL(file).href;
         }
         channels = () => new threads.MessageChannel();
-        executionStarted = true;
+        startup.phase = 'executing';
         const instance = new threads.Worker(new URL(urls['worker.mjs']!), { trackUnmanagedFds: true });
         worker = instance;
         const crash = () => stop(failure('WORKER_CRASHED', 'runtime', 'reopen', 'Wallet worker failed.'));
@@ -324,7 +325,7 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
           created.push(urls[name]!);
         }
         channels = () => new MessageChannel();
-        executionStarted = true;
+        startup.phase = 'executing';
         const instance = new Worker(urls['worker.mjs']!, { type: 'module' }); worker = instance;
         instance.onmessage = event => message(event.data);
         instance.onerror = event => { event.preventDefault(); stop(unavailable()); };
@@ -351,7 +352,7 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
         buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
       }) || !sameRecord(identity.memory, { initialPages: threaded ? 322 : 321, maximumPages: 4096, shared: threaded })) throw mismatch();
       const validatedIdentity: WalletRuntimeIdentity = { ...expected, memory: { initialPages: threaded ? 322 : 321, maximumPages: 4096, shared: threaded } };
-      poolReady = true;
+      startup.phase = 'ready';
       const authorityChannel = channels();
       let authority: ReturnType<typeof attachWalletWorker>;
       try {
@@ -361,7 +362,7 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
           {maxQueuedJobs:runtime.maxQueuedJobs,maxQueuedBytes:runtime.maxQueuedBytes,maxPcztBytes:runtime.maxPcztBytes},budget);
         sessions.add(authority);
       } catch (error) { authorityChannel.port1.close(); authorityChannel.port2.close(); throw error; }
-      admitted = true;
+      startup.phase = 'admitted';
       return {
         token: Object.freeze({}), identity: Object.freeze(validatedIdentity), check, destroy, signers: authority.signers,
         invalidate: () => { stop(failure('WORKER_CRASHED','runtime','reopen','Native authority cleanup failed.')); return destroy(); },
@@ -384,7 +385,7 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
     const finalError = isZcashError(error) ? error : unavailable();
     stop(finalError);
     await destroy(); // Failed teardown must never admit a fresh fallback domain.
-    if (threaded && executionStarted && !poolReady && !signal.aborted && ['TIMEOUT','WORKER_CRASHED','RUNTIME_UNAVAILABLE'].includes(finalError.code)) bootstrapFailures.add(finalError);
+    if (threaded && ['executing', 'pool'].includes(startup.phase) && !signal.aborted && ['TIMEOUT','WORKER_CRASHED','RUNTIME_UNAVAILABLE'].includes(finalError.code)) bootstrapFailures.add(finalError);
     throw finalError;
   } finally {
     clearTimeout(timer);

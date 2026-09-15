@@ -27,8 +27,11 @@ function integer(value: unknown, minimum: number, maximum: number): number {
 }
 
 function hash(value: unknown) {
-  try { return blockHash(value as string); }
-  catch { throw protocolError(); }
+  try {
+    return blockHash(value as string);
+  } catch {
+    throw protocolError();
+  }
 }
 
 /** Internal component; the composing client owns network handshake and source binding. */
@@ -39,9 +42,15 @@ export async function getTip(source: ChainReadSource, args: Op = {}): Promise<Ch
   try {
     const value = await readRpc(transport, 'getblockchaininfo', [], signal);
     object(value);
-    return { height: integer(value.blocks, 0, 0xffff_ffff), hash: hash(value.bestblockhash),
-      sourceId, observedAt: new Date().toISOString() };
-  } finally { owned.close(); }
+    return {
+      height: integer(value.blocks, 0, 0xffff_ffff),
+      hash: hash(value.bestblockhash),
+      sourceId,
+      observedAt: new Date().toISOString(),
+    };
+  } finally {
+    owned.close();
+  }
 }
 
 /** Resolve once, then pin the raw request to that identity even if the height reorganizes. */
@@ -52,15 +61,20 @@ export async function getBlockHeader(source: ChainReadSource, args: BlockSelecto
   if (Object.hasOwn(args, 'height') === Object.hasOwn(args, 'hash')) throw invalidArgument();
   let selector: string;
   if (Object.hasOwn(args, 'height')) {
-    if (typeof height !== 'number' || !Number.isInteger(height) || height < 0 || height > 0xffff_ffff) throw invalidArgument();
+    if (typeof height !== 'number' || !Number.isInteger(height) || height < 0
+      || height > 0xffff_ffff) throw invalidArgument();
     selector = String(height);
   } else selector = blockHash(requestedHash!);
   const owned = await bridgeSignal(args.signal, true);
   const { signal } = owned;
   try {
     let value;
-    try { value = await readRpc(transport, 'getblockheader', [selector, true], signal); }
-    catch (error) { if (rpcErrorCode(error) === (requestedHash === undefined ? -8 : -5)) return null; throw error; }
+    try {
+      value = await readRpc(transport, 'getblockheader', [selector, true], signal);
+    } catch (error) {
+      if (rpcErrorCode(error) === (requestedHash === undefined ? -8 : -5)) return null;
+      throw error;
+    }
     object(value);
     const point = { height: integer(value.height, 0, 0xffff_ffff), hash: hash(value.hash) };
     if ((height !== undefined && point.height !== height)
@@ -85,7 +99,9 @@ export async function getBlockHeader(source: ChainReadSource, args: BlockSelecto
     checkAbort(signal);
     if (display(digest) !== point.hash) throw protocolError();
     return { point, previousHash, time, raw, sourceId, observedAt: new Date().toISOString() };
-  } finally { owned.close(); }
+  } finally {
+    owned.close();
+  }
 }
 
 // Zakura block/serialize.rs and work/equihash.rs at 1e36d1b: 140 fixed bytes,
@@ -96,7 +112,8 @@ function rawHeader(value: unknown): Uint8Array<ArrayBuffer> {
   const raw = Uint8Array.from(value.match(/../g)!, byte => parseInt(byte, 16));
   const version = new DataView(raw.buffer).getUint32(0, true);
   if (version < 4 || version >= 0x8000_0000
-    || (raw.length === 177 ? raw[140] !== 36
+    || (raw.length === 177
+      ? raw[140] !== 36
       : raw[140] !== 253 || raw[141] !== 64 || raw[142] !== 5)) throw protocolError();
   return raw;
 }

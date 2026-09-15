@@ -16,7 +16,13 @@ const mismatch = () => failure('PROTOCOL_MISMATCH', 'runtime', 'configure', 'Wal
 const cancelled = () => failure('ABORTED', 'runtime', 'none', 'Wallet startup aborted.');
 const timeout = () => failure('TIMEOUT', 'runtime', 'configure', 'Wallet startup timed out.');
 const resource = () => failure('RESOURCE_LIMIT', 'runtime', 'configure', 'Wallet runtime limit unsupported.');
-const layout = { 'wallet.mjs': 'module', 'worker.mjs': 'worker', 'bindings_bg.wasm': 'wasm', 'node-fs.mjs': 'glue', 'opfs.mjs': 'glue' } as const;
+const layout = {
+  'wallet.mjs': 'module',
+  'worker.mjs': 'worker',
+  'bindings_bg.wasm': 'wasm',
+  'node-fs.mjs': 'glue',
+  'opfs.mjs': 'glue',
+} as const;
 // Reviewed private producer + actual SDK bootstrap, not arbitrary same-profile JavaScript.
 // Updating this immutable executable closure requires reviewing the corresponding package.
 const reviewedAssets: Record<keyof typeof layout, string> = {
@@ -35,8 +41,15 @@ const reviewedThreadedAssets: Record<string, string> = {
   'opfs.mjs': 'ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645',
   'thread-bootstrap.mjs': '3e30e1eed005181582fcc3b287f4dd6494433390fb24c7df6d4f2e5033a2cdc6',
 };
-const policy = { ...walletProfile, mode: 'baseline' as const, maxManifestBytes: 16384,
-  maxAssetBytes: 32 * 1024 * 1024, maxTotalAssetBytes: 40 * 1024 * 1024, maxFiles: 5, timeoutMs: 30000 };
+const policy = {
+  ...walletProfile,
+  mode: 'baseline' as const,
+  maxManifestBytes: 16384,
+  maxAssetBytes: 32 * 1024 * 1024,
+  maxTotalAssetBytes: 40 * 1024 * 1024,
+  maxFiles: 5,
+  timeoutMs: 30000,
+};
 
 function record(value: unknown, keys: string[]): Record<string, unknown> {
   return copyRecord(value, keys);
@@ -53,20 +66,43 @@ function artifact(value: unknown): WasmArtifact {
   return result;
 }
 function runtimeOptions(value: unknown): RuntimeOptions {
-  const fields = record(value, ['baseline', 'threading', 'maxMemoryBytes', 'maxQueuedBytes', 'maxQueuedJobs', 'scanBatchSize', 'maxPcztBytes', 'onDiagnostic']);
+  const fields = record(
+    value,
+    [
+      'baseline',
+      'threading',
+      'maxMemoryBytes',
+      'maxQueuedBytes',
+      'maxQueuedJobs',
+      'scanBatchSize',
+      'maxPcztBytes',
+      'onDiagnostic',
+    ],
+  );
   const raw = record(fields.threading, ['mode', 'artifact', 'workers', 'startupTimeoutMs']);
   let threading: RuntimeOptions['threading'];
   if (raw.mode === 'baseline' && Object.keys(raw).length === 1) threading = { mode: 'baseline' };
   else if (raw.mode === 'prefer-threaded' && Object.keys(raw).length === 4) {
-    threading = { mode: raw.mode, artifact: artifact(raw.artifact), workers: positive(raw.workers), startupTimeoutMs: positive(raw.startupTimeoutMs) };
+    threading = {
+      mode: raw.mode,
+      artifact: artifact(raw.artifact),
+      workers: positive(raw.workers),
+      startupTimeoutMs: positive(raw.startupTimeoutMs),
+    };
     if (threading.workers > 8) throw resource();
   } else throw invalidArgument();
   const diagnostic = fields.onDiagnostic;
   if (diagnostic !== undefined && typeof diagnostic !== 'function') throw invalidArgument();
-  return { baseline: artifact(fields.baseline), threading,
-    maxMemoryBytes: positive(fields.maxMemoryBytes), maxQueuedBytes: positive(fields.maxQueuedBytes),
-    maxQueuedJobs: positive(fields.maxQueuedJobs), scanBatchSize: positive(fields.scanBatchSize), maxPcztBytes: positive(fields.maxPcztBytes),
-    ...(diagnostic === undefined ? {} : { onDiagnostic: event => Reflect.apply(diagnostic, fields, [event]) }) };
+  return {
+    baseline: artifact(fields.baseline),
+    threading,
+    maxMemoryBytes: positive(fields.maxMemoryBytes),
+    maxQueuedBytes: positive(fields.maxQueuedBytes),
+    maxQueuedJobs: positive(fields.maxQueuedJobs),
+    scanBatchSize: positive(fields.scanBatchSize),
+    maxPcztBytes: positive(fields.maxPcztBytes),
+    ...(diagnostic === undefined ? {} : { onDiagnostic: event => Reflect.apply(diagnostic, fields, [event]) }),
+  };
 }
 function walletStorage(value: unknown): WalletStorage {
   const storage = record(value, ['kind', 'path', 'name']);
@@ -89,7 +125,9 @@ export function browserThreadingPrerequisites(): boolean {
 }
 
 /** Internal baseline construction. The returned session is not the complete WalletClient. */
-export async function openWalletRuntime(options: { runtime: RuntimeOptions; storage: WalletStorage; network: NetworkDefinition } & Op) {
+export async function openWalletRuntime(
+  options: { runtime: RuntimeOptions; storage: WalletStorage; network: NetworkDefinition } & Op,
+) {
   const input = record(options, ['runtime', 'storage', 'network', 'signal']);
   const runtime = runtimeOptions(input.runtime);
   const { baseline, threading } = runtime;
@@ -107,17 +145,41 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     + 8192 * 1024; // Native lifetime signer ceiling: one retained token/cleanup control each.
   if (!Number.isSafeInteger(reserved) || runtime.maxMemoryBytes < reserved) throw resource();
   const storage = walletStorage(input.storage);
-  const network = bindNetworkDefinition(record(input.network, ['identity', 'genesisHash', 'parameters', 'parametersFormat']));
+  const network = bindNetworkDefinition(
+    record(input.network, ['identity', 'genesisHash', 'parameters', 'parametersFormat']),
+  );
   const parameters = network.parameters.bytes;
   const genesis = Uint8Array.from(network.genesisHash.match(/../g)!.reverse(), hex => parseInt(hex, 16));
   const signal = input.signal;
   admitSignal(signal);
 
   const pending = operation(signal);
-  try { pending.check(); } catch (error) { pending.close(); throw error; }
+  try {
+    pending.check();
+  } catch (error) {
+    pending.close();
+    throw error;
+  }
   // Same immutable executable and limits share authority; no key migration across owners.
-  const key = JSON.stringify([baseline.manifestUrl, baseline.manifestSha256, threading.mode, ...(threading.mode === 'prefer-threaded' ? [threading.artifact.manifestUrl, threading.artifact.manifestSha256, threading.workers, threading.startupTimeoutMs] : []),
-    runtime.maxMemoryBytes, runtime.maxQueuedBytes, runtime.maxQueuedJobs, runtime.maxPcztBytes]);
+  const key = JSON.stringify(
+    [
+      baseline.manifestUrl,
+      baseline.manifestSha256,
+      threading.mode,
+      ...(threading.mode === 'prefer-threaded'
+        ? [
+            threading.artifact.manifestUrl,
+            threading.artifact.manifestSha256,
+            threading.workers,
+            threading.startupTimeoutMs,
+          ]
+        : []),
+      runtime.maxMemoryBytes,
+      runtime.maxQueuedBytes,
+      runtime.maxQueuedJobs,
+      runtime.maxPcztBytes,
+    ],
+  );
   let entry = owners.get(key);
   if (!entry) {
     const controller = new AbortController();
@@ -126,24 +188,59 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     const forget = () => {
       if (owners.get(key) === created) owners.delete(key);
     };
-    entry.ready = createOwner(threaded && threading.mode === 'prefer-threaded' ? threading.artifact : baseline, runtime, runtime.maxMemoryBytes-reserved, controller.signal, forget, threaded).catch(async error => {
-      if (!threaded || controller.signal.aborted || !error || typeof error !== 'object' || !bootstrapFailures.has(error)) { forget(); throw error; }
-      return createOwner(baseline, runtime, runtime.maxMemoryBytes-reserved, controller.signal, forget, false).catch(error => { forget(); throw error; });
-    });
+    entry.ready = createOwner(
+      threaded && threading.mode === 'prefer-threaded' ? threading.artifact : baseline,
+      runtime,
+      runtime.maxMemoryBytes - reserved,
+      controller.signal,
+      forget,
+      threaded,
+    ).catch(
+      async (error) => {
+        if (!threaded || controller.signal.aborted || !error
+          || typeof error !== 'object'
+          || !bootstrapFailures.has(error)) {
+          forget();
+          throw error;
+        }
+        return createOwner(
+          baseline,
+          runtime,
+          runtime.maxMemoryBytes - reserved,
+          controller.signal,
+          forget,
+          false,
+        ).catch((error) => {
+          forget();
+          throw error;
+        });
+      },
+    );
     owners.set(key, entry);
   }
-  if (entry.wallets >= runtime.maxQueuedJobs) { pending.close(); throw resource(); }
-  entry.refs++; entry.wallets++;
+  if (entry.wallets >= runtime.maxQueuedJobs) {
+    pending.close();
+    throw resource();
+  }
+  entry.refs++;
+  entry.wallets++;
   const selected = entry;
-  let released = false, capacityReleased = false;
+  let released = false,
+    capacityReleased = false;
   const release = async (abandoned = false) => {
-    if (!abandoned && !capacityReleased) { capacityReleased = true; selected.wallets--; }
+    if (!abandoned && !capacityReleased) {
+      capacityReleased = true;
+      selected.wallets--;
+    }
     if (released) return;
-    released = true; selected.refs--;
+    released = true;
+    selected.refs--;
     if (!selected.refs) {
       if (owners.get(key) === selected) owners.delete(key);
       selected.controller.abort();
-      try { await (await selected.ready).destroy(); } catch { /* Startup failure owns its cleanup. */ }
+      try {
+        await (await selected.ready).destroy();
+      } catch { /* Startup failure owns its cleanup. */ }
     }
   };
   let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -153,13 +250,30 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
     pending.check();
     const owner = await pending.wait(selected.ready);
     pending.check();
-    try { runtime.onDiagnostic?.(Object.freeze(owner.identity.mode === 'threaded' ? {code:'THREADED_SELECTED',reason:'ready'} : fallback ? { code: 'THREADED_FALLBACK', reason: 'prerequisiteMissing' } : threaded ? {code:'THREADED_FALLBACK',reason:'bootstrapFailed'} : { code: 'BASELINE_SELECTED', reason: 'requested' })); } catch { /* Diagnostics do not own startup. */ }
+    try {
+      runtime.onDiagnostic?.(
+        Object.freeze(
+          owner.identity.mode === 'threaded'
+            ? { code: 'THREADED_SELECTED', reason: 'ready' }
+            : fallback
+              ? { code: 'THREADED_FALLBACK', reason: 'prerequisiteMissing' }
+              : threaded
+                ? { code: 'THREADED_FALLBACK', reason: 'bootstrapFailed' }
+                : { code: 'BASELINE_SELECTED', reason: 'requested' },
+        ),
+      );
+    } catch { /* Diagnostics do not own startup. */ }
     pending.check();
     opening = owner.open(storage, network.parametersFormat, parameters, genesis, release);
-    const timed = new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(timeout()), 30000); });
+    const timed = new Promise<never>((_, reject) => {
+      deadline = setTimeout(() => reject(timeout()), 30000);
+    });
     opened = await pending.wait(Promise.race([opening, timed]));
     pending.check();
-    return Object.freeze({ identity: owner.identity, session: opened.session, close: opened.close,
+    return Object.freeze({
+      identity: owner.identity,
+      session: opened.session,
+      close: opened.close,
       // Internal signer composition retains this owner independently of its creating wallet.
       owner: Object.freeze({
         identity: owner.token,
@@ -168,28 +282,35 @@ export async function openWalletRuntime(options: { runtime: RuntimeOptions; stor
         signers: owner.signers,
         invalidate: owner.invalidate,
         retain() {
-          owner.check(); selected.refs++; let done = false;
+          owner.check();
+          selected.refs++;
+          let done = false;
           return async () => {
-            if (done) return; done = true; selected.refs--;
+            if (done) return;
+            done = true;
+            selected.refs--;
             if (!selected.refs) {
               if (owners.get(key) === selected) owners.delete(key);
-              selected.controller.abort(); await owner.destroy();
+              selected.controller.abort();
+              await owner.destroy();
             }
           };
         },
       }),
     });
   } catch (error) {
-    if (opened) await opened.close().catch(() => {});
+    if (opened) await opened.close().catch(() => { });
     else if (opening) {
       // An abandoned acquisition keeps a capacity slot, never a lifetime lease.
       // Last-consumer destruction also cancels a host acquisition that cannot settle.
       await release(true);
-      void opening.then(value => value.close(), () => release()).catch(() => {});
-    }
-    else await release();
+      void opening.then(value => value.close(), () => release()).catch(() => { });
+    } else await release();
     throw error;
-  } finally { clearTimeout(deadline); pending.close(); }
+  } finally {
+    clearTimeout(deadline);
+    pending.close();
+  }
 }
 
 type OpenedWallet = { session: ReturnType<typeof attachWalletWorker>; close(): Promise<void> };
@@ -197,72 +318,157 @@ type Owner = Awaited<ReturnType<typeof createOwner>>;
 const bootstrapFailures = new WeakSet<object>();
 const owners = new Map<string, { refs: number; wallets: number; controller: AbortController; ready: Promise<Owner> }>();
 
-async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, provingCapacity: number, signal: AbortSignal, forget: () => void, threaded = false) {
+async function createOwner(
+  baseline: WasmArtifact,
+  runtime: RuntimeOptions,
+  provingCapacity: number,
+  signal: AbortSignal,
+  forget: () => void,
+  threaded = false,
+) {
   let worker: { postMessage(value: unknown, transfer: Transferable[]): void; terminate(): unknown } | undefined;
   const children: typeof worker[] = [];
   const childEvents: (() => void)[] = [];
-  let spawnChild: ((index: number, pool: { module: WebAssembly.Module; memory: WebAssembly.Memory }) => void) | undefined;
-  const startup: {phase: 'assets' | 'executing' | 'pool' | 'ready' | 'admitted'; loaded: Set<number>} = {
+  let spawnChild: ((
+    index: number,
+    pool: { module: WebAssembly.Module; memory: WebAssembly.Memory },
+  ) => void)
+  | undefined;
+  const startup: { phase: 'assets' | 'executing' | 'pool' | 'ready' | 'admitted'; loaded: Set<number> } = {
     phase: 'assets', loaded: new Set(),
   };
   const sessions = new Set<ReturnType<typeof attachWalletWorker>>();
-  const budget: WalletQueueBudget = { jobs: 0, bytes: 0, active: false, wake: new Set(), signers: new Map(), proving: {capacity:provingCapacity,bytes:0,active:false} };
-  let removeAssets = () => {}, removeEvents = () => {};
-  let destroying: Promise<void> | undefined, stopped: ZcashError | undefined;
+  const budget: WalletQueueBudget = {
+    jobs: 0,
+    bytes: 0,
+    active: false,
+    wake: new Set(),
+    signers: new Map(),
+    proving: { capacity: provingCapacity, bytes: 0, active: false },
+  };
+  let removeAssets = () => { },
+    removeEvents = () => { };
+  let destroying: Promise<void> | undefined,
+    stopped: ZcashError | undefined;
   let nextId = 0;
   const waiting = new Map<number, { resolve(value: Record<string, unknown>): void; reject(error: unknown): void }>();
   const destroy = () => destroying ??= Promise.resolve().then(async () => {
     if (startup.phase === 'admitted') forget();
     try {
-      const results = await Promise.allSettled([worker, ...children].map(async value => { await value?.terminate(); }));
+      const results = await Promise.allSettled([worker, ...children].map(async (value) => {
+        await value?.terminate();
+      }));
       if (results.some(result => result.status === 'rejected')) throw unavailable();
+    } finally {
+      removeEvents();
+      for (const remove of childEvents) remove();
+      removeAssets();
     }
-    finally { removeEvents(); for (const remove of childEvents) remove(); removeAssets(); }
   });
   const stop = (error: ZcashError) => {
     if (stopped) return;
-    stopped = error; if (startup.phase === 'admitted') forget();
+    stopped = error;
+    if (startup.phase === 'admitted') forget();
     for (const request of waiting.values()) request.reject(error);
     waiting.clear();
     for (const session of sessions) session.crashed();
-    void destroy().catch(() => {});
+    void destroy().catch(() => { });
   };
   budget.crash = () => stop(failure('WORKER_CRASHED', 'runtime', 'reopen', 'Wallet worker failed.'));
-  const check = () => { if (signal.aborted) throw cancelled(); if (stopped) throw stopped; };
+  const check = () => {
+    if (signal.aborted) throw cancelled();
+    if (stopped) throw stopped;
+  };
   const onAbort = () => stop(cancelled());
-  signal.addEventListener('abort', onAbort, {once:true});
+  signal.addEventListener('abort', onAbort, { once: true });
   const workers = runtime.threading.mode === 'prefer-threaded' ? runtime.threading.workers : 0;
-  const timer = setTimeout(() => stop(timeout()), threaded && runtime.threading.mode === 'prefer-threaded' ? runtime.threading.startupTimeoutMs : 30000);
-  const request = (value: object, transfer: Transferable[] = []) => new Promise<Record<string, unknown>>((resolve, reject) => {
-    if (nextId >= Number.MAX_SAFE_INTEGER) { reject(resource()); return; }
-    const id = ++nextId;
-    try { check(); waiting.set(id, {resolve,reject}); worker!.postMessage({ ...value, id }, transfer); }
-    catch (error) { waiting.delete(id); reject(error); }
-  });
+  const timer = setTimeout(
+    () => stop(timeout()),
+    threaded && runtime.threading.mode === 'prefer-threaded' ? runtime.threading.startupTimeoutMs : 30000,
+  );
+  const request = (value: object, transfer: Transferable[] = []) => new Promise<Record<string, unknown>>(
+    (resolve, reject) => {
+      if (nextId >= Number.MAX_SAFE_INTEGER) {
+        reject(resource());
+        return;
+      }
+      const id = ++nextId;
+      try {
+        check();
+        waiting.set(id, { resolve, reject });
+        worker!.postMessage({ ...value, id }, transfer);
+      } catch (error) {
+        waiting.delete(id);
+        reject(error);
+      }
+    },
+  );
   const message = (raw: unknown) => {
     if (stopped) return;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { stop(mismatch()); return; }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      stop(mismatch());
+      return;
+    }
     const data = raw as Record<string, unknown>;
-    if (typeof data.id !== 'number' || !Number.isSafeInteger(data.id)) { stop(mismatch()); return; }
+    if (typeof data.id !== 'number' || !Number.isSafeInteger(data.id)) {
+      stop(mismatch());
+      return;
+    }
     if (threaded && data?.type === 'pool') {
-      if (startup.phase !== 'executing' || !waiting.has(data.id) || !(data.module instanceof WebAssembly.Module) || !(data.memory instanceof WebAssembly.Memory) || !(data.memory.buffer instanceof SharedArrayBuffer)) { stop(mismatch()); return; }
+      if (startup.phase !== 'executing' || !waiting.has(data.id)
+        || !(data.module instanceof WebAssembly.Module)
+        || !(data.memory instanceof WebAssembly.Memory)
+        || !(data.memory.buffer instanceof SharedArrayBuffer)) {
+        stop(mismatch());
+        return;
+      }
       startup.phase = 'pool';
-      try { for (let i = 0; i < workers; i++) spawnChild!(i, { module: data.module, memory: data.memory }); } catch { stop(unavailable()); }
+      try {
+        for (let i = 0; i < workers; i++) spawnChild!(i, { module: data.module, memory: data.memory });
+      } catch {
+        stop(unavailable());
+      }
       return;
     }
     const pending = waiting.get(data?.id);
-    if (!pending) { stop(mismatch()); return; }
+    if (!pending) {
+      stop(mismatch());
+      return;
+    }
     waiting.delete(data.id);
     if (data?.type === 'failure') {
-      const codes = ['STORAGE_ERROR', 'STORAGE_BUSY', 'NETWORK_MISMATCH', 'INVALID_ARGUMENT', 'RESOURCE_LIMIT', 'PROTOCOL_MISMATCH', 'RUNTIME_UNAVAILABLE'] as const;
-      const code = (data.code === 'SCHEMA_MISMATCH' || data.code === 'VIEWING_SCHEMA_REQUIRED') ? 'MIGRATION_REQUIRED' : data.code;
+      const codes = [
+        'STORAGE_ERROR',
+        'STORAGE_BUSY',
+        'NETWORK_MISMATCH',
+        'INVALID_ARGUMENT',
+        'RESOURCE_LIMIT',
+        'PROTOCOL_MISMATCH',
+        'RUNTIME_UNAVAILABLE',
+      ] as const;
+      const code = (data.code === 'SCHEMA_MISMATCH' || data.code === 'VIEWING_SCHEMA_REQUIRED')
+        ? 'MIGRATION_REQUIRED'
+        : data.code;
       const known = code === 'MIGRATION_REQUIRED' ? code : codes.find(value => value === code);
-      pending.reject(known ? failure(known, known.startsWith('STORAGE') || known === 'MIGRATION_REQUIRED' ? 'storage' : 'runtime', 'configure', 'Wallet startup failed.') : unavailable());
+      pending.reject(
+        known
+          ? failure(
+              known,
+              known.startsWith('STORAGE') || known === 'MIGRATION_REQUIRED' ? 'storage' : 'runtime',
+              'configure',
+              'Wallet startup failed.',
+            )
+          : unavailable(),
+      );
     } else {
       if (data?.type === 'ready') {
         const poolLoaded = startup.phase === 'pool' && startup.loaded.size === workers;
         startup.phase = 'ready';
-        if (threaded && !poolLoaded) { pending.reject(mismatch()); stop(mismatch()); return; }
+        if (threaded && !poolLoaded) {
+          pending.reject(mismatch());
+          stop(mismatch());
+          return;
+        }
       }
       pending.resolve(data);
     }
@@ -270,34 +476,52 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
   };
   try {
     check();
-    const verified = await acquireArtifacts(baseline, {...policy, mode:threaded?'threaded':'baseline', maxFiles:threaded?6:5}, signal);
+    const verified = await acquireArtifacts(
+      baseline,
+      { ...policy, mode: threaded ? 'threaded' : 'baseline', maxFiles: threaded ? 6 : 5 },
+      signal,
+    );
     try {
       check();
-      const selectedLayout = threaded ? {...layout,'thread-bootstrap.mjs':'thread-bootstrap'} : layout;
+      const selectedLayout = threaded ? { ...layout, 'thread-bootstrap.mjs': 'thread-bootstrap' } : layout;
       const selectedAssets = threaded ? reviewedThreadedAssets : reviewedAssets;
-      if (verified.manifest.files.length !== (threaded?6:5) || verified.manifest.files.some(file => !Object.hasOwn(selectedLayout, file.url)
-        || (selectedLayout as Record<string,string>)[file.url] !== file.kind || selectedAssets[file.url as keyof typeof selectedAssets] !== file.sha256)) throw mismatch();
+      if (verified.manifest.files.length !== (threaded ? 6 : 5)
+        || verified.manifest.files.some(
+          file => !Object.hasOwn(selectedLayout, file.url)
+            || (selectedLayout as Record<string, string>)[file.url] !== file.kind
+            || selectedAssets[file.url as keyof typeof selectedAssets] !== file.sha256,
+        )) throw mismatch();
       const { format: _format, files: _files, ...expected } = verified.manifest;
-      void _format; void _files;
+      void _format;
+      void _files;
       const urls: Record<string, string> = {};
       let channels: () => MessageChannel;
       const childMessage = (index: number, raw: unknown) => {
         if (stopped) return;
         const data = raw && typeof raw === 'object' ? raw as Record<string, unknown> : undefined;
-        if (startup.phase !== 'pool' || data?.type !== 'compute-loaded' || data.index !== index || startup.loaded.has(index)) {
-          stop(failure('WORKER_CRASHED','runtime','reopen','Wallet compute worker failed.')); return;
+        if (startup.phase !== 'pool' || data?.type !== 'compute-loaded'
+          || data.index !== index
+          || startup.loaded.has(index)) {
+          stop(failure('WORKER_CRASHED', 'runtime', 'reopen', 'Wallet compute worker failed.'));
+          return;
         }
         startup.loaded.add(index);
         if (startup.loaded.size === workers) {
-          try { worker!.postMessage({type:'pool-build'}, []); } catch { stop(unavailable()); }
+          try {
+            worker!.postMessage({ type: 'pool-build' }, []);
+          } catch {
+            stop(unavailable());
+          }
         }
       };
       if (node) {
-        const [fs, os, path, url, threads] = await Promise.all(['node:fs', 'node:os', 'node:path', 'node:url', 'node:worker_threads'].map(name => import(name)));
+        const [fs, os, path, url, threads] = await Promise.all(
+          ['node:fs', 'node:os', 'node:path', 'node:url', 'node:worker_threads'].map(name => import(name)),
+        );
         check();
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'zcash-wallet-runtime-'));
         removeAssets = () => fs.rmSync(directory, { recursive: true, force: true });
-        for (const name of ['wallet.mjs', 'worker.mjs', 'node-fs.mjs', ...(threaded?['thread-bootstrap.mjs']:[])]) {
+        for (const name of ['wallet.mjs', 'worker.mjs', 'node-fs.mjs', ...(threaded ? ['thread-bootstrap.mjs'] : [])]) {
           const file = path.join(directory, name);
           fs.writeFileSync(file, verified.copyFile(name), { flag: 'wx', mode: 0o600 });
           urls[name] = url.pathToFileURL(file).href;
@@ -307,85 +531,210 @@ async function createOwner(baseline: WasmArtifact, runtime: RuntimeOptions, prov
         const instance = new threads.Worker(new URL(urls['worker.mjs']!), { trackUnmanagedFds: true });
         worker = instance;
         const crash = () => stop(failure('WORKER_CRASHED', 'runtime', 'reopen', 'Wallet worker failed.'));
-        instance.on('message', message); instance.on('messageerror', crash); instance.on('error', crash); instance.on('exit', crash);
+        instance.on('message', message);
+        instance.on('messageerror', crash);
+        instance.on('error', crash);
+        instance.on('exit', crash);
         spawnChild = (index, pool) => {
           const child = new threads.Worker(new URL(urls['thread-bootstrap.mjs']!));
           children.push(child);
           const receive = (data: unknown) => childMessage(index, data);
-          child.on('message',receive); child.on('error',crash); child.on('messageerror',crash); child.on('exit',crash);
-          childEvents.push(() => {child.off('message',receive);child.off('error',crash);child.off('messageerror',crash);child.off('exit',crash);});
-          child.postMessage({type:'compute-initialize',moduleUrl:urls['wallet.mjs'],module:pool.module,memory:pool.memory,index});
+          child.on('message', receive);
+          child.on('error', crash);
+          child.on('messageerror', crash);
+          child.on('exit', crash);
+          childEvents.push(() => {
+            child.off('message', receive);
+            child.off('error', crash);
+            child.off('messageerror', crash);
+            child.off('exit', crash);
+          });
+          child.postMessage({
+            type: 'compute-initialize',
+            moduleUrl: urls['wallet.mjs'],
+            module: pool.module,
+            memory: pool.memory,
+            index,
+          });
         };
-        removeEvents = () => { instance.off('message', message); instance.off('messageerror', crash); instance.off('error', crash); instance.off('exit', crash); };
+        removeEvents = () => {
+          instance.off('message', message);
+          instance.off('messageerror', crash);
+          instance.off('error', crash);
+          instance.off('exit', crash);
+        };
       } else {
         const created: string[] = [];
-        removeAssets = () => { for (const url of created) URL.revokeObjectURL(url); };
-        for (const name of ['wallet.mjs', 'worker.mjs', 'opfs.mjs', ...(threaded?['thread-bootstrap.mjs']:[])]) {
-          urls[name] = URL.createObjectURL(new Blob([verified.copyFile(name) as Uint8Array<ArrayBuffer>], { type: 'text/javascript' }));
+        removeAssets = () => {
+          for (const url of created) URL.revokeObjectURL(url);
+        };
+        for (const name of ['wallet.mjs', 'worker.mjs', 'opfs.mjs', ...(threaded ? ['thread-bootstrap.mjs'] : [])]) {
+          urls[name] = URL.createObjectURL(
+            new Blob([verified.copyFile(name) as Uint8Array<ArrayBuffer>], { type: 'text/javascript' }),
+          );
           created.push(urls[name]!);
         }
         channels = () => new MessageChannel();
         startup.phase = 'executing';
-        const instance = new Worker(urls['worker.mjs']!, { type: 'module' }); worker = instance;
+        const instance = new Worker(urls['worker.mjs']!, { type: 'module' });
+        worker = instance;
         instance.onmessage = event => message(event.data);
-        instance.onerror = event => { event.preventDefault(); stop(unavailable()); };
+        instance.onerror = (event) => {
+          event.preventDefault();
+          stop(unavailable());
+        };
         instance.onmessageerror = () => stop(mismatch());
         spawnChild = (index, pool) => {
-          const child = new Worker(urls['thread-bootstrap.mjs']!,{type:'module'}); children.push(child);
-          child.onmessage = event => childMessage(index,event.data);
-          child.onerror = event => {event.preventDefault();stop(failure('WORKER_CRASHED','runtime','reopen','Wallet compute worker failed.'));};
+          const child = new Worker(urls['thread-bootstrap.mjs']!, { type: 'module' });
+          children.push(child);
+          child.onmessage = event => childMessage(index, event.data);
+          child.onerror = (event) => {
+            event.preventDefault();
+            stop(
+              failure('WORKER_CRASHED', 'runtime', 'reopen', 'Wallet compute worker failed.'),
+            );
+          };
           child.onmessageerror = () => stop(mismatch());
-          childEvents.push(() => {child.onmessage=null;child.onerror=null;child.onmessageerror=null;});
-          child.postMessage({type:'compute-initialize',moduleUrl:urls['wallet.mjs'],module:pool.module,memory:pool.memory,index});
+          childEvents.push(() => {
+            child.onmessage = null;
+            child.onerror = null;
+            child.onmessageerror = null;
+          });
+          child.postMessage({
+            type: 'compute-initialize',
+            moduleUrl: urls['wallet.mjs'],
+            module: pool.module,
+            memory: pool.memory,
+            index,
+          });
         };
-        removeEvents = () => { instance.onmessage = null; instance.onerror = null; instance.onmessageerror = null; };
+        removeEvents = () => {
+          instance.onmessage = null;
+          instance.onerror = null;
+          instance.onmessageerror = null;
+        };
       }
       const wasm = verified.copyFile('bindings_bg.wasm');
-      const ready = await request({ type: 'initialize', moduleUrl: urls['wallet.mjs'], wasm, expected,
-        maxMemoryBytes: runtime.maxMemoryBytes, ...(threaded ? { workers } : {}) }, [wasm.buffer]);
+      const ready = await request({
+        type: 'initialize',
+        moduleUrl: urls['wallet.mjs'],
+        wasm,
+        expected,
+        maxMemoryBytes: runtime.maxMemoryBytes,
+        ...(threaded ? { workers } : {}),
+      }, [wasm.buffer]);
       check();
       const rawIdentity = ready.identity;
       if (!rawIdentity || typeof rawIdentity !== 'object') throw mismatch();
       const identity = rawIdentity as Record<string, unknown>;
       if (ready?.type !== 'ready' || !identity || !sameRecord(expected, {
-        contractRevision: identity.contractRevision, abiVersion: identity.abiVersion, schemas: identity.schemas,
-        buildSha256: identity.buildSha256, dependencyGraphSha256: identity.dependencyGraphSha256, mode: identity.mode,
-      }) || !sameRecord(identity.memory, { initialPages: threaded ? 322 : 321, maximumPages: 4096, shared: threaded })) throw mismatch();
-      const validatedIdentity: WalletRuntimeIdentity = { ...expected, memory: { initialPages: threaded ? 322 : 321, maximumPages: 4096, shared: threaded } };
+        contractRevision: identity.contractRevision,
+        abiVersion: identity.abiVersion,
+        schemas: identity.schemas,
+        buildSha256: identity.buildSha256,
+        dependencyGraphSha256: identity.dependencyGraphSha256,
+        mode: identity.mode,
+      })
+      || !sameRecord(
+        identity.memory,
+        { initialPages: threaded ? 322 : 321, maximumPages: 4096, shared: threaded },
+      )) throw mismatch();
+      const validatedIdentity: WalletRuntimeIdentity = {
+        ...expected,
+        memory: { initialPages: threaded ? 322 : 321, maximumPages: 4096, shared: threaded },
+      };
       startup.phase = 'ready';
       const authorityChannel = channels();
       let authority: ReturnType<typeof attachWalletWorker>;
       try {
-        const reply = await request({type:'signers',port:authorityChannel.port2},[authorityChannel.port2]);
+        const reply = await request({ type: 'signers', port: authorityChannel.port2 }, [authorityChannel.port2]);
         if (reply?.type !== 'signers-ready') throw mismatch();
-        authority = attachWalletWorker(authorityChannel.port1, async () => {},
-          {maxQueuedJobs:runtime.maxQueuedJobs,maxQueuedBytes:runtime.maxQueuedBytes,maxPcztBytes:runtime.maxPcztBytes},budget);
+        authority = attachWalletWorker(
+          authorityChannel.port1,
+          async () => { },
+          {
+            maxQueuedJobs: runtime.maxQueuedJobs,
+            maxQueuedBytes: runtime.maxQueuedBytes,
+            maxPcztBytes: runtime.maxPcztBytes,
+          },
+          budget,
+        );
         sessions.add(authority);
-      } catch (error) { authorityChannel.port1.close(); authorityChannel.port2.close(); throw error; }
+      } catch (error) {
+        authorityChannel.port1.close();
+        authorityChannel.port2.close();
+        throw error;
+      }
       startup.phase = 'admitted';
       return {
-        token: Object.freeze({}), identity: Object.freeze(validatedIdentity), check, destroy, signers: authority.signers,
-        invalidate: () => { stop(failure('WORKER_CRASHED','runtime','reopen','Native authority cleanup failed.')); return destroy(); },
-        async open(storage: WalletStorage, parametersFormat: string, parameters: Uint8Array, genesis: Uint8Array, release: () => Promise<void>): Promise<OpenedWallet> {
+        token: Object.freeze({}),
+        identity: Object.freeze(validatedIdentity),
+        check,
+        destroy,
+        signers: authority.signers,
+        invalidate: () => {
+          stop(failure('WORKER_CRASHED', 'runtime', 'reopen', 'Native authority cleanup failed.'));
+          return destroy();
+        },
+        async open(
+          storage: WalletStorage,
+          parametersFormat: string,
+          parameters: Uint8Array,
+          genesis: Uint8Array,
+          release: () => Promise<void>,
+        ): Promise<OpenedWallet> {
           check();
           const channel = channels();
           try {
-            const opened = await request({ type: 'open', storage, ...(storage.kind === 'memory' ? {} : { hostUrl: urls[node ? 'node-fs.mjs' : 'opfs.mjs'] }),
-              parametersFormat, parameters, genesis, port: channel.port2 }, [channel.port2]);
-            check(); if (opened?.type !== 'opened') { stop(mismatch()); throw mismatch(); }
-            const session = attachWalletWorker(channel.port1, async () => { sessions.delete(session); await release(); },
-              {maxQueuedJobs:runtime.maxQueuedJobs,maxQueuedBytes:runtime.maxQueuedBytes,maxPcztBytes:runtime.maxPcztBytes}, budget);
+            const opened = await request({
+              type: 'open',
+              storage,
+              ...(storage.kind === 'memory' ? {} : { hostUrl: urls[node ? 'node-fs.mjs' : 'opfs.mjs'] }),
+              parametersFormat,
+              parameters,
+              genesis,
+              port: channel.port2,
+            }, [channel.port2]);
+            check();
+            if (opened?.type !== 'opened') {
+              stop(mismatch());
+              throw mismatch();
+            }
+            const session = attachWalletWorker(
+              channel.port1,
+              async () => {
+                sessions.delete(session);
+                await release();
+              },
+              {
+                maxQueuedJobs: runtime.maxQueuedJobs,
+                maxQueuedBytes: runtime.maxQueuedBytes,
+                maxPcztBytes: runtime.maxPcztBytes,
+              },
+              budget,
+            );
             sessions.add(session);
             return { session, close: () => session.close() };
-          } catch (error) { channel.port1.close(); channel.port2.close(); await release(); throw error; }
+          } catch (error) {
+            channel.port1.close();
+            channel.port2.close();
+            await release();
+            throw error;
+          }
         },
       };
-    } finally { verified.dispose(); }
+    } finally {
+      verified.dispose();
+    }
   } catch (error) {
     const finalError = isZcashError(error) ? error : unavailable();
     stop(finalError);
     await destroy(); // Failed teardown must never admit a fresh fallback domain.
-    if (threaded && ['executing', 'pool'].includes(startup.phase) && !signal.aborted && ['TIMEOUT','WORKER_CRASHED','RUNTIME_UNAVAILABLE'].includes(finalError.code)) bootstrapFailures.add(finalError);
+    if (threaded && ['executing', 'pool'].includes(startup.phase)
+      && !signal.aborted
+      && ['TIMEOUT', 'WORKER_CRASHED', 'RUNTIME_UNAVAILABLE'].includes(finalError.code)) {
+      bootstrapFailures.add(finalError);
+    }
     throw finalError;
   } finally {
     clearTimeout(timer);

@@ -7,14 +7,19 @@ import type { MnemonicAccountInput, NativeCreatedAccount, NativeSignerAuthorizat
 type Wallet = Awaited<ReturnType<typeof openWalletRuntime>>;
 
 /** Private composition until real native authorization completes MemorySigner. */
-export async function createMnemonicAccount(wallet: Wallet, kind: 'create' | 'import', args: MnemonicAccountInput & Op) {
+export async function createMnemonicAccount(
+  wallet: Wallet,
+  kind: 'create' | 'import',
+  args: MnemonicAccountInput & Op,
+) {
   // This lease precedes even dispatch admission; a committed account can outlive its wallet.
   const releaseOwner = wallet.owner.retain();
   const releaseToken = async (token: number) => {
-    try { await wallet.owner.signers.release({token}); }
-    catch (error) {
+    try {
+      await wallet.owner.signers.release({ token });
+    } catch (error) {
       // A known stale token is already gone; any other failed cleanup must end its owner.
-      if (!isZcashError(error) || error.code !== 'STALE_HANDLE') await wallet.owner.invalidate().catch(() => {});
+      if (!isZcashError(error) || error.code !== 'STALE_HANDLE') await wallet.owner.invalidate().catch(() => { });
       throw error;
     }
   };
@@ -28,32 +33,70 @@ export async function createMnemonicAccount(wallet: Wallet, kind: 'create' | 'im
         const value = receipt.value as NativeCreatedAccount;
         await releaseToken(value.signerToken);
       }
-    } catch { /* Cleanup either released the token or invalidated its owner; preserve the receipt. */ }
-    finally { await releaseOwner().catch(() => {}); }
+    } catch { /* Cleanup either released the token or invalidated its owner; preserve the receipt. */ } finally {
+      await releaseOwner().catch(() => { });
+    }
     // The host keeps the committed account receipt; no undelivered signer remains live.
     throw error;
   }
   const token = created.signerToken;
   let disposing: Promise<void> | undefined;
-  const check = () => { if (disposing) throw failure('CLOSED','account','none','Signer authority is disposed.'); wallet.owner.check(); };
+  const check = () => {
+    if (disposing) throw failure('CLOSED', 'account', 'none', 'Signer authority is disposed.');
+    wallet.owner.check();
+  };
   const sameOwner = (other: Wallet) => {
     check();
-    if (other.owner.identity !== wallet.owner.identity) throw failure('SIGNER_CAPABILITY_MISMATCH','account','configure','Signer belongs to another native owner.');
+    if (other.owner.identity !== wallet.owner.identity) {
+      throw failure(
+        'SIGNER_CAPABILITY_MISMATCH',
+        'account',
+        'configure',
+        'Signer belongs to another native owner.',
+      );
+    }
   };
   const authority = Object.freeze({
     check,
     checkWallet: sameOwner,
     maxPcztBytes: wallet.owner.maxPcztBytes,
-    capabilities(args: Op = {}) { check(); return wallet.owner.signers.capabilities({...snapshot(args,['signal']),token}); },
-    authorize(args: Omit<NativeSignerAuthorization, 'token'> & Op) { check(); return wallet.owner.signers.authorize({...snapshot(args,['format','parameters','genesis','height','branch','bytes','maximum','signal'],wallet.owner.maxPcztBytes),token}); },
-    describe(args: Op = {}) { check(); return wallet.owner.signers.describe({...snapshot(args,['signal']),token}); },
-    bind(other: Wallet, accountId: string, args: Op = {}) { sameOwner(other); return other.session.signers.bind({...snapshot(args,['signal']),token,accountId}); },
-    unbind(other: Wallet, accountId: string) { sameOwner(other); return other.session.signers.unbind({token,accountId}); },
+    capabilities(args: Op = {}) {
+      check();
+      return wallet.owner.signers.capabilities({ ...snapshot(args, ['signal']), token });
+    },
+    authorize(args: Omit<NativeSignerAuthorization, 'token'> & Op) {
+      check();
+      return wallet.owner.signers.authorize({
+        ...snapshot(
+          args,
+          ['format', 'parameters', 'genesis', 'height', 'branch', 'bytes', 'maximum', 'signal'],
+          wallet.owner.maxPcztBytes,
+        ),
+        token,
+      });
+    },
+    describe(args: Op = {}) {
+      check();
+      return wallet.owner.signers.describe({ ...snapshot(args, ['signal']), token });
+    },
+    bind(other: Wallet, accountId: string, args: Op = {}) {
+      sameOwner(other);
+      return other.session.signers.bind({ ...snapshot(args, ['signal']), token, accountId });
+    },
+    unbind(other: Wallet, accountId: string) {
+      sameOwner(other);
+      return other.session.signers.unbind({ token, accountId });
+    },
     execute(other: Wallet, args: Omit<Parameters<Wallet['session']['fused']['send']>[0], 'token'>) {
       sameOwner(other);
-      return other.session.fused.send({...snapshot(args,['operationId','proposalId','reviewCommitment','spend','output','signal']),token});
+      return other.session.fused.send({
+        ...snapshot(args, ['operationId', 'proposalId', 'reviewCommitment', 'spend', 'output', 'signal']),
+        token,
+      });
     },
-    dispose() { return disposing ??= releaseToken(token).finally(releaseOwner); },
+    dispose() {
+      return disposing ??= releaseToken(token).finally(releaseOwner);
+    },
   });
-  return Object.freeze({account:created.account,authority});
+  return Object.freeze({ account: created.account, authority });
 }

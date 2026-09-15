@@ -18,9 +18,9 @@ export function validateBirthday(parameters: Uint8Array, genesis: Uint8Array, fi
 
 export interface StandalonePczt {
   serialize(): Uint8Array;
-  inspect(): Omit<import('../types.js').PcztInspection, 'context'> & {targetHeight:number;branchId:number};
+  inspect(): Omit<import('../types.js').PcztInspection, 'context'> & { targetHeight: number; branchId: number };
   combine(other: StandalonePczt): StandalonePczt;
   redact(profile: string): StandalonePczt;
   dispose(): void;
 }
-export function parseStandalonePczt(parameters:Uint8Array,genesis:Uint8Array,height:number,branch:number,bytes:Uint8Array,maximum:number):StandalonePczt;
+export function parseStandalonePczt(parameters: Uint8Array, genesis: Uint8Array, height: number, branch: number, bytes: Uint8Array, maximum: number): StandalonePczt;

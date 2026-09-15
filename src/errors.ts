@@ -19,10 +19,14 @@ export function failure(
   operationId: string | undefined = paymentState?.operationId,
 ): ZcashError {
   const error: ZcashError = Object.assign(new Error(message), {
-    name: 'ZcashError', code, stage, recovery, retryable,
+    name: 'ZcashError',
+    code,
+    stage,
+    recovery,
+    retryable,
     ...(syncStatus === undefined ? {} : { syncStatus }),
-    ...(operationId===undefined?{}:{operationId}),
-    ...(paymentState===undefined?{}:{paymentState}),
+    ...(operationId === undefined ? {} : { operationId }),
+    ...(paymentState === undefined ? {} : { paymentState }),
   });
   errors.add(error);
   return Object.freeze(error);

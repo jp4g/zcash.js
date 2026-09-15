@@ -41,7 +41,7 @@ export interface SourceObservation {
   readonly observedAt: string; // UTC ISO-8601
 }
 export interface ChainPoint { readonly height: number; readonly hash: BlockHash }
-export interface ChainTip extends ChainPoint, SourceObservation {}
+export interface ChainTip extends ChainPoint, SourceObservation { }
 export type BlockSelector = { readonly height: number; readonly hash?: never }
   | { readonly hash: BlockHash; readonly height?: never };
 export interface HeightRange { readonly fromHeight: number; readonly toHeight: number }
@@ -203,10 +203,10 @@ export interface LightClient {
  * Node filesystem and OPFS are intended durable modes, pending F3 qualification.
  * Memory is explicitly ephemeral; no silent fallback, encrypted-at-rest claim or secret vault.
  */
-export type WalletStorage =
-  | { readonly kind: 'node-filesystem'; readonly path: string }
-  | { readonly kind: 'browser-opfs'; readonly name: string }
-  | { readonly kind: 'memory' };
+export type WalletStorage
+  = | { readonly kind: 'node-filesystem'; readonly path: string }
+    | { readonly kind: 'browser-opfs'; readonly name: string }
+    | { readonly kind: 'memory' };
 /** Application-pinned canonical manifest; H1.1 defines URL and verification rules. */
 export interface WasmArtifact {
   readonly manifestUrl: string; // absolute credential-free HTTPS URL
@@ -239,8 +239,10 @@ export interface ArtifactManifest {
 export interface RuntimeOptions {
   readonly baseline: WasmArtifact;
   readonly threading: { readonly mode: 'baseline' } | {
-    readonly mode: 'prefer-threaded'; readonly artifact: WasmArtifact;
-    readonly workers: number; readonly startupTimeoutMs: number;
+    readonly mode: 'prefer-threaded';
+    readonly artifact: WasmArtifact;
+    readonly workers: number;
+    readonly startupTimeoutMs: number;
   };
   readonly maxMemoryBytes: number;
   readonly maxQueuedBytes: number;
@@ -297,32 +299,43 @@ export interface TransactionPolicy {
  * Omitted: online with a 15_000ms total pass deadline when light is supplied,
  * otherwise offline. Both load/reconcile ALL database operations locally.
  */
-export type RecoveryPolicy =
-  | { readonly mode: 'offline'; readonly rebroadcast?: never; readonly timeoutMs?: never }
-  | {
-    readonly mode: 'online';
-    readonly timeoutMs: number; // positive safe integer; total network pass, not per operation
-    /** Omitted = observe only. Requires light + broadcaster and stored consent.
+export type RecoveryPolicy
+  = | { readonly mode: 'offline'; readonly rebroadcast?: never; readonly timeoutMs?: never }
+    | {
+      readonly mode: 'online';
+      readonly timeoutMs: number; // positive safe integer; total network pass, not per operation
+      /** Omitted = observe only. Requires light + broadcaster and stored consent.
      * Never grants first dispatch, rebuild, signing, proving or endpoint failover.
      * Supported explicit DB restore/import disables retry until fresh reconciliation/consent.
      * External copies/rollback may be undetectable; no cross-copy lifetime budget guarantee.
      */
-    readonly rebroadcast?: {
-      readonly mode: 'previously-dispatched';
-      readonly maxAttempts: number; // positive per-step ceiling across ordinary opens of the non-rolled-back authoritative DB
-      readonly minIntervalMs: number; // positive spacing; strictest adopted value persists
+      readonly rebroadcast?: {
+
+        readonly mode: 'previously-dispatched';
+
+        readonly maxAttempts: number; // positive per-step ceiling across ordinary opens of the non-rolled-back authoritative DB
+
+        readonly minIntervalMs: number; // positive spacing; strictest adopted value persists
+
+      };
     };
-  };
 /** Immutable startup summary, not payment completion or a background job handle.
  * Counts are checked nonnegative safe integers, counting operations, not steps.
  */
 export interface RecoveryReport {
+
   readonly local: 'complete';
+
   readonly operations: number; // all records in the captured database inventory
+
   readonly observation: 'offline' | 'complete' | 'incomplete'; // online complete iff no deferred observation candidates
+
   readonly observedOperations: number; // fully observed candidates, independent of later dispatch failure
+
   readonly deferredOperations: number; // candidates still needing observation, not failed dispatches
+
   readonly lastError: ErrorInfo | null; // last sanitized network/dispatch failure, even with complete observation; timeout uses TIMEOUT
+
 }
 export interface WalletOptions extends Op {
   readonly recovery?: RecoveryPolicy;
@@ -406,13 +419,13 @@ export interface SignerBinding extends Disposable {
   readonly accountId: AccountId;
   readonly state: 'ready' | 'recovery-required'; // attachment cannot upgrade true view-only tracking
 }
-export type AddressRequest =
-  | { readonly format: 'transparent' }
-  | { readonly format: 'unified' }
-  | ({ readonly format: 'unified'; readonly transparent: 'require' | 'omit' | 'allow' } & (
-      { readonly sapling: 'require'; readonly ironwood: 'require' | 'omit' }
-      | { readonly sapling: 'omit'; readonly ironwood: 'require' }
-    ));
+export type AddressRequest
+  = | { readonly format: 'transparent' }
+    | { readonly format: 'unified' }
+    | ({ readonly format: 'unified'; readonly transparent: 'require' | 'omit' | 'allow' } & (
+    { readonly sapling: 'require'; readonly ironwood: 'require' | 'omit' }
+    | { readonly sapling: 'omit'; readonly ironwood: 'require' }
+  ));
 export interface AddressRecord {
   readonly address: string;
   readonly receiverTypes: readonly ReceiverType[];
@@ -433,8 +446,11 @@ export interface WalletAddressesApi {
   at(args: AccountAddressArgs & { index: DiversifierIndex }): Promise<AddressRecord>; // exact-index write
 }
 export interface ViewingApi {
-  export(args: { account: AccountDescriptor; format: 'ufvk' | 'uivk';
-    acknowledge: 'discloses-viewing-authority' } & Op): Promise<string>;
+  export(args: {
+    account: AccountDescriptor;
+    format: 'ufvk' | 'uivk';
+    acknowledge: 'discloses-viewing-authority';
+  } & Op): Promise<string>;
   toIncoming(args: { account: AccountDescriptor } & Op): Promise<AccountDescriptor>;
 }
 export interface DecodedAddress {
@@ -445,10 +461,21 @@ export interface DecodedAddress {
 }
 export interface SelectedReceiver { readonly pool: Pool; readonly type: ReceiverType; readonly bytes: Uint8Array }
 export interface AddressApi {
-  derive(args: { account: AccountDescriptor; index: DiversifierIndex; request?: AddressRequest } & Op): Promise<AddressRecord>;
-  find(args: { account: AccountDescriptor; start: DiversifierIndex; request?: AddressRequest; maxAttempts: number } & Op): Promise<AddressRecord>;
+
+  derive(
+    args: { account: AccountDescriptor; index: DiversifierIndex; request?: AddressRequest } & Op
+  ): Promise<AddressRecord>;
+
+  find(
+    args: { account: AccountDescriptor; start: DiversifierIndex; request?: AddressRequest; maxAttempts: number } & Op
+  ): Promise<AddressRecord>;
+
   decode(args: { network: Network; address: string } & Op): Promise<DecodedAddress>;
-  selectReceiver(args: { address: DecodedAddress; pool: Pool; context: ConsensusContext } & Op): Promise<SelectedReceiver>;
+
+  selectReceiver(
+    args: { address: DecodedAddress; pool: Pool; context: ConsensusContext } & Op
+  ): Promise<SelectedReceiver>;
+
 }
 
 /** Adapter negotiation tuples, not a caller configuration/support matrix.
@@ -458,8 +485,11 @@ export interface SignerCapabilities {
   readonly revision: string;
   readonly networks: readonly string[];
   readonly authorizations: readonly {
-    readonly pool: Pool; readonly txVersion: number; readonly branchIds: readonly number[];
-    readonly circuitVersions: readonly string[]; readonly pcztVersions: readonly number[];
+    readonly pool: Pool;
+    readonly txVersion: number;
+    readonly branchIds: readonly number[];
+    readonly circuitVersions: readonly string[];
+    readonly pcztVersions: readonly number[];
     readonly proofState: 'required' | 'not-required' | 'either';
     readonly requiredFields: readonly string[]; // versioned profile IDs, unknown values reject
     readonly review: 'device' | 'application';
@@ -536,9 +566,12 @@ export interface Proposal {
   readonly totalFee: bigint;
   readonly lockExpiryHeight: number;
   readonly steps: NonEmpty<{
-    readonly index: number; readonly dependsOn: readonly number[];
-    readonly transactionVersion: number; readonly expiryHeight: number; // zero = disabled
-    readonly inputs: readonly ReviewedInput[]; readonly outputs: readonly ProposedOutput[];
+    readonly index: number;
+    readonly dependsOn: readonly number[];
+    readonly transactionVersion: number;
+    readonly expiryHeight: number; // zero = disabled
+    readonly inputs: readonly ReviewedInput[];
+    readonly outputs: readonly ProposedOutput[];
     readonly fee: bigint;
   }>;
 }
@@ -554,11 +587,16 @@ export interface PcztArtifact {
 export interface PcztExchange { readonly operationId: string; readonly artifactId: string; readonly bytes: Uint8Array }
 export interface WalletPcztApi {
   /** Single-step only; retain full copy, export minimum signer view. No approval by serialization. */
-  export(args: ({ proposal: Proposal; pczt?: never } | { pczt: PcztArtifact; proposal?: never }) & Op): Promise<PcztExchange>;
+
+  export(
+    args: ({ proposal: Proposal; pczt?: never } | { pczt: PcztArtifact; proposal?: never }) & Op
+  ): Promise<PcztExchange>;
   /** Parse, check association/effects/signatures, combine retained full copy, persist new artifact.
    * Partial authorization is allowed. Unknown operation is never enrolled implicitly.
    */
+
   import(args: { operationId: string; bytes: Uint8Array } & Op): Promise<PcztArtifact>;
+
 }
 export interface PcztHandle extends Disposable { readonly [opaque]: 'standalone-pczt' }
 export interface PcztInspection {
@@ -586,22 +624,43 @@ export interface SubmissionAttempt {
   readonly diagnosticCode: string | null;
 }
 export interface PaymentState {
+
   readonly operationId: string;
+
   readonly revision: string;
+
   readonly accountIds: NonEmpty<AccountId>;
+
   readonly durability: 'durable' | 'ephemeral';
   /** Journal presentation, NOT a linear proof/authorization pipeline. */
-  readonly phase: 'proposed' | 'awaitingAuthorization' | 'building' | 'ready' | 'observing' | 'needsAttention' | 'complete' | 'abandoned';
+
+  readonly phase: 'proposed'
+    | 'awaitingAuthorization'
+    | 'building'
+    | 'ready'
+    | 'observing'
+    | 'needsAttention'
+    | 'complete'
+    | 'abandoned';
+
   readonly missing: readonly ('proposal' | 'artifact' | 'authority' | 'provingMaterial' | 'finalizedBytes')[];
+
   readonly steps: readonly {
-    readonly index: number; readonly dependsOn: readonly number[]; readonly txid: TxId | null;
+    readonly index: number;
+    readonly dependsOn: readonly number[];
+    readonly txid: TxId | null;
     readonly exactBytesSha256: string | null;
     readonly attempts: readonly SubmissionAttempt[];
     readonly inclusion: Inclusion | null;
     readonly observation: TransactionObservation | null;
-    readonly expiry: { readonly height: number | null; readonly reached: boolean | null; readonly confirmedUnminedAt: number | null };
+    readonly expiry: {
+      readonly height: number | null;
+      readonly reached: boolean | null;
+      readonly confirmedUnminedAt: number | null;
+    };
     readonly blockedBy: readonly number[];
   }[];
+
 }
 export interface PaymentConfirmation {
   readonly operationId: string;
@@ -636,7 +695,11 @@ export interface OperationsApi {
   /** Rehydrate behavior only; no propose/sign/broadcast or implicit signer prompt. */
   resume(args: { operationId: string } & Op): Promise<PendingPayment>;
 }
-export interface OperationPage { readonly items: readonly PaymentState[]; readonly nextCursor: string | null; readonly revision: string }
+export interface OperationPage {
+  readonly items: readonly PaymentState[];
+  readonly nextCursor: string | null;
+  readonly revision: string;
+}
 
 export interface ScanState {
   readonly revision: string; // opaque epoch + sequence, never height/rowid/user_version
@@ -646,16 +709,23 @@ export interface ScanState {
   readonly scanComplete: boolean | null;
 }
 export interface BalanceBuckets {
-  readonly total: bigint; readonly spendable: bigint; readonly locked: bigint;
-  readonly changePendingConfirmation: bigint; readonly pendingSpendability: bigint; readonly uneconomic: bigint;
+  readonly total: bigint;
+  readonly spendable: bigint;
+  readonly locked: bigint;
+  readonly changePendingConfirmation: bigint;
+  readonly pendingSpendability: bigint;
+  readonly uneconomic: bigint;
 }
 export interface WalletBalance {
   readonly accountId: AccountId;
   readonly scan: ScanState;
   readonly amounts: null | {
-    readonly total: bigint; readonly uneconomic: bigint; readonly observedTotal: bigint;
+    readonly total: bigint;
+    readonly uneconomic: bigint;
+    readonly observedTotal: bigint;
     readonly transparent: { readonly regular: BalanceBuckets; readonly coinbase: BalanceBuckets };
-    readonly sapling: BalanceBuckets; readonly ironwood: BalanceBuckets;
+    readonly sapling: BalanceBuckets;
+    readonly ironwood: BalanceBuckets;
     readonly unsupportedLegacy: null | { readonly kind: 'legacyOrchard'; readonly balance: BalanceBuckets };
   };
 }
@@ -731,12 +801,16 @@ export interface WalletUtxo extends InventoryState {
   readonly txid: TxId; readonly outputIndex: number; readonly address: string | null;
 }
 export interface NotePage {
-  readonly items: readonly WalletNote[]; readonly nextCursor: string | null;
-  readonly scan: ScanState; readonly unsupportedLegacyRowsOmitted: boolean;
+  readonly items: readonly WalletNote[];
+  readonly nextCursor: string | null;
+  readonly scan: ScanState;
+  readonly unsupportedLegacyRowsOmitted: boolean;
 }
 export interface UtxoPage {
-  readonly items: readonly WalletUtxo[]; readonly nextCursor: string | null;
-  readonly scan: ScanState; readonly unsupportedLegacyRowsOmitted: boolean;
+  readonly items: readonly WalletUtxo[];
+  readonly nextCursor: string | null;
+  readonly scan: ScanState;
+  readonly unsupportedLegacyRowsOmitted: boolean;
 }
 export interface SyncStatus {
   readonly activity: 'idle' | 'running' | 'stopped' | 'failed';
@@ -745,17 +819,24 @@ export interface SyncStatus {
   readonly targetReached: boolean;
   readonly enhancement: { readonly actionable: number; readonly delayed: number };
   readonly workEstimate: null | {
-    readonly completed: bigint; readonly total: bigint | null;
+    readonly completed: bigint;
+    readonly total: bigint | null;
     readonly scope: 'backend-sapling-orchard-only'; // excludes Ironwood, not overall percentage
   };
   readonly lastError: ErrorInfo | null;
 }
 export interface WalletClient {
+
   readonly recovery: RecoveryReport; // startup-only summary; current state is in operations
+
   readonly network: Network;
+
   readonly accounts: AccountsApi;
+
   readonly addresses: WalletAddressesApi;
+
   readonly pczt: WalletPcztApi;
+
   readonly operations: OperationsApi;
   /** Creation/storage + initial ordered attempt pass, NOT mining. Durable storage
    * commits operation/finalized bytes before dispatch; explicit memory storage
@@ -766,29 +847,57 @@ export interface WalletClient {
    * Submission grants recorded consent bound to exact bytes/route; later startup
    * retries additionally require explicit RecoveryPolicy opt-in (operations.md).
    */
-  send(args: (SendIntent | { proposal: Proposal; accountId?: never; to?: never; amount?: never; payments?: never }) & ExecuteOptions): Promise<PendingPayment>;
+
+  send(
+    args: (SendIntent
+      | {
+        proposal: Proposal;
+        accountId?: never;
+        to?: never;
+        amount?: never;
+        payments?: never;
+      })
+      & ExecuteOptions
+  ): Promise<PendingPayment>;
+
   shield(args: ShieldIntent & ExecuteOptions): Promise<PendingPayment>;
+
   propose(args: (SendIntent | ({ kind: 'shield' } & ShieldIntent)) & Op): Promise<Proposal>;
   /** The next four methods are PCZT roles only, not resumable local build stages. */
+
   build(args: { proposal: Proposal } & Op): Promise<PcztArtifact>;
+
   prove(args: { pczt: PcztArtifact } & Op): Promise<PcztArtifact>;
+
   sign(args: { pczt: PcztArtifact } & ExecuteOptions): Promise<PcztArtifact>;
+
   finalize(args: { pczt: PcztArtifact } & Op): Promise<PendingPayment>; // verify/store/outbox, no network
   /** Explicit submission consent for this operation; exact-byte/route binding as pending.broadcast. */
+
   broadcast(args: { operationId: string } & Op): Promise<PaymentState>;
+
   getBalance(args: { accountId: AccountId } & Op): Promise<WalletBalance>;
+
   getHistory(args: { accountId: AccountId } & PageArgs & Op): Promise<HistoryPage>;
+
   getTransaction(args: { txid: TxId } & Op): Promise<WalletTransaction | null>; // wallet-wide
+
   listNotes(args: { accountId: AccountId; pool?: ShieldedPool } & InventoryFilter & PageArgs & Op): Promise<NotePage>;
+
   listUtxos(args: { accountId: AccountId } & InventoryFilter & PageArgs & Op): Promise<UtxoPage>;
   /** Captures finite verified target if omitted; required fetch failure rejects with progress.
    * Cancellation returns stopped status at a safe commit boundary. Target pinning
    * unsupported by source fails explicitly; enhancement pass is part of completion.
    */
+
   sync(args?: { target?: ChainPoint } & Op): Promise<SyncStatus>;
+
   watchSync(args?: Op): AsyncIterable<SyncStatus>; // shared continuous runner; plain status records
+
   getSyncStatus(args?: Op): Promise<SyncStatus>; // local read only
+
   close(): Promise<void>; // idempotent; flush, detach, invalidate; injected resources remain caller-owned
+
 }
 
 export type ErrorCode = 'INVALID_ARGUMENT' | 'INVALID_MNEMONIC' | 'ENTROPY_UNAVAILABLE'

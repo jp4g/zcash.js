@@ -1,71 +1,63 @@
-# Pending payments and operation recovery
+# Payment operations and restart recovery
 
-::: warning Specification — unimplemented
-The owner-approved D26 amendment requires database-driven recovery. These declarations and examples are compile-only; no recovery runtime, protocol interoperability or durable VFS has been demonstrated. F3/F5/F6/F7 remain qualification blockers.
-:::
+A payment is a recorded operation, potentially containing multiple transaction steps. The database retains its state, exact finalized bytes, and submission attempts. A `PendingPayment` is a handle for interacting with that recorded operation.
 
-## Reopen the database
+## Reopen and discover work
 
-`createWalletClient` automatically loads and locally reconciles **all operations in the database**, across all accounts, before returning. Applications do not need a separately persisted operation ID to restart. IDs correlate/select individual records for UI, `get`, PCZT association or `resume`; they are not recovery checkpoints. There is no `getJobID` API. This is Bitcoin-style database recovery of recorded work, not mnemonic/account reconstruction.
+Reopen the same database with the same network/runtime configuration. Wallet opening reconciles recorded operations; your application does not need a separate file of operation IDs to discover them.
 
-Open acquires exclusive ownership, validates network/schema, performs migrations and reconciles interrupted commits, locks, artifacts, dependencies and attempts. Include proposals with no txid, interrupted authorization/proving/building, finalized but never dispatched steps, ambiguous/rejected submissions, expired work and previously complete/mined records that could reorg. Do not filter only `observing` records or trust a persisted `complete` phase as permanent finality. Corrupt/missing associations remain visible as `needsAttention`/`missing`; failure to safely enumerate or reconcile the inventory rejects open with a storage/recovery error, never a successful partial inventory.
+```ts
+import type { PaymentState, WalletClient } from 'zcash.js';
 
-Use a captured creation-sequence high-water mark under the sole owner, stable internal keyset pages of at most 200 records and bounded per-record artifact/step reads. Do not materialize the whole journal or create one live handle/job per record. Internal traversal must survive its own revision writes; public revision-bound cursors are not suitable checkpoints for that traversal. Admit work within `runtime.maxQueuedJobs`, `maxQueuedBytes` and `maxMemoryBytes`, yield between batches, and stream large valid records within those bounds. If a record cannot be processed safely, fail explicitly with `RESOURCE_LIMIT`; never skip it. Local recovery has no fixed total record cap or first-page truncation. It completes over the finite captured inventory, or rejects/cancels; a very large database can take time. No application mutations are admitted before the factory resolves.
+export async function discoverPayments(wallet: WalletClient) {
+  const operations: PaymentState[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await wallet.operations.list({ limit: 200, ...(cursor ? { cursor } : {}) });
+    operations.push(...page.items);
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
+  return { recovery: wallet.recovery, operations };
+}
 
-## Startup network policy and completion
+export async function resumePayment(wallet: WalletClient, operationId: string) {
+  const pending = await wallet.operations.resume({ operationId });
+  return pending.snapshot();
+}
+```
 
-`WalletOptions.recovery` is optional:
+`resume` rehydrates behavior; it does not sign or broadcast. Inspect the snapshot before deciding whether to wait, request authorization, or explicitly broadcast retained bytes. An operation ID identifies recorded work, not permission to create a different transaction.
 
-| Configuration | Startup behavior |
+## Choose startup network behavior
+
+| Policy | On open |
 | --- | --- |
-| Omitted, no `light` | Complete local recovery, no network work. A broadcaster alone does not enable observation. |
-| Omitted, with `light` | Complete local recovery, then one observation pass with a total 15,000ms deadline; no rebroadcast. |
-| `{ mode: 'offline' }` | Complete local recovery, no recovery network work even with injected clients. |
-| `{ mode: 'online', timeoutMs }` | One finite pass via the supplied `light`; positive safe-integer total network deadline, including handshake, reads, retries and optional dispatch. |
-| Online plus `rebroadcast: { mode: 'previously-dispatched', maxAttempts, minIntervalMs }` | The same pass may retry eligible exact bytes under the consent and durable budget rules below. Both limits are positive safe integers. |
+| `{ mode: 'offline' }` | Reconcile locally; no recovery network pass |
+| `{ mode: 'online', timeoutMs: 15000 }` | Reconcile locally, then observe within a bounded pass |
+| Online with `rebroadcast` | Additionally allow policy-limited retry of previously dispatched exact bytes |
 
-Online mode requires `light`; opt-in rebroadcast also requires `broadcaster`. Missing routes or invalid options reject with `INVALID_ARGUMENT` before recovery side effects. An unavailable configured endpoint, protocol/network mismatch, unsupported method or timeout ends/degrades the network pass and returns the locally opened wallet with a sanitized `lastError`; observation is incomplete only if observation candidates remain deferred; do not trust that source or submit after failed validation. Storage/commit failures during the network pass still reject with retained durable state; they cannot be downgraded to a harmless network warning. The caller can always explicitly open offline with compatible, readable local storage and locally available verified runtime assets. Offline is not a promise that missing WASM assets can be downloaded without a network.
+Omitting the policy selects online recovery with a 15-second deadline when `light` is present, otherwise offline. Online recovery needs a light client; rebroadcast additionally needs a broadcaster.
 
-Startup uses only the configured light endpoint for operation-scoped transaction/status and coherent tip/inclusion evidence. Validate broadcaster identity separately before permitted dispatch. No invented endpoint, silent failover, general block scanning, address discovery, enhancement drain, wallet sync or background retry loop occurs on open. Endpoint observations remain source evidence; if determining expiry, confirmations or a reorg needs unavailable verified chain/scan state, retain uncertainty and surface explicit sync/recovery needs. Never run hidden sync to obtain it.
+```ts
+import type { RecoveryPolicy } from 'zcash.js';
 
-The immutable `wallet.recovery` summary describes this opening only. `local: 'complete'` means every captured operation was locally reconciled. `operations` counts that inventory. `observedOperations` counts operations for which every finalized step received the required coherent observation during this pass; unfinalized/no-tx operations need no network observation and count as locally handled only. `deferredOperations` counts operations with finalized steps still needing observation, including failed/unsupported/unfinished requests. For offline opening observed is zero and all such candidates are deferred. `observation` is `offline`, `complete` (no deferred candidates), or `incomplete`; `lastError` is the last sanitized network/dispatch failure (including broadcaster validation failure), or `TIMEOUT`, otherwise null. A broadcaster failure after successful observation does not decrement `observedOperations`, increment `deferredOperations` or change complete observation to incomplete. These counts describe observation only, independently of dispatch outcomes. Complete observation can establish `unknown`/`notSeen`, not payment success. Rebroadcast outcomes remain per-step attempt records and do not turn observation completion into settlement.
+export const recovery: RecoveryPolicy = {
+  mode: 'online',
+  timeoutMs: 15_000,
+  rebroadcast: {
+    mode: 'previously-dispatched',
+    maxAttempts: 2,
+    minIntervalMs: 30_000,
+  },
+};
+```
 
-The network deadline starts after local recovery. Traverse all candidate records in bounded pages; only a bounded number of requests run concurrently. When time expires, stop admitting requests/dispatch, cancel outstanding transport work at safe boundaries and account for every unvisited candidate as deferred. Persist a fair rotating observation position so repeated small-budget opens do not starve later operations. The total deadline bounds network admission/wait, not mandatory safe persistence/cleanup. No background work survives factory completion. Later `events`/`wait`, explicit broadcast or a new opening can continue observation; opening success does not imply every transaction was observed or confirmed.
+Automatic recovery does not grant first-dispatch consent, resume unfinished signing/proving, or turn an unbuilt proposal into a payment. Local recovery failure rejects opening. A failed or incomplete network pass can leave a usable local wallet; inspect `wallet.recovery.lastError` and its deferred-operation count.
 
-## Consent, dispatch and ambiguity
+## Unknown submission and cancellation
 
-Default opening never submits. Opt-in startup rebroadcast is restricted to exact finalized stored bytes with a prior durable attempt-start **and** valid submission consent provenance. `send`/`shield` and explicit `wallet.broadcast`/pending `broadcast()` grant submission consent for their exact operation/steps; their contract includes later identical-byte retry only when the application additionally enables the startup policy. Planning, signing, PCZT import/export, finalization, `resume`, possession of a signer, and supplying a broadcaster do not grant submission consent. In particular, an outbox committed before any attempt-start is never newly submitted by opening. The application must explicitly invoke broadcast for that work after review; it need not rebuild it.
+A source can accept a transaction while its response is lost. `unknown` is neither success nor rejection. Continue observing the recorded transaction or explicitly retry its retained bytes after reviewing state. Creating a fresh spend can produce a duplicate payment.
 
-Before an explicit dispatch, persist consent bound to database/network identity, operation/step, reviewed effects/dependencies, txid **and exact-byte SHA-256**, and the selected transport route identity. Record origin (`send`, `shield` or explicit `broadcast`), consent schema version and timestamp. The private route binding includes normalized endpoint/protocol/network identity (or a qualified stable custom-adapter identity), never credentials; a display `sourceId` alone is insufficient. Missing/legacy consent, unknown adapter identity, changed endpoint or mismatched bytes/effects blocks automatic retry and requires fresh explicit application consent. Current opt-in policy gates use of stored consent; it cannot manufacture or broaden it. Credentials may refresh for the same route without persisting secrets. Supported explicit database restore/import workflows must durably disable automatic retry eligibility before the restored/imported database can dispatch, and keep it disabled until fresh explicit reconciliation and submission consent. If that invalidation cannot be committed, the workflow fails closed. Database-only recovery cannot detect an external snapshot, clone or rollback that preserves database identity and state, including replacement at the same path. Such undetectable copies can replay old consent and counters; no independent application ID/counter store is required or invented here.
+`pending.events()` observes changing state. `pending.wait({ confirmations, timeoutMs, signal })` observes every required step. Aborting or timing out a wait does not cancel a transaction, erase its attempts, or release its locks.
 
-Commit attempt-start, consent association, automatic-attempt counter and next-eligible time atomically **before** dispatch; append the result in a later commit. A crash between those commits is unknown even if the request never reached the server. Missing response persistence is not rejection. A timeout, `notSeen`, pruned data or off-main-chain status never proves non-dispatch or safe replacement. Reconcile before each policy-approved retry and send only the stored bytes; do not reconstruct from txid.
-
-`maxAttempts` caps total automatic attempts per step across ordinary opens of the non-rolled-back authoritative database, including ambiguous starts; those opens never reset it. This is not a lifetime guarantee across undetectable external copies or rollbacks. `minIntervalMs` is measured from the last durable attempt-start (including explicit starts). Persist the strictest ceiling/interval adopted for that step; later configuration cannot relax it through reopen. Clock rollback/unknown elapsed time defers, and forward wall-clock jumps alone cannot bypass spacing: require a full current-session monotonic interval when elapsed time is untrusted. Reserve budgets serially under database ownership; no parallel observer may duplicate dispatch. Exhaustion leaves work inspectable for explicit application action. Within that authoritative-database boundary, raising a startup option, restarting or reconnecting cannot refresh the budget or bypass spacing.
-
-Parents dispatch before children. Startup never first-dispatches an unattempted child, even when its parent becomes known. Unknown, rejected, expired or reorged parents block dependent dispatch until coherent evidence validates the dependency; an acknowledgment alone is insufficient. Skip canonically mined steps. Check network/branch validity, expiry and dependencies afresh before retry. Disabled expiry differs from unknown expiry; SQL maximum-scanned-height classification alone is not consensus expiry evidence. Expired/invalid bytes are retained but not sent or edited. Reorg can reopen previously complete operations; preserve prior inclusion and all attempts, and require explicit sync/rewind when retained state cannot establish a safe view. No new spend, reselection, fee/expiry edit, proof, signature, authorization prompt or secret/proving-material reacquisition occurs during opening, even if authority is available.
-
-## Read, wait and select a handle
-
-`PendingPayment.snapshot()` and `operations.get/list` read local state. `events` yields bounded `PaymentState` updates. State contains operation/account IDs, revision, durable/ephemeral mode, missing material, and per-step dependencies, txid, exact-byte SHA-256, attempts, inclusion, observation, expiry and blocking steps. Phase labels are journal presentation, not a fixed proof/sign pipeline. Missing authority never prevents loading other operations or observing/retrying already finalized eligible bytes.
-
-`wait` defaults to one positive confirmation and no timeout. Zero confirmations rejects; use `snapshot` for immediate state. Every required step must have coherent inclusion at the threshold. Reorg normally continues observation. Timeout/abort retains state and locks; a known blocked/terminal outcome throws a typed error with partial outcomes. A previously resolved result remains historical evidence.
-
-<<< ./examples/recovery.ts
-
-`operations.list` is wallet-wide unless filtered by account; UI pagination is independent of automatic recovery. `get` returns state or null. `resume({ operationId })` only rebinds a handle; no proposal, signer prompt, proving, signing, broadcast or automatic continuation of unfinished roles. Missing finalized bytes produce `NOT_FINALIZED` for wait/broadcast. Inspect missing material and choose a separate explicit supported role, or surface recovery work; no public proposal-restore method is invented.
-
-Same idempotency key plus same canonical intent finds existing work; a different intent yields `IDEMPOTENCY_CONFLICT`. Lost responses are recovered from the database, never by repeating an amount. Signers, closures and heap handles are not persisted. Memory storage is ephemeral and cannot recover a destroyed database.
-
-## Abandon an unbuilt proposal
-
-Call `wallet.operations.abandon({ operationId })` to release that proposal's input reservations immediately. This local operation needs neither a signer nor a network connection and works after reopening a stale proposal. It returns terminal `phase: 'abandoned'`; repeating it leaves the revision unchanged.
-
-Only proposals with no retained PCZT (including unsigned/exported artifacts), finalized transaction or submission attempt are eligible. Otherwise it rejects with `ROLE_PRECONDITION`; an unknown operation rejects with `OPERATION_NOT_FOUND`. The operation and its idempotency key remain recorded and cannot execute again. Create a new proposal with a new key to spend the released funds. `get` and `list` retain the abandoned state, `events` emits it and finishes, and `wait`/`broadcast` reject with `ROLE_PRECONDITION`.
-
-## Atomicity, cancellation and qualification
-
-Allocate operation identity with/before locks; commit reviewed artifacts and fused local/extraction wallet effects plus exact outbox association in validated atomic transactions. A crash must leave either the prior state or complete associated state, never dispatchable orphan bytes. Recovery cannot infer that a rolled-back partial build completed. Migrations preserve provenance or disable automatic retry for records lacking it. Do not claim that the restricted extension API can enclose every backend call without proving each composition and both real VFS flush/rollback paths.
-
-The factory signal cancels local batching/network work at safe boundaries and rejects with `ABORTED`, releasing ownership and partial resources after necessary durable commits. Reopen can reconcile committed progress without an application checkpoint. Cancellation after attempt-start retains unknown dispatch; it never erases consent/attempts, releases unresolved spend locks or undoes a broadcast. After return, `close()` stops admission, drains/cancels work safely, persists results or ambiguity, flushes storage and invalidates handles. Injected clients and signers remain caller-owned. Aborting a `wait` subscriber does not cancel other explicitly requested observers.
-
-The [future acceptance matrix](../planning/recovery-acceptance.md) is required evidence, not an executed test suite. Types cannot prove enumeration, fairness, atomicity, consent enforcement, no secret access or protocol safety.
+Memory storage has no restart recovery. Copying or rolling back database files is outside the SDK's backup/restore API; there is no public database backup/restore method. A mnemonic recovers account authority and scan history, not a lost database's operation journal.

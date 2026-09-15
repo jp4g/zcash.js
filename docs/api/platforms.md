@@ -1,25 +1,24 @@
-# Node and browser behavior
+# Node and browser setup
 
-::: tip Proposed Contract
-One TypeScript interface uses WASM-first runtimes on both platforms. Heavy work belongs off the application event loop; cryptographic parallelism is separate from database ownership.
-:::
+| Capability | Node | Browser |
+| --- | --- | --- |
+| ESM package imports | Node 22.12+ | ESM bundler with modern WebAssembly support |
+| Public queries | HTTP JSON-RPC | HTTP JSON-RPC with CORS |
+| Light queries | Native gRPC | gRPC-Web endpoint with CORS |
+| Durable wallet storage | `node-filesystem` | `browser-opfs` in a secure context |
+| Disposable wallet | `memory` | `memory` |
+| Wallet execution | Worker threads | Dedicated workers |
 
-## Node
+Browser RPC parsing also requires `JSON.parse` reviver `context.source` for lossless numeric tokens, and cancellation uses `AbortSignal.any`. A browser with WebAssembly alone is not sufficient.
 
-A dedicated `worker_threads` owner runs baseline WASM with bundled SQLite and a filesystem VFS. Public HTTP JSON-RPC and native lightwallet gRPC remain host transports. Shared Rayon workers require separate bootstrap qualification; choosing a Node binding-generator target does not establish thread readiness. Native/N-API acceleration is deferred to [issue #11](../planning/future-issues.md#issue-11-wasm-performance-and-possible-native-acceleration).
+Start with `threading: { mode: 'baseline' }`. Prefer-threaded mode requires a separately pinned threaded runtime. Browsers additionally need cross-origin isolation and `SharedArrayBuffer`; check your COOP/COEP, CORS, worker, and content-security policies together. Baseline remains the explicit fallback where permitted by configuration.
 
-## Browser
+Serve runtime assets over the loader's accepted authenticated URLs. The loader runs verified bytes and manages worker staging; applications should not import an arbitrary downloaded wallet script themselves. The [runtime profile](https://github.com/jp4g/zcash.js/blob/main/src/runtime/wallet-profile.ts) is the source of accepted runtime identities and compatibility values.
 
-A dedicated worker owns OPFS synchronous storage integration. The application must supply compatible gRPC-Web endpoints and resolve worker/module/parameter assets under its CSP, CORS, MIME and origin rules. Browser fetch is not native gRPC. OPFS may be unavailable, quota-limited or evicted; reject durable opening explicitly instead of substituting memory.
+Do not open the same wallet storage concurrently from multiple processes or tabs. Always close wallets on an orderly shutdown. OPFS data is origin-scoped and can be removed with browser site data; memory storage disappears at shutdown.
 
-Threaded selection needs a distinct artifact, secure context, suitable isolation, SharedArrayBuffer/thread support and successful worker bootstrap. Typical embedding headers are COOP `same-origin` and COEP `require-corp` or supported `credentialless`, with compatible cross-origin assets and permissions. The SDK cannot set application-page headers.
+## Current limits
 
-## Selection and failures
+The package is private and experimental. It has no default network/provider, managed artifact hosting, persistent secret vault, database backup API, remote proving integration, or concrete hardware signer integration. Storage is not advertised as encrypted at rest.
 
-`threading.mode: 'baseline'` chooses non-shared code. `prefer-threaded` checks prerequisites before loading incompatible code, then awaits pool readiness with the configured timeout. Missing prerequisites select baseline; partial failed bootstrap is cleaned up before a **fresh** baseline instance. Sanitized diagnostics report baseline/threaded/fallback and reason. No fallback replays a failed wallet mutation or changes storage/provider/security policy.
-
-::: info Requires Qualification
-Baseline scanner liveness is a source-derived risk: backend Rayon/flume scheduling may still require an explicit serial integration seam. Merely putting WASM in a worker does not fix it. Baseline and threaded scanning, both VFS modes, Node module formats, SSR/query-only loading and real bundler asset resolution remain F1–F8 gates. No supported browser/version matrix, WASI runtime or performance claim is established.
-:::
-
-Separate baseline/shared artifacts each require a pinned canonical manifest binding the complete executable graph and mode. Verify all module/glue/WASM/worker/bootstrap bytes before any import or worker start, under the [H1.1 URL and loading policy](host-contract.md#h1-1-negotiation-before-authority). Query-only and SSR imports must not eagerly touch workers, SAB or proving assets. Proving is bounded to one admitted proof with configured queues and memory; measured budgets remain future work. Review the [host contract](host-contract.md) for lifecycle details.
+The repository runs Node tests in CI. Actual Firefox SDK and wallet-host checks are separate runnable checks; a passing bundle build is not a browser execution test. The [test guide](https://github.com/jp4g/zcash.js/blob/main/tests/README.md) describes which checks execute real native fixtures and which need external runtime/proving packages.

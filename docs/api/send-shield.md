@@ -1,27 +1,51 @@
-# Ordinary send and shield
+# Send and shield funds
 
-::: tip Proposed Contract
-A send needs a synchronized spend-capable account, explicit transaction policy, local proving material where required, a matching supplied/attached signer and an explicit broadcaster.
-:::
+Before sending, sync the account, attach a ready signer (or pass one explicitly), configure a transaction policy and proving assets, and provide a broadcaster. The account must actually be funded.
 
-<<< ./examples/payments.ts
+## Send a payment
 
-## Send intent
+```ts
+import { parseZec } from 'zcash.js';
+import type { AccountRecord, WalletClient } from 'zcash.js';
 
-Use one `to`/`amount`/optional `memo`, or a nonempty `payments` array, never both. Always select `accountId`. Optional `maxFee` is an application ceiling; omission does not waive the standard fee. An idempotency key identifies one canonical intent within a wallet/network, not a transaction ID.
+export async function sendPayment(
+  wallet: WalletClient, account: AccountRecord, recipient: string, requestId: string,
+) {
+  const pending = await wallet.send({
+    accountId: account.id,
+    to: recipient,
+    amount: parseZec('0.00125'),
+    idempotencyKey: requestId,
+  });
+  return pending.wait({ confirmations: 3, timeoutMs: 120_000 });
+}
+```
 
-`TransactionPolicy` specifies spend pools, owned transparent permission, shielded change pool, ZIP317 standard fees, confirmation rules, expiry offset or disabled expiry, lock lifetime, shielding threshold and freshness. `require-synced` rejects insufficient freshness; `catch-up` permits bounded sync under the explicit timeout. Query and transaction confirmations must match.
+Assign a stable application request ID to one intended payment. Reuse that ID when recovering the same intent; generate a new ID only for a genuinely new payment. Conflicting reuse fails with `IDEMPOTENCY_CONFLICT`.
 
-Rust selects inputs and computes change/fees. Unsupported scripts, maturity, pool/context, missing authority, insufficient funds, freshness and fee limits fail explicitly. The API has no send-max helper, arbitrary caller-selected input list or custom fee algorithm.
+`send` plans, executes, and dispatches, then returns a `PendingPayment`. It does not mean the transaction is mined. `wait` returns confirmation for every required transaction step, or rejects with a timeout/error and any available payment state.
 
-## Shield owned transparent funds
+For interactive approval, use [reviewed proposals](proposals.md) so the user approves the exact proposal before execution.
 
-`shield` sends eligible owned transparent funds to a shielded pool. Omitted `fromAddresses` selects eligible owned addresses, omitted `toPool` uses configured change pool, and omitted `threshold` uses the configured shielding threshold. `NOTHING_TO_SHIELD` is distinct from a successful empty payment. Shielding does not erase prior transparent history or bypass maturity/confirmation rules.
+## Shield transparent funds
 
-## Return point
+```ts
+import { parseZec } from 'zcash.js';
+import type { AccountRecord, WalletClient } from 'zcash.js';
 
-`send` and `shield` return `PendingPayment` after creation/storage and the first ordered submission pass, including unknown or rejected attempts. They do not wait for mining. Inspect per-step state; call `wait` for checked inclusion of every required transaction. An exception after operation allocation can retain the operation ID and partial state.
+export async function shield(wallet: WalletClient, account: AccountRecord, requestId: string) {
+  const pending = await wallet.shield({
+    accountId: account.id,
+    toPool: 'sapling',
+    threshold: parseZec('0.001'),
+    idempotencyKey: requestId,
+  });
+  return pending.snapshot();
+}
+```
 
-These explicit submission calls record consent for the finalized operation/steps and selected route. Later startup retries additionally require opt-in recovery policy; signing or finalization alone grants no such consent.
+Shielding selects eligible owned transparent funds under your policy. It can fail with `NOTHING_TO_SHIELD`; do not turn that into a successful zero-value payment. Policy and destination pools must match the capabilities of your network/runtime.
 
-For prior review use [immutable proposals](proposals.md). For interruptions use [operation recovery](operations.md); repeating the same amount is not a recovery strategy.
+## If a send is interrupted
+
+An abort stops local waiting where possible; it cannot undo a committed transaction or a network submission. Inspect `error.operationId` and `error.paymentState`, then use [operations and recovery](operations.md). Do not create a replacement payment merely because the first call timed out.

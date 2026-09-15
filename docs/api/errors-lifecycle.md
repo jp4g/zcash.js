@@ -1,27 +1,55 @@
-# Errors, cancellation and disposal
+# Errors, cancellation, and cleanup
 
-::: tip Proposed Contract
-Use `isZcashError` to narrow errors. `retryable` is a diagnostic hint, never permission to repeat a spend or trigger another signer prompt.
-:::
+SDK failures are structured errors. Use `isZcashError` to distinguish them from application errors and inspect the error code and any retained payment state.
 
-<<< ./examples/errors.ts
+```ts
+import { isZcashError } from 'zcash.js';
 
-## Read the error contract
+export async function attempt<T>(work: () => Promise<T>) {
+  try {
+    return { ok: true as const, value: await work() };
+  } catch (error) {
+    if (!isZcashError(error)) throw error;
+    return {
+      ok: false as const,
+      code: error.code,
+      recovery: error.recovery,
+      operationId: error.operationId,
+      paymentState: error.paymentState,
+    };
+  }
+}
+```
 
-`ErrorInfo` includes stable code, stage, retryability, recovery direction and sanitized message. `ZcashError` may retain operation ID, latest payment state, sync status or transaction observation. Those attachments are sensitive and must never be automatically logged.
+These returned details belong in the application's private UI/state, not generic telemetry. `retryable` is not permission to repeat an entire payment workflow.
 
-Validation/account/address failures direct input correction. Network/protocol/capability failures require configuration or qualification. Freshness errors require sync; stale review requires a newly reviewed proposal after reconciling earlier work. Submission ambiguity directs exact-byte reconciliation. Storage/runtime faults may require reopen or restore. The complete `ErrorCode`, stage and recovery unions are in the [declaration reference](public-api.md).
+| Code | Typical response |
+| --- | --- |
+| `INVALID_ARGUMENT` | Correct the supplied value or option |
+| `NETWORK_MISMATCH` | Check network, endpoint, and runtime configuration |
+| `METHOD_NOT_SUPPORTED` | Use a server/backend that implements the requested method |
+| `SYNC_REQUIRED`, `STALE_PROPOSAL` | Sync and obtain a fresh proposal for review |
+| `SIGNER_REQUIRED` | Attach or supply an appropriate signer |
+| `PROVING_MATERIAL_REQUIRED` | Configure matching local proof assets |
+| `STORAGE_BUSY` | Release the other database owner |
+| `RESOURCE_LIMIT` | Reduce concurrent work or adjust the relevant configured budget |
+| `CURSOR_STALE` | Restart pagination from its first page |
+| `ABORTED`, `TIMEOUT` | Inspect progress and retained payment state before retrying |
+| `RECOVERY_REQUIRED` | Inspect recorded state and the indicated recovery action |
 
-A rejected broadcast report is normally an outcome record, while known blocked/terminal payment observation may throw. A successful absent query differs from transport failure. Catching every error and returning null would destroy these distinctions.
+## Cancel a read
 
-## Cancellation boundaries
+```ts
+import type { PublicClient } from 'zcash.js';
 
-Omitted `signal` means no caller cancellation. Aborting a fetch or queued job releases its resources where supported. Scan cancellation returns stopped status at a safe commit boundary. Running crypto is cooperative and may finish before cancellation is acknowledged; a worker message cannot interrupt an occupied synchronous export. Do not terminate the wallet worker as an ordinary cancel action.
+export async function cancellableTip(client: PublicClient) {
+  const controller = new AbortController();
+  const request = client.getTip({ signal: controller.signal });
+  controller.abort();
+  return request; // rejects if cancellation wins
+}
+```
 
-After committed work, return/preserve its state rather than claiming rollback. Wait timeout/abort ends observation, never an on-chain transaction or its locks. Breaking an iterator releases the subscription/stream; it does not cancel unrelated shared work. Buffer overflow raises an error rather than dropping updates.
+Pass genuine `AbortSignal` instances rather than object-shaped substitutes. Stop consuming streams with `break`, `return()`, or a signal. Cancellation after a write or dispatch may leave committed work, so use the operation journal to determine the next action.
 
-## Ownership and teardown
-
-Call `wallet.close()` in `finally`. Dispose caller-owned `MemorySigner`, `SignerBinding`, `ViewKeyHandle` and standalone `PcztHandle` resources explicitly. Public close/dispose are idempotent; stale/wrong-instance handle use fails. Proposal/associated artifact lifetimes follow the wallet; there is no public dispose method on them. Public/light clients have no declared `close` or `dispose` method.
-
-Wallet close detaches, flushes and invalidates its resources; injected clients and signers remain caller-owned. On worker failure, invalidate the affected domain and reopen durable state. Opening reconciles all operations; it never replays construction/signing. Only explicit startup policy plus stored consent can permit bounded identical-byte retries. Startup network failures appear in `wallet.recovery` while local recovery failures reject opening. Finalizers are leak backstops, not lifecycle correctness.
+Await `wallet.close()`. It stops admission and drains accepted work at safe boundaries. Dispose caller-owned signers, signer bindings, viewing handles, and PCZT handles separately. The [walkthrough](walkthrough.md) demonstrates cleanup even when an earlier cleanup step fails.

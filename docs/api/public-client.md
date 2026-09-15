@@ -1,21 +1,52 @@
-# Public client
+# Query the public chain
 
-::: tip Proposed Contract
-Use `createPublicClient` with `http` for wallet-independent HTTP JSON-RPC queries and raw broadcast. Construction is lazy; first use validates protocol/network. No wallet or proving assets should load just to query a tip.
-:::
+Use a public client when you need chain data without opening a wallet. Construct it as shown in [installation](installation.md).
 
-<<< ./examples/public.ts
+## Read a transaction
 
-## Read chain data
+```ts
+import { txId } from 'zcash.js';
+import type { PublicClient } from 'zcash.js';
 
-`getTip`, `getBlock` and `getBlockHeader` expose chain identity and source observations. Block selection accepts height **or** hash. `getTransaction` returns raw bytes and observation, or null after a successful absent lookup. `getTransactionStatus` distinguishes `notSeen`, `mempool`, `mined`, `offMainChain` and `unknown` with nullable inclusion/tip and prior inclusion.
+export async function inspectTransaction(client: PublicClient, displayTxid: string) {
+  const id = txId(displayTxid);
+  const transaction = await client.getTransaction({ txid: id });
+  const observation = await client.getTransactionStatus({ txid: id });
+  return { transaction, observation };
+}
+```
 
-`getUtxos` accepts a nonempty list of transparent addresses. It is a public server view, not a shielded account balance or a wallet spendability verdict. `getTreeState` and bounded `getSubtreeRoots` provide scan inputs. Optional provider methods fail `METHOD_NOT_SUPPORTED`; missing indices and transport failures are not empty results.
+A transaction contains owned raw bytes and an observation. Status can be `notSeen`, `mempool`, `mined`, `offMainChain`, or `unknown`. `notSeen` means this source has not found it; it does not prove that no other source has it. Inclusion and confirmation fields can be `null` when the source cannot establish them.
 
-## Submit and observe
+## Watch or wait for confirmation
 
-`broadcastTransaction({ bytes })` attempts submission once and returns a plain `BroadcastReport`. Its txid is derived from the exact bytes and checked against the server response. `acknowledged` means the endpoint acknowledged submission; `rejected` retains a sanitized code; timeout after dispatch is `unknown`. Broadcast is never automatically retried.
+```ts
+import { txId } from 'zcash.js';
+import type { PublicClient, TransactionObservation } from 'zcash.js';
 
-`waitForTransaction` resolves checked inclusion at a positive confirmation threshold (default one). `watchTransaction` yields bounded observations and can report a reorg. Depth requires coherent inclusion and tip identity. Neither provides full consensus verification.
+export async function watchTransaction(
+  client: PublicClient,
+  displayTxid: string,
+  signal: AbortSignal,
+  render: (state: TransactionObservation) => void,
+) {
+  for await (const state of client.watchTransaction({ txid: txId(displayTxid), signal })) {
+    render(state);
+    if (state.state === 'mined' && (state.inclusion?.confirmations ?? 0) >= 3) break;
+  }
+}
 
-`TransportOptions` requires a source label, per-request timeout, read retry policy and response bound. Optional headers are application callbacks; credentials and endpoint URLs must stay out of diagnostics. Observation options set polling and buffer bounds; overflow errors instead of dropping updates silently.
+export async function waitForPayment(client: PublicClient, displayTxid: string) {
+  return client.waitForTransaction({
+    txid: txId(displayTxid), confirmations: 3, timeoutMs: 120_000,
+  });
+}
+```
+
+Breaking a `for await` loop closes the iterator. Keep consuming updates: a full observation buffer rejects instead of silently discarding changes. Reorganizations can change a previous inclusion; do not treat the first `mined` observation as permanent.
+
+## Other reads and raw submission
+
+`getBlock` and `getBlockHeader` accept exactly one of `{ height }` or `{ hash }`. `getUtxos({ addresses })` queries a nonempty list of transparent addresses. Tree state and subtree methods depend on server support.
+
+`broadcastTransaction({ bytes })` submits one already-built transaction. Its outcome is `acknowledged`, `rejected`, or `unknown`. A timeout after dispatch can be `unknown`; acknowledgement is not confirmation. This API has no wallet operation journal. For wallet-created payments, use [send and recovery](send-shield.md) so exact transaction bytes and attempts are retained.

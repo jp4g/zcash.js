@@ -1,29 +1,43 @@
-# Balances, history, transactions and inventory
+# Balances, history, and inventory
 
-::: tip Proposed Contract
-Wallet queries describe local knowledge and include scan state. They must preserve nulls and unknown classifications instead of manufacturing complete balances or eligibility.
-:::
+Wallet queries describe the local database at its scan state. Sync first when your UI needs current chain data.
 
-<<< ./examples/queries.ts
+```ts
+import { formatZec } from 'zcash.js';
+import type { AccountRecord, WalletClient } from 'zcash.js';
 
-## Balances
+export async function accountOverview(wallet: WalletClient, account: AccountRecord) {
+  const balance = await wallet.getBalance({ accountId: account.id });
+  const history = await wallet.getHistory({ accountId: account.id, limit: 50 });
+  return {
+    totalZec: balance.amounts === null ? null : formatZec(balance.amounts.total),
+    scan: balance.scan,
+    history,
+  };
+}
+```
 
-`getBalance({ accountId })` returns `amounts: null` when a summary is unavailable, distinct from zero in a known empty pool. Transparent regular and coinbase buckets remain separate; Sapling and Ironwood have separate buckets. Each preserves total, spendable, locked, pending change, pending spendability and uneconomic amounts.
+A `null` amount means unavailable accounting, not zero. Pool balances distinguish spendable, locked, pending, and uneconomic amounts. A total balance is not a promise that every amount is eligible for the next proposal.
 
-`total` is economic value; `observedTotal` adds the backend uneconomic bucket in Rust. `unsupportedLegacy` exposes historical Orchard amounts explicitly, including them where the backend totals do. Those funds cannot enter v1 selection or migration. Never relabel them Ironwood or subtract reservations a second time. Do not infer an all-pool spendable amount from a shielded-only backend helper.
+## Read all history pages
 
-## History and detail
+```ts
+import type { AccountRecord, HistoryEntry, WalletClient } from 'zcash.js';
 
-`getHistory` is account-relative. Delta sign alone does not establish direction; fee is nullable and transaction-wide, so summing it across account rows double-counts. Shielding and pool-crossing classification may be unknown. `historyComplete` remains the literal `'unknown'`, even after sync.
+export async function history(wallet: WalletClient, account: AccountRecord) {
+  const entries: HistoryEntry[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await wallet.getHistory({
+      accountId: account.id, limit: 200, ...(cursor ? { cursor } : {}),
+    });
+    entries.push(...page.items);
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
+  return entries;
+}
+```
 
-`getTransaction({ txid })` is wallet-wide: null means no local record; `raw: null` means a known record awaiting enhancement. Outputs are deduplicated by pool/index while retaining sending/receiving account relationships. Values and addresses may be unknown. Memos distinguish unknown, empty, text and binary. Change classification may be recorded, heuristic or unknown. SQL expiry classification is not confirmed unmined evidence.
+The default page size is 50; the maximum is 200. Cursors are opaque. If a changing database invalidates a cursor, restart the listing after `CURSOR_STALE` rather than editing the token.
 
-## Notes and UTXOs
-
-`listNotes` identifies shielded notes by txid/pool/output index; `listUtxos` identifies transparent outpoints. Omitted filters include spent, pending, locked, uneconomic and unknown records. `lockKnown` distinguishes an unknown lock from no lock. `eligibility` stays `'unknown'` until a complete Rust classifier is qualified; inventory is not an input-selection API. Legacy rows omitted from supported inventory are flagged explicitly.
-
-## Pagination
-
-Pages default to 50 items and accept at most 200. Use `nextCursor` until null, preserving the same account and filters. Relevant mutation raises `CURSOR_STALE`; refresh from the first page instead of merging incompatible revisions. Cursors bind database/epoch/revision and ordering. No total count or long-lived SQLite transaction is promised.
-
-Unknown account queries error `ACCOUNT_NOT_FOUND`, except `accounts.get` returns null. Unavailable transport/methods error, not empty results. Query, confirmation and coinbase maturity policies are not interchangeable.
+`wallet.getTransaction({ txid })` reads a wallet-wide transaction. `listNotes({ accountId, pool })` and `listUtxos({ accountId })` inspect inventory; `spendState: 'unspent'` is an inventory filter, not a complete spendability check. Proposal selection applies the actual spending policy.

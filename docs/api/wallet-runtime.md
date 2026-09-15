@@ -1,39 +1,71 @@
-# Wallet creation, runtime and storage
+# Open a wallet
 
-::: tip Proposed Contract
-`createWalletClient(WalletOptions)` initializes a dedicated worker and opens/migrates one wallet database. It automatically reconciles all database operations, without importing a mnemonic or starting general synchronization.
-:::
+A wallet owns a local database and a worker. It does not generate a mnemonic, choose a server, or automatically attach a signer.
 
-## Explicit configuration
+## Supply the runtime and storage
 
-Always supply `network`, `runtime`, `storage`, `confirmations` and `observation`. Optional `light` enables explicit scanning and the default bounded startup observation pass; omission means local-only recovery. Optional `broadcaster` enables submission; omission means no submission route even with `light`. Optional `transactionPolicy` enables planning/send; its confirmation settings must match query accounting. Optional `proving` supplies local proof assets; a UFVK cannot substitute for proving authority. Optional `recovery` selects offline or bounded online opening and explicit opt-in exact-byte rebroadcast. It never enables unfinished signing/proving work. See the [recovery policy and completion report](operations.md#startup-network-policy-and-completion).
+Wallet execution needs a compatible runtime package in addition to the SDK tarball. Supply its manifest URL and authenticated SHA-256 digest as a `WasmArtifact`. The loader verifies the manifest and executable assets before running them. A random digest, or a digest of a different runtime, will fail.
 
-Runtime configuration supplies a baseline `WasmArtifact` with `manifestUrl` and expected `manifestSha256`, plus baseline or prefer-threaded selection. Each separately pinned canonical `ArtifactManifest` authenticates contract/ABI/schema revisions, build/dependency-graph identity, runtime mode and the complete executable asset set through typed `ArtifactFile` URLs, SHA-256 digests, lengths and kinds/media types. The loader verifies the manifest first, checks mode/versions, then verifies every executable asset before import/worker start and before authority/storage. H1 negotiation uses those verified identities. See [H1.1](host-contract.md#h1-1-negotiation-before-authority) for canonical encoding, credential-free URLs, confined relative asset paths and verified-byte execution.
+The repository's test WASM fixtures are not an installable wallet runtime package. Obtain the matching runtime and network parameters for your deployment before attempting this chapter. Use the baseline runtime first; threaded setup has additional requirements described in [platforms](platforms.md).
 
-<<< ./examples/runtime.ts
+```ts
+import { createWalletClient } from 'zcash.js';
+import type { LightClient, LocalProvingOptions, Network, WalletStorage, WasmArtifact } from 'zcash.js';
 
-Set memory, queued byte/job, scan-batch and PCZT bounds explicitly. These are admission limits, not measured performance recommendations.
+export async function openWallet(
+  network: Network,
+  light: LightClient,
+  storage: WalletStorage,
+  baseline: WasmArtifact,
+  proving?: LocalProvingOptions,
+) {
+  const confirmations = { trusted: 3, untrusted: 3, allowZeroConfirmationShielding: false };
+  return createWalletClient({
+    network, light, broadcaster: light, storage, confirmations,
+    observation: { pollIntervalMs: 5_000, maxBufferedUpdates: 16 },
+    recovery: { mode: 'offline' },
+    runtime: {
+      baseline,
+      threading: { mode: 'baseline' },
+      maxMemoryBytes: 1024 * 1024 * 1024,
+      maxQueuedBytes: 128 * 1024 * 1024,
+      maxQueuedJobs: 8,
+      scanBatchSize: 16,
+      maxPcztBytes: 4 * 1024 * 1024,
+    },
+    transactionPolicy: {
+      spendPools: ['transparent', 'sapling', 'ironwood'],
+      transparent: 'allow-owned', changePool: 'sapling',
+      feeRule: 'zip317-standard', confirmations,
+      expiry: { kind: 'offset', blocks: 40 },
+      lockExpiryBlocks: 20, shieldingThreshold: 100_000n,
+      freshness: { mode: 'require-synced', maxLagBlocks: 0 },
+    },
+    ...(proving ? { proving } : {}),
+  });
+}
+```
 
-## Storage ownership
+These limits are example budgets, not measured minimums or performance recommendations. Match your runtime, workload, and device capacity. The transaction policy deliberately allows owned transparent inputs; choose pools and change behavior appropriate to your application. Its confirmation policy must match the wallet's query policy.
 
-- `node-filesystem` uses an application path through a worker-local filesystem VFS.
-- `browser-opfs` uses an application storage name through a dedicated-worker OPFS VFS.
-- `memory` is explicitly ephemeral and cannot recover operations after restart.
+Choose storage explicitly:
 
-All three use bundled SQLite **inside the wallet WASM instance**. There is no injected native SQLite connection. One owner serializes reads, scans, account/address changes, proposals, locks and the outbox. A second process/tab must coordinate ownership or receive `STORAGE_BUSY`.
+| Environment | Storage |
+| --- | --- |
+| Node | `{ kind: 'node-filesystem', path: '/absolute/path/wallet.sqlite' }` |
+| Browser | `{ kind: 'browser-opfs', name: 'my-wallet' }` |
+| Disposable session | `{ kind: 'memory' }` |
 
-## Open and close
+Memory storage cannot recover operations after restart. Only one owner should open a database at a time; conflicting ownership can fail with `STORAGE_BUSY`.
 
-Open acquires ownership, checks database/network/schema compatibility, migrates and reconciles every operation using bounded internal pagination before returning. The optional finite network pass follows local completion; network/dispatch timeout or failure returns a usable local wallet with sanitized `wallet.recovery.lastError`. Observation is incomplete only while observation candidates remain deferred; a later broadcaster failure preserves completed observation counts/status. Local integrity/recovery failure rejects instead of hiding records. No separately saved operation ID is required. If migration requires authority absent from `WalletOptions`, report `MIGRATION_REQUIRED`; do not invent a mnemonic-on-open option. Failed durable opening must not silently create memory storage.
+## Understand the options
 
-`close()` is idempotent: stop admission, finish/stop work at safe boundaries, flush and close storage, detach bindings and invalidate wallet-dependent handles. Injected clients/signers remain caller-owned. Dispose returned memory signers explicitly after their final use. Closing does not undo submitted payments.
+- `light` supplies scanning and startup observation. Opening is not a general sync.
+- `broadcaster` supplies submission. Providing only `light` does not enable broadcasting.
+- `transactionPolicy` enables proposals and send/shield planning.
+- `proving` supplies local proof material. Without it, reads still work, but a flow needing proofs can fail with `PROVING_MATERIAL_REQUIRED`.
+- `recovery: { mode: 'offline' }` reconciles recorded operations locally without startup network work. It does not disable later explicit `sync` or `send` calls.
 
-::: info Requires Qualification
-Both VFS durability paths have scoped [Node/Firefox qualification](../planning/wallet-payments-qualification.md), including [current OPFS fault recovery](installation.md#current-opfs-fault-recovery-116). Storage holds sensitive viewing/history data; encrypted-at-rest protection is not established.
-:::
+For proving, provide reviewed `AssetRequirement` entries and a `loadAsset({ requirement, signal })` callback returning their bytes. The SDK checks lengths and digests and supports memory or persistent asset caching. Proof assets are separate from the executable runtime manifest. There is no remote proving service supplied by the SDK.
 
-## Backup and restore scope
-
-The public API has no database backup, export or restore operation. The restore clauses in the recovery matrix apply to a supported explicit restore workflow; none is offered by this version. They do not require adding a new API or treating an ordinary reopen as a restore test. Mnemonic account import and rescan recover account authority/history, not a previous database's operation records or retry budgets.
-
-An application-controlled filesystem/OPFS copy or rollback is outside SDK restore guarantees. Opening the same bytes cannot reveal that they came from an older snapshot or another copy. Stored consent and counters may therefore be replayed; there is no cross-copy retry-budget or automatic invalidation guarantee. Applications handling such copies should start with offline recovery and review the saved state. Offline opening prevents recovery network activity; it does not erase or renew consent.
+Always await `wallet.close()` after use. Returned signers remain caller-owned and need their own `dispose()`. See the [walkthrough](walkthrough.md) for complete cleanup.

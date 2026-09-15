@@ -135,7 +135,9 @@ export class WalletPayments {
     this.light = options.light === undefined ? undefined : new PaymentSource(options.light, options.network);
     this.broadcaster = options.broadcaster === undefined
       ? undefined
-      : new PaymentSource(options.broadcaster, options.network);
+      : options.broadcaster === options.light
+        ? this.light
+        : new PaymentSource(options.broadcaster, options.network);
     this.policy = recoveryPolicy(options.recovery, Boolean(this.light), Boolean(this.broadcaster));
     this.operations = Object.freeze(
       {

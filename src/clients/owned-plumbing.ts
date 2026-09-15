@@ -62,3 +62,19 @@ export function copyRecord(value: unknown, keys: readonly string[]): Record<stri
     throw invalidArgument();
   }
 }
+
+/** Read an inherited data property without invoking accessors. */
+export function dataField(value: object, key: string): unknown {
+  try {
+    for (let current = value, depth = 0; current && depth < 16; current = Object.getPrototypeOf(current), depth++) {
+      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      if (descriptor) {
+        if (!('value' in descriptor)) throw invalidArgument();
+        return descriptor.value;
+      }
+    }
+  } catch {
+    throw invalidArgument();
+  }
+  return undefined;
+}

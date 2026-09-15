@@ -16,7 +16,7 @@ import { networkBinding } from './network.js';
 import { lightClientBinding } from './light.js';
 import { publicClientBinding } from './public.js';
 import { operation } from './clients/light-chain-reads.js';
-import { snapshot } from './clients/owned-plumbing.js';
+import { snapshot, dataField } from './clients/owned-plumbing.js';
 import { failure, invalidArgument, isZcashError } from './errors.js';
 import { walletAccounts } from './wallet/accounts.js';
 import { WalletSync } from './wallet/sync.js';
@@ -28,20 +28,6 @@ import { walletExecute } from './wallet/execute.js';
 
 const closed = () => failure('CLOSED', 'runtime', 'none', 'Wallet is closed.');
 const noPolicy = () => failure('INVALID_ARGUMENT', 'proposal', 'configure', 'A transaction policy is required.');
-function field(value: object, key: string): unknown {
-  try {
-    for (let current = value, depth = 0; current && depth < 16; current = Object.getPrototypeOf(current), depth++) {
-      const descriptor = Object.getOwnPropertyDescriptor(current, key);
-      if (descriptor) {
-        if (!('value' in descriptor)) throw invalidArgument();
-        return descriptor.value;
-      }
-    }
-  } catch {
-    throw invalidArgument();
-  }
-  return undefined;
-}
 function callInput<T extends Op>(args: T): T {
   try {
     const keys = Object.getOwnPropertyNames(args);
@@ -52,7 +38,7 @@ function callInput<T extends Op>(args: T): T {
   }
 }
 function matching(client: { readonly network: Network }, network: Network) {
-  const candidate = field(client, 'network') as Network;
+  const candidate = dataField(client, 'network') as Network;
   if (networkBinding(candidate).definition.binding !== networkBinding(network).definition.binding) {
     throw failure(
       'NETWORK_MISMATCH',
@@ -92,9 +78,9 @@ function capture<T extends LightClient | PublicClient>(client: T, network: Netwo
   matching(client, network);
   // Genuine factories already freeze methods and retain their private route identity.
   if (lightClientBinding(client as LightClient) || publicClientBinding(client as PublicClient)) return client;
-  const copy: Record<string, unknown> = { network: field(client, 'network') };
+  const copy: Record<string, unknown> = { network: dataField(client, 'network') };
   for (const name of light ? lightMethods : publicMethods) {
-    const method = field(client, name);
+    const method = dataField(client, name);
     if (typeof method !== 'function') throw invalidArgument();
     const stream = name.startsWith('stream') || name === 'getSubtreeRoots' || name === 'watchTransaction';
     copy[name] = (args: Op = {}) => {
@@ -193,11 +179,13 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
     const light = input.light === undefined ? undefined : capture(input.light, input.network, true);
     const broadcaster = input.broadcaster === undefined
       ? undefined
-      : capture(
-          input.broadcaster,
-          input.network,
-          field(input.broadcaster, 'getTransactionStatus') === undefined,
-        );
+      : input.broadcaster === input.light
+        ? light
+        : capture(
+            input.broadcaster,
+            input.network,
+            dataField(input.broadcaster, 'getTransactionStatus') === undefined,
+          );
     const proving = input.proving === undefined ? undefined : provingOptions(input.proving);
     const options = {
       network: input.network,
@@ -415,7 +403,7 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
 
 export function createZcashClient(args: ZcashClient): ZcashClient {
   const input = snapshot(args, ['public', 'light', 'wallet']);
-  const network = field(input.wallet, 'network') as Network;
+  const network = dataField(input.wallet, 'network') as Network;
   networkBinding(network);
   matching(input.public, network);
   matching(input.light, network);

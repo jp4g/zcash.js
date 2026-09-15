@@ -1,4 +1,4 @@
-import type {AccountRecord,SignerSelector} from '../../docs/api/public-api.js';
+import type {AccountRecord,SignerSelector} from '../types.js';
 import type {attachWalletWorker} from './host.js';
 import {failure} from '../errors.js';
 

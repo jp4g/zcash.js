@@ -1,5 +1,5 @@
 import {signerSelector} from './signer-selector.js';
-import type { WalletClient, Signer, SignerCapabilities, PcztInspection } from '../../docs/api/public-api.js';
+import type { WalletClient, Signer, SignerCapabilities, PcztInspection } from '../types.js';
 import type { openWalletRuntime } from '../runtime/wallet.js';
 import type { walletAccounts } from './accounts.js';
 import { WalletProposals, pcztArtifactBinding } from './proposals.js';

@@ -1,8 +1,8 @@
 import type { NativePcztBuildInput, NativePcztArtifact, NativeProposalInput, NativeProposalIntent, NativeProposalReview, ProposalInventoryInput, ProposalInventory } from './proposals.js';
 import type {NativePayment,PaymentInventory,PaymentInventoryInput,PaymentObserve,PaymentAttempt,PaymentAttemptInput,PaymentAttemptFinish,NativeFinalized,NativeFusedInput,NativeFused,PaymentReconcile} from './payments.js';
 import { failure } from '../errors.js';
-import type { AccountRecord, AccountsApi, Birthday, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../../docs/api/public-api.js';
-import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../../docs/api/public-api.js';
+import type { AccountRecord, AccountsApi, Birthday, ConfirmationsPolicy, Op, ScanState, ViewingImport, WalletAddressesApi, WalletBalance } from '../types.js';
+import type { HistoryPage, NotePage, UtxoPage, WalletClient, WalletTransaction } from '../types.js';
 
 /** Accepted, already initialized VIEW owner. Construct and consume in its worker. */
 export interface InitializedViews {
@@ -14,7 +14,7 @@ export interface InitializedViews {
   close(generation: number, instance: string): void;
 }
 export interface NativeSignerDescription { readonly parameters: string; readonly genesis: string; readonly accountIndex: number; readonly viewingKey: string }
-export interface NativeSignerCapabilities extends Omit<import('../../docs/api/public-api.js').SignerCapabilities, 'networks'> { readonly parameters: string; readonly genesis: string }
+export interface NativeSignerCapabilities extends Omit<import('../types.js').SignerCapabilities, 'networks'> { readonly parameters: string; readonly genesis: string }
 export interface NativeSignerAuthorization { readonly token: number; readonly format: string; readonly parameters: Uint8Array; readonly genesis: Uint8Array; readonly height: number; readonly branch: number; readonly bytes: Uint8Array; readonly maximum: number }
 export interface InitializedSigners {
   describe(token: number): NativeSignerDescription;

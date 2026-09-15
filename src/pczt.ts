@@ -1,4 +1,4 @@
-import type { ConsensusContext, ErrorCode, PcztApi, PcztHandle } from '../docs/api/public-api.js';
+import type { ConsensusContext, ErrorCode, PcztApi, PcztHandle } from './types.js';
 import type { StandalonePczt } from './runtime/primitive-capsule.mjs';
 import { snapshot, ownBytes } from './clients/owned-plumbing.js';
 import { operation } from './clients/light-chain-reads.js';

@@ -21,4 +21,4 @@ export type {
   PublicClient, ObservationOptions, WaitOptions, ChainPoint, ChainTip, BlockSelector, BlockHeader, PublicBlock,
   PublicTransaction, TransactionObservation, Inclusion, PublicUtxo, PublicUtxos, TreeState, SubtreeRoot, SubtreeRequest, BroadcastReport, ConfirmedTransaction,
   HttpTransport, GrpcTransport, CustomLightTransport, LightClient, LightUnaryMethod, LightStreamMethod, TransportOptions,
-} from '../docs/api/public-api.js';
+} from './types.js';

@@ -1,4 +1,4 @@
-import type { CustomLightTransport, LightUnaryMethod, LightStreamMethod, Op } from '../../docs/api/public-api.js';
+import type { CustomLightTransport, LightUnaryMethod, LightStreamMethod, Op } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { ownBytes } from './owned-plumbing.js';
 import { admit, operation } from './light-chain-reads.js';

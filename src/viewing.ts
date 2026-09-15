@@ -1,4 +1,4 @@
-import type { AccountDescriptor, AddressApi, AddressRecord, ErrorCode, Network, NonEmpty, Op, Pool, ViewKeyHandle, ViewingApi } from '../docs/api/public-api.js';
+import type { AccountDescriptor, AddressApi, AddressRecord, ErrorCode, Network, NonEmpty, Op, Pool, ViewKeyHandle, ViewingApi } from './types.js';
 import type { ViewingAuthority } from './runtime/primitive-capsule.mjs';
 import { networkBinding } from './network.js';
 import { snapshot, ownBytes } from './clients/owned-plumbing.js';

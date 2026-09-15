@@ -1,4 +1,4 @@
-import type { GrpcTransport, TransportOptions, CustomLightTransport, LightUnaryMethod, LightStreamMethod } from '../docs/api/public-api.js';
+import type { GrpcTransport, TransportOptions, CustomLightTransport, LightUnaryMethod, LightStreamMethod } from './types.js';
 import { invalidArgument, failure, isZcashError } from './errors.js';
 
 import { ownBytes } from './clients/owned-plumbing.js';

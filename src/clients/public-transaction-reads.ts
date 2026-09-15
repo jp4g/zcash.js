@@ -1,6 +1,6 @@
 import { bridgeSignal, signalAborted } from '../abort.js';
 import { copyRecord } from './owned-plumbing.js';
-import type { HttpTransport, Op, PublicTransaction, TxId, Inclusion, TransactionObservation } from '../../docs/api/public-api.js';
+import type { HttpTransport, Op, PublicTransaction, TxId, Inclusion, TransactionObservation } from '../types.js';
 import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
 import type { Json } from '../json.js';

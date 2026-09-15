@@ -1,4 +1,4 @@
-import type { Network, NetworkDefinition, Op } from '../docs/api/public-api.js';
+import type { Network, NetworkDefinition, Op } from './types.js';
 import { bindNetworkDefinition } from './network-parameters.js';
 import { ownBytes } from './clients/owned-plumbing.js';
 import { failure, invalidArgument, isZcashError } from './errors.js';

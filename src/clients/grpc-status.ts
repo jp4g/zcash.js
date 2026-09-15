@@ -1,4 +1,4 @@
-import type { ZcashError } from '../../docs/api/public-api.js';
+import type { ZcashError } from '../types.js';
 
 // Only qualified adapters record wire status; arbitrary custom exceptions are not absence.
 const notFound = new WeakSet<object>();

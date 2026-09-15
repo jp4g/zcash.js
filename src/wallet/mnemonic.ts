@@ -1,4 +1,4 @@
-import type { Op } from '../../docs/api/public-api.js';
+import type { Op } from '../types.js';
 import { failure, isZcashError } from '../errors.js';
 import { snapshot } from '../clients/owned-plumbing.js';
 import type { openWalletRuntime } from '../runtime/wallet.js';

@@ -1,6 +1,6 @@
 import { waitFor } from '../abort.js';
 /* eslint-disable no-control-regex -- Canonical encoding and URL validation intentionally match ASCII control characters. */
-import type { ArtifactFile, ArtifactManifest, WasmArtifact, ZcashError } from '../../docs/api/public-api.js';
+import type { ArtifactFile, ArtifactManifest, WasmArtifact, ZcashError } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 
 /** Internal exact profile supplied by the integration owner. No supported production

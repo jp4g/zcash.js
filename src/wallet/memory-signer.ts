@@ -1,4 +1,4 @@
-import type { AccountDescriptor, MemorySigner, Network, Op, Signer, SignerCapabilities } from '../../docs/api/public-api.js';
+import type { AccountDescriptor, MemorySigner, Network, Op, Signer, SignerCapabilities } from '../types.js';
 import { networkBinding } from '../network.js';
 import { accountFromViewingKey } from '../viewing.js';
 import { accountIndex } from '../primitives.js';

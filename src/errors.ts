@@ -1,4 +1,4 @@
-import type { ErrorInfo, SyncStatus, ZcashError, PaymentState } from '../docs/api/public-api.js';
+import type { ErrorInfo, SyncStatus, ZcashError, PaymentState } from './types.js';
 
 // A local identity check never reads properties/getters from a foreign exception.
 const errors = new WeakSet<object>();

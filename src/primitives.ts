@@ -1,4 +1,4 @@
-import type { AccountIndex, BlockHash, DiversifierIndex, TxId } from '../docs/api/public-api.js';
+import type { AccountIndex, BlockHash, DiversifierIndex, TxId } from './types.js';
 import { invalidArgument } from './errors.js';
 
 export function accountIndex(value: number): AccountIndex {

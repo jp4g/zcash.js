@@ -1,4 +1,4 @@
-import type {Proposal,WalletClient} from '../../docs/api/public-api.js';
+import type {Proposal,WalletClient} from '../types.js';
 import type {openWalletRuntime} from '../runtime/wallet.js';
 import type {walletAccounts} from './accounts.js';
 import type {WalletPayments} from './payments.js';

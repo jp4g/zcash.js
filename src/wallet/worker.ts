@@ -1,4 +1,4 @@
-import type { ErrorCode, ErrorInfo } from '../../docs/api/public-api.js';
+import type { ErrorCode, ErrorInfo } from '../types.js';
 import { failure, isZcashError } from '../errors.js';
 import { WalletSession } from './session.js';
 import type { Completion, InitializedViews, InitializedSigners } from './session.js';

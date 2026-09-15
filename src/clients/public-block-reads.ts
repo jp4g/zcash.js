@@ -1,6 +1,6 @@
 import { bridgeSignal, signalAborted, unsupportedSignalProxy } from '../abort.js';
 import { copyRecord } from './owned-plumbing.js';
-import type { BlockSelector, HttpTransport, Op, PublicBlock } from '../../docs/api/public-api.js';
+import type { BlockSelector, HttpTransport, Op, PublicBlock } from '../types.js';
 import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
 import { JsonNumber, protocolError } from '../json.js';

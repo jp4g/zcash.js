@@ -1,4 +1,4 @@
-import type { NetworkDefinition, Op, RuntimeOptions, WalletStorage, WasmArtifact, ZcashError } from '../../docs/api/public-api.js';
+import type { NetworkDefinition, Op, RuntimeOptions, WalletStorage, WasmArtifact, ZcashError } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { bindNetworkDefinition } from '../network-parameters.js';
 import { admitSignal } from '../abort.js';

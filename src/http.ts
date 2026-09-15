@@ -1,5 +1,5 @@
 import { waitFor } from './abort.js';
-import type { HttpTransport, TransportOptions, ZcashError } from '../docs/api/public-api.js';
+import type { HttpTransport, TransportOptions, ZcashError } from './types.js';
 import { failure, invalidArgument, isZcashError } from './errors.js';
 import { JsonNumber, parseJson, protocolError } from './json.js';
 import type { Json } from './json.js';

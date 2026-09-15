@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { types } from 'node:util';
 import { Client, Metadata, credentials, status } from '@grpc/grpc-js';
-import type { CustomLightTransport, LightUnaryMethod, LightStreamMethod, ZcashError } from '../../docs/api/public-api.js';
+import type { CustomLightTransport, LightUnaryMethod, LightStreamMethod, ZcashError } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { recordNotFound } from './grpc-status.js';
 

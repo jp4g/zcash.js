@@ -1,3 +1,4 @@
+import { admitSignal } from './abort.js';
 import { addressInput, broadcastInput } from './clients/request-inputs.js';
 import { confirmationsPolicy, observationOptions, recoveryPolicy } from './options.js';
 import { provingOptions } from './wallet/proving-assets.js';
@@ -231,10 +232,11 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
         check();
         const original = defaults && args === undefined ? {} : args;
         const owned = callInput(original as A);
-        const caller = operation(owned.signal);
-        let work: ReturnType<typeof operation>;
+        admitSignal(owned.signal);
+        const work = operation(AbortSignal.any(owned.signal ? [owned.signal, stopped.signal] : [stopped.signal]));
+        let result: Promise<R>;
         try {
-          caller.check();
+          work.check();
           if (active.size >= runtime.maxQueuedJobs) {
             throw failure(
               'RESOURCE_LIMIT',
@@ -243,24 +245,15 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
               'Wallet work queue is full.',
             );
           }
-          work = operation(AbortSignal.any([caller.signal, stopped.signal]));
-        } catch (error) {
-          caller.close();
-          throw error;
-        }
-        let result: Promise<R>;
-        try {
           result = Promise.resolve(method({ ...owned, signal: work.signal }));
         } catch (error) {
           work.close();
-          caller.close();
           throw error;
         }
         active.add(result);
         void result.finally(() => {
           active.delete(result);
           work.close();
-          caller.close();
         }).catch(() => { });
         return result;
       };
@@ -321,14 +314,12 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
         check();
         const owned = snapshot(args, ['signal']);
         let iterator: ReturnType<WalletSync['watchSync']> | undefined,
-          caller: ReturnType<typeof operation> | undefined,
           pending: ReturnType<typeof operation> | undefined,
           done = false,
           reading = false;
         const finish = () => {
           done = true;
           pending?.close();
-          caller?.close();
         };
         const read = call(async () => iterator!.next());
         return {
@@ -349,9 +340,9 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
             reading = true;
             try {
               if (!iterator) {
-                caller = operation(owned.signal);
-                caller.check();
-                pending = operation(AbortSignal.any([caller.signal, stopped.signal]));
+                admitSignal(owned.signal);
+                pending = operation(AbortSignal.any(owned.signal ? [owned.signal, stopped.signal] : [stopped.signal]));
+                pending.check();
                 iterator = syncOwner.watchSync({ signal: pending.signal });
               }
               const result = await read({});

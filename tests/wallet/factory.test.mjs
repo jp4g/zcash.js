@@ -14,6 +14,7 @@ test('public wallet factory admission, ownership, recovery and close',async()=>{
   const defaults=()=>({network,storage:{kind:'memory'},runtime:{baseline:{manifestUrl:'https://example.test/manifest.json',manifestSha256:'01'.repeat(32)},threading:{mode:'baseline'},maxMemoryBytes:1024**3,maxQueuedJobs:8,maxQueuedBytes:65536,maxPcztBytes:65536,scanBatchSize:8},confirmations:{trusted:1,untrusted:3,allowZeroConfirmationShielding:false},observation:{pollIntervalMs:5,maxBufferedUpdates:2},recovery:{mode:'offline'}});
   let opened=0,closed=0,releaseOpen,gate,received,callbacks=0,onAbort,reentrant,scanGate,scanEntered;const calls=[];
   const sessions=[];
+  let scanFixture;
   mock.module('../../dist/src/runtime/wallet.js',{namedExports:{openWalletRuntime:async options=>{
     opened++;received=options;if(gate)await gate;
     const channel=new MessageChannel();installWalletWorker({generation:1,instance:'factory',close(){closed++;},call(_g,_i,command,args){
@@ -21,6 +22,12 @@ test('public wallet factory admission, ownership, recovery and close',async()=>{
       if(command==='payment_list')return {revision:'1',highWater:'0',observationPosition:'0',items:[]};
       if(command==='account_list')return [];
       if(command==='account_balance')return {fixture:true};
+      if(scanFixture && command.startsWith('scan_')) {
+        if(command==='scan_state') return {revision:'1',tipHeight:20,maxScannedHeight:scanFixture.scanned||null,fullyScannedHeight:scanFixture.scanned||null};
+        if(command==='scan_plan') return {revision:'1',ranges:scanFixture.scanned===20?[]:[{start:scanFixture.scanned+1,endExclusive:21,priorState:{height:scanFixture.scanned,hash:null}}]};
+        if(command==='scan_ingest_batch') {scanFixture.batches.push(args.blocks.length);scanFixture.scanned+=args.blocks.length;return {revision:'1'};}
+        if(command==='scan_complete') return {revision:'1'};
+      }
       if(command==='scan_state'){const state={revision:'1',tip:null,tipHeight:null,fullyScannedHeight:null,maxScannedHeight:null,ranges:[],accounts:[]};if(scanGate){scanEntered?.();return scanGate.then(()=>state);}return state;}
       if(command==='enhancement_requests')return {revision:'1',requests:[]};
       if(command==='wallet_history')return {items:[],nextCursor:null,revision:'1'};
@@ -61,5 +68,26 @@ test('public wallet factory admission, ownership, recovery and close',async()=>{
     await new Promise(resolve=>setTimeout(resolve,10));assert.equal(watchClosed,false);
     releaseScan();await cancelledWatch;await stopped;assert.equal(callbacks,priorCallbacks);assert.equal(closed,3);
     await watcher.return();
+    scanGate=undefined;
+    for (const [size, expected] of [[1, Array(20).fill(1)], [8, [8,8,4]], [16, [16,4]], [1000, [16,4]]]) {
+      scanFixture={scanned:0,batches:[]};
+      const hash='03'.repeat(32), ranges=[];
+      const scanningLight={...light,
+        async getTreeState({height}) {return {point:{height,hash},encoded:new Uint8Array([1])};},
+        async *streamCompactBlocks({fromHeight,toHeight}) {
+          ranges.push(toHeight-fromHeight+1);
+          for(let height=fromHeight;height<=toHeight;height++) yield {point:{height,hash},encoded:new Uint8Array([height])};
+        },
+      };
+      const config={...defaults(),light:scanningLight};config.runtime.scanBatchSize=size;
+      const creating=createWalletClient(config);config.runtime.scanBatchSize=2;
+      const scanningWallet=await creating;
+      try {
+        const result=await scanningWallet.sync({target:{height:20,hash}});
+        assert.equal(result.targetReached,true);
+        assert.deepEqual(scanFixture.batches,expected);
+        assert.deepEqual(ranges,expected);
+      } finally {await scanningWallet.close();}
+    }
   }finally{await Promise.allSettled(sessions.map(session=>session.close()));mock.reset();}
 });

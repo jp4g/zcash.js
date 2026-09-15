@@ -25,7 +25,9 @@ export class WalletSync {
   private watching: Promise<void> | undefined;
   private watchController: AbortController | undefined;
   private readonly observation: ObservationOptions;
-  constructor(private readonly session: Session, private readonly light: LightClient | undefined, observation: ObservationOptions) {
+  constructor(private readonly session: Session, private readonly light: LightClient | undefined, observation: ObservationOptions,
+    private readonly scanBatchSize = 16) {
+    if (!Number.isSafeInteger(scanBatchSize) || scanBatchSize < 1) throw invalidArgument();
     if (!observation || typeof observation !== 'object') throw invalidArgument();
     const poll = Object.getOwnPropertyDescriptor(observation, 'pollIntervalMs');
     const buffer = Object.getOwnPropertyDescriptor(observation, 'maxBufferedUpdates');
@@ -178,7 +180,7 @@ export class WalletSync {
       if (this.subscribers.size) this.publish(await this.getSyncStatus());
       const point = target ?? await this.light.getTip({ signal: dependent });
       this.target = Object.freeze({ height: point.height, hash: point.hash });
-      await syncWallet(this.session, this.light, this.target, dependent);
+      await syncWallet(this.session, this.light, this.target, dependent, this.scanBatchSize);
       this.reached = true; // Native completion validates coverage, including an empty wallet.
       this.activity = 'idle';
       const status = await this.getSyncStatus(); this.publish(status); return status;
@@ -203,7 +205,9 @@ export class WalletSync {
 }
 
 /** Internal finite run used by the wallet owner; all scan decisions and writes remain native. */
-export async function syncWallet(session: Session, light: LightClient, target: ChainPoint, signal?: AbortSignal) {
+export async function syncWallet(session: Session, light: LightClient, target: ChainPoint, signal?: AbortSignal, scanBatchSize = 16) {
+  if (!Number.isSafeInteger(scanBatchSize) || scanBatchSize < 1) throw invalidArgument();
+  const batchSize = Math.min(scanBatchSize, 16); // Native/control-message ceiling remains authoritative.
   const op = signal === undefined ? {} : { signal };
   const pin = async () => {
     try {
@@ -236,7 +240,7 @@ export async function syncWallet(session: Session, light: LightClient, target: C
     const plan = await session.scan.plan({ target: nativeTarget, ...op });
     const range = plan.ranges.find(range => range.start <= target.height);
     if (!range) break;
-    const end = Math.min(range.endExclusive - 1, target.height, range.start + 15);
+    const end = Math.min(range.endExclusive - 1, target.height, range.start + batchSize - 1);
     const prior = await light.getTreeState({ height: range.start - 1, ...op });
     if (range.priorState.hash !== null && prior.point.hash !== reverse(range.priorState.hash)) throw mismatch();
     const blocks: Uint8Array[] = [];

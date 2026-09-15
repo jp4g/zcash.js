@@ -23,12 +23,12 @@ function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delaye
     const row=journal.find(row=>row.state.operationId===args.operationId);
     if(command==='payment_list')return {revision:String(control.revision),highWater:args.highWater??String(count),observationPosition:control.position,
       items:journal.filter(row=>BigInt(row.sequence)>BigInt(args.afterSequence)&&BigInt(row.sequence)<=BigInt(args.highWater??count)).slice(0,args.limit).map(row=>({sequence:row.sequence,operationId:row.state.operationId}))};
-    if(command==='payment_recovery_position'){control.position=args.afterSequence;control.revision++;return;}
+    if(command==='payment_recovery_position'){if(control.positionError)throw Object.assign(Error(control.positionError),{commit:'none'});control.position=args.afterSequence;control.revision++;return;}
     if(command==='payment_get'){if(control.getGate){control.started?.();return control.getGate.then(()=>row?current(row):null);}return row?current(row):null;}
     if(!row)throw Object.assign(Error('OPERATION_NOT_FOUND'),{commit:'none'});
     const step=command==='payment_attempt_finish'?row.state.steps.find(step=>step.attempts.some(attempt=>attempt.attemptId===args.attemptId)):row.state.steps[args.stepIndex??0];
     if(command==='payment_reconcile'){if(args.policy)control.policies.push(args.policy);for(const step of row.state.steps)for(const attempt of step.attempts)if(attempt.outcome==='started')attempt.outcome='unknown';control.revision++;return current(row);}
-    if(command==='payment_observe'){if(control.observeError)throw Object.assign(Error(control.observeError),{commit:'none'});step.observation=args.observation;step.inclusion=args.observation.inclusion;row.observationSequence=String(+row.observationSequence+1);row.observationSequences[step.index]=row.observationSequence;control.revision++;return current(row);}
+    if(command==='payment_observe'){if(control.observeError)throw Object.assign(Error(control.observeError),{commit:control.observeCommit??'none'});step.observation=args.observation;step.inclusion=args.observation.inclusion;row.observationSequence=String(+row.observationSequence+1);row.observationSequences[step.index]=row.observationSequence;control.revision++;if(control.observeGate){control.observeStarted?.();return control.observeGate.then(()=>current(row));}return current(row);}
     if(command==='payment_attempt_begin'){
       assert.equal(args.maximum,65536);if(!step.txid)throw Object.assign(Error('NOT_FINALIZED'),{commit:'none'});
       if(args.mode==='automatic')return null;
@@ -194,4 +194,38 @@ test('short-deadline recovery rotates across fresh payment owners without refres
   }
   assert.deepEqual(control.visited,[operationId(1),operationId(2),operationId(3),operationId(1)]);
   assert.ok(journal.every(row=>row.state.steps[0].attempts.length===0));
+});
+
+
+test('recovery finishes observation and cursor writes when its network deadline expires during commit', async t => {
+  const {payments, control, journal} = setup(t, {online: true});
+  let release;
+  control.observeGate = new Promise(resolve => { release = resolve; });
+  const entered = new Promise(resolve => { control.observeStarted = resolve; });
+  const recovering = payments.recover();
+  await entered;
+  await wait(50);
+  assert.equal(control.position, '0');
+  release();
+  const report = await recovering;
+  assert.equal(report.observedOperations, 1);
+  assert.equal(report.lastError.code, 'TIMEOUT');
+  assert.equal(control.position, '1');
+  assert.equal(journal[0].state.steps[0].observation.state, 'notSeen');
+  const observe = control.calls.indexOf('payment_observe');
+  assert.deepEqual(control.calls.slice(observe), ['payment_observe', 'payment_recovery_position']);
+});
+
+test('recovery propagates uncertain observation commits and cursor storage failures', async t => {
+  const uncertain = setup(t, {online: true});
+  uncertain.control.observeError = 'RECOVERY_REQUIRED';
+  uncertain.control.observeCommit = 'unknown';
+  await assert.rejects(uncertain.payments.recover(), {code: 'RECOVERY_REQUIRED'});
+  assert.equal(uncertain.control.position, '0');
+  assert.ok(!uncertain.control.calls.includes('payment_recovery_position'));
+
+  const broken = setup(t, {online: true});
+  broken.control.positionError = 'STORAGE_ERROR';
+  await assert.rejects(broken.payments.recover(), {code: 'STORAGE_ERROR'});
+  assert.equal(broken.control.position, '0');
 });

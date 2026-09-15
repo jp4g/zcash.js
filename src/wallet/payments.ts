@@ -228,55 +228,119 @@ export class WalletPayments {
     }catch(error){if(last&&(timer.signal.aborted||caller.signal.aborted))throw partial(caller.signal.aborted?'ABORTED':'TIMEOUT',last);throw error;}
     finally{stop();dependent.cancel();caller.close();await iterator?.return?.();}
   }
-  recover(args:Op={}):Promise<RecoveryReport>{
-    const input=snapshot(args,['signal']);if(this.recoveryRun)return this.recoveryRun;
-    return this.recoveryRun=this.run(input.signal,async signal=>{
-      const captured=await this.page({afterSequence:'0',limit:200,signal});
-      const retry=this.policy.mode==='online'?this.policy.rebroadcast:undefined;
-      let operations=0,candidates=0,after='0';
-      for(;;){const page=after==='0'?captured:await this.page({afterSequence:after,highWater:captured.highWater,limit:200,signal});
-        for(const row of page.items){const value=await this.wallet.session.payments.reconcile({operationId:row.operationId,wallTimeMs:Date.now(),...(retry?{policy:{maxAttempts:retry.maxAttempts,minIntervalMs:retry.minIntervalMs}}:{}),signal});this.project(value);operations++;if(value.state.steps.some(step=>step.txid!==null))candidates++;if(!Number.isSafeInteger(operations))throw resource();after=row.sequence;}
-        if(!page.items.length)break;await pause(1,signal);
+  private async recoverLocal(captured: PaymentInventory, signal: AbortSignal) {
+    const retry = this.policy.mode === 'online' ? this.policy.rebroadcast : undefined;
+    let operations = 0, candidates = 0, page = captured;
+    while (page.items.length) {
+      for (const row of page.items) {
+        const value = await this.wallet.session.payments.reconcile({
+          operationId: row.operationId,
+          wallTimeMs: Date.now(),
+          ...(retry ? {policy: {maxAttempts: retry.maxAttempts, minIntervalMs: retry.minIntervalMs}} : {}),
+          signal,
+        });
+        this.project(value);
+        operations++;
+        if (value.state.steps.some(step => step.txid !== null)) candidates++;
+        if (!Number.isSafeInteger(operations)) throw resource();
       }
-      let observed=0,lastError:ErrorInfo|null=null;
-      if(this.policy.mode==='online'&&candidates){
-        const timer=new AbortController(),pending=operation(AbortSignal.any([signal,timer.signal])),stop=timeout(()=>timer.abort(),this.policy.timeoutMs);
-        const pivot=sequence(captured.observationPosition)>sequence(captured.highWater)?'0':captured.observationPosition;
-        let halt=false;
-        try{
-          for(const range of [{after:pivot,high:captured.highWater},{after:'0',high:pivot}]){
-            after=range.after;
-            while(!halt&&sequence(after)<sequence(range.high)){
-              if(pending.signal.aborted){halt=true;break;}
-              const page=await this.page({afterSequence:after,highWater:range.high,limit:200,signal});
-              if(!page.items.length)break;
-              for(const row of page.items){
-                if(pending.signal.aborted){halt=true;break;}
-                after=row.sequence;const value=await this.requirePayment(row.operationId,signal);
-                if(value.state.steps.some(step=>step.txid!==null)){
-                  try{const checked=await this.observe(value,this.light!,pending.signal);observed++;
-                    if(this.policy.rebroadcast&&!pending.signal.aborted)await this.submit(row.operationId,pending.signal,true,checked);
-                  }catch(error){
-                    const receipt=error&&typeof error==='object'?this.wallet.session.completion(error):undefined;
-                    if(receipt&&receipt.completion!=='none'||isZcashError(error)&&['storage','runtime'].includes(error.stage))throw error;
-                    const known=isZcashError(error)?error:failure('TRANSPORT_ERROR','observation','configure','Payment endpoint is unavailable.');
-                    lastError={code:known.code,stage:known.stage,recovery:known.recovery,retryable:known.retryable,message:'Payment recovery network pass did not complete.'};halt=true;
-                  }
-                }
-                await this.wallet.session.payments.position({afterSequence:after});
-                if(halt)break;
-              }
-              await pause(1,signal);
-            }
-          }
-          if(timer.signal.aborted)lastError={code:'TIMEOUT',stage:'observation',recovery:'none',retryable:false,message:'Payment recovery network deadline expired.'};
-          if(signal.aborted)throw failure('ABORTED','observation','none','Wallet recovery aborted.');
-        }finally{stop();pending.cancel();}
+      await pause(1, signal);
+      page = await this.page({
+        afterSequence: page.items.at(-1)!.sequence, highWater: captured.highWater, limit: 200, signal,
+      });
+    }
+    return {operations, candidates};
+  }
+  private async *recoveryRows(captured: PaymentInventory, signal: AbortSignal, networkSignal: AbortSignal) {
+    const pivot = sequence(captured.observationPosition) > sequence(captured.highWater)
+      ? '0' : captured.observationPosition;
+    const ranges = [{after: pivot, high: captured.highWater}, {after: '0', high: pivot}];
+    for (const range of ranges) {
+      let after = range.after;
+      while (sequence(after) < sequence(range.high)) {
+        if (networkSignal.aborted) return;
+        // Local reads use the caller's lifetime, not the network deadline.
+        const page = await this.page({afterSequence: after, highWater: range.high, limit: 200, signal});
+        if (!page.items.length) break;
+        for (const row of page.items) {
+          if (networkSignal.aborted) return;
+          after = row.sequence;
+          yield row;
+        }
+        await pause(1, signal);
       }
-      const deferred=candidates-observed;this.ready=true;
-      return frozen({local:'complete',operations,observedOperations:observed,deferredOperations:deferred,
-        observation:this.policy.mode==='offline'?'offline':deferred?'incomplete':'complete',lastError} as RecoveryReport);
-    },true);
+    }
+  }
+  private async recoverPayment(value: NativePayment, signal: AbortSignal) {
+    let observed = false;
+    try {
+      const checked = await this.observe(value, this.light!, signal);
+      observed = true;
+      if (this.policy.mode === 'online' && this.policy.rebroadcast && !signal.aborted)
+        await this.submit(value.state.operationId, signal, true, checked);
+      return {observed, error: null};
+    } catch (error) {
+      const receipt = error && typeof error === 'object' ? this.wallet.session.completion(error) : undefined;
+      // A network report must never hide a durable write failure or an uncertain commit.
+      if (receipt && receipt.completion !== 'none') throw error;
+      if (isZcashError(error) && ['storage', 'runtime'].includes(error.stage)) throw error;
+      const known = isZcashError(error) ? error
+        : failure('TRANSPORT_ERROR', 'observation', 'configure', 'Payment endpoint is unavailable.');
+      return {observed, error: {
+        code: known.code, stage: known.stage, recovery: known.recovery, retryable: known.retryable,
+        message: 'Payment recovery network pass did not complete.',
+      }};
+    }
+  }
+  private async recoverOnline(captured: PaymentInventory, signal: AbortSignal) {
+    let observed = 0, lastError: ErrorInfo | null = null;
+    if (this.policy.mode !== 'online') return {observed, lastError};
+    const timer = new AbortController();
+    const pending = operation(AbortSignal.any([signal, timer.signal]));
+    const stop = timeout(() => timer.abort(), this.policy.timeoutMs);
+    try {
+      for await (const row of this.recoveryRows(captured, signal, pending.signal)) {
+        const value = await this.requirePayment(row.operationId, signal);
+        if (value.state.steps.some(step => step.txid !== null)) {
+          const result = await this.recoverPayment(value, pending.signal);
+          if (result.observed) observed++;
+          lastError = result.error;
+        }
+        // Advance after attempted observation, including a network failure, for fair retries.
+        // This durable write must finish even when the network deadline has expired.
+        await this.wallet.session.payments.position({afterSequence: row.sequence});
+        if (lastError) {
+          await pause(1, signal);
+          break;
+        }
+      }
+      if (timer.signal.aborted) lastError = {
+        code: 'TIMEOUT', stage: 'observation', recovery: 'none', retryable: false,
+        message: 'Payment recovery network deadline expired.',
+      };
+      if (signal.aborted) throw failure('ABORTED', 'observation', 'none', 'Wallet recovery aborted.');
+      return {observed, lastError};
+    } finally {
+      stop();
+      pending.cancel();
+    }
+  }
+  recover(args: Op = {}): Promise<RecoveryReport> {
+    const input = snapshot(args, ['signal']);
+    if (this.recoveryRun) return this.recoveryRun;
+    return this.recoveryRun = this.run(input.signal, async signal => {
+      const captured = await this.page({afterSequence: '0', limit: 200, signal});
+      const {operations, candidates} = await this.recoverLocal(captured, signal);
+      const {observed, lastError} = this.policy.mode === 'online' && candidates
+        ? await this.recoverOnline(captured, signal) : {observed: 0, lastError: null};
+      const deferred = candidates - observed;
+      this.ready = true;
+      return frozen({
+        local: 'complete', operations, observedOperations: observed, deferredOperations: deferred,
+        observation: this.policy.mode === 'offline' ? 'offline' : deferred ? 'incomplete' : 'complete',
+        lastError,
+      } satisfies RecoveryReport);
+    }, true);
   }
   close():Promise<void>{if(this.closing)return this.closing;this.stopped.abort();return this.closing=(async()=>{await Promise.allSettled([...this.active]);for(const value of this.starts.values())value.release();this.starts.clear();})();}
 }

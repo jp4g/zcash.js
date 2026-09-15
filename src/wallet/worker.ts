@@ -128,13 +128,9 @@ export function installWalletWorker(
 ): void {
   const session = owner ? new WalletSession(owner) : undefined;
   const calls: Partial<Record<WalletCommand, (...args: never[]) => unknown>> = {};
-  if (session) {
-    for (const [name, definition] of Object.entries(walletCommands)) {
-      calls[name as keyof typeof walletCommands] = definition.select(session);
-    }
-  } else {
+  if (signers) {
     for (const [name, definition] of Object.entries(signerCommands)) {
-      calls[name as keyof typeof signerCommands] = definition.select(signers!);
+      calls[name as keyof typeof signerCommands] = definition.select(signers);
     }
   }
   let lastId = 0,
@@ -145,7 +141,7 @@ export function installWalletWorker(
     try {
       if (!data || typeof data.id !== 'number' || !Number.isSafeInteger(data.id) || data.id <= lastId
         || typeof data.command !== 'string'
-        || !Object.hasOwn(calls, data.command)
+        || !Object.hasOwn(session ? walletCommands : signerCommands, data.command)
         || typeof data.args !== 'object'
         || data.args === null
         || Array.isArray(data.args) || Object.keys(data).sort().join(',') !== 'args,command,id') {
@@ -155,8 +151,14 @@ export function installWalletWorker(
       command = data.command as WalletCommand;
       if (closed) throw failure('CLOSED', 'runtime', 'none', 'Wallet session is closed.');
       if (command === 'close') closed = true;
-      // Session methods own command-specific validation; the router admits only the envelope.
-      const value: unknown = await Reflect.apply(calls[command]!, calls, [data.args]);
+      // Native code validates command arguments; the router admits only the envelope.
+      const value: unknown = session
+        ? command === 'close'
+          ? await session.close()
+          : await session.invoke(
+              command as keyof typeof walletCommands, data.args as Parameters<WalletSession['invoke']>[1],
+            )
+        : await Reflect.apply(calls[command]!, calls, [data.args]);
       port.postMessage({
         id: data.id,
         completion: commands[command].write ? 'committed' : 'none',

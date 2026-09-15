@@ -17,11 +17,11 @@ test('FIFO completion, failed call drains, close prevents admission and runs onc
     },
     close() { calls.push('close'); },
   });
-  const write = session.addresses.next({accountId:'test'});
-  const read = session.accounts.list();
+  const write = session.invoke('address_next', {accountId:'test'});
+  const read = session.invoke('account_list');
   const closed = session.close();
   assert.equal(session.close(), closed);
-  await assert.rejects(session.accounts.list(), error => {
+  await assert.rejects(session.invoke('account_list'), error => {
     assert.equal(isZcashError(error), true);
     assert.equal(error.code, 'CLOSED');
     assert.equal(error.stage, 'runtime');
@@ -47,13 +47,13 @@ test('completion distinguishes precommit and unknown failures; close failure is 
       generation:1, instance:'worker', call() { throw error; },
       close() { closes++; throw error; },
     });
-    await assert.rejects(session.accounts.list(), e => e === error);
+    await assert.rejects(session.invoke('account_list'), e => e === error);
     assert.equal(session.completion(error), commit ?? 'unknown');
     const closed = session.close();
     await assert.rejects(closed, e => e === error);
     assert.equal(session.close(), closed);
     assert.equal(closes, 1);
-    await assert.rejects(session.accounts.list(), error => {
+    await assert.rejects(session.invoke('account_list'), error => {
       assert.equal(isZcashError(error), true);
       assert.equal(error.code, 'CLOSED');
       assert.equal(session.completion(error), 'none');
@@ -68,7 +68,7 @@ test('checkpoint import delegates validation and preserves native completion', a
   const session = new WalletSession({generation:1, instance:'worker',
     call(_generation, _instance, operation, received) { assert.equal(operation,'account_import'); assert.equal(received,args); throw error; }, close() {},
   });
-  await assert.rejects(session.accounts.import(args), rejected => rejected === error);
+  await assert.rejects(session.invoke('account_import', args), rejected => rejected === error);
   assert.equal(session.completion(error), 'none');
   await session.close();
 });
@@ -87,8 +87,8 @@ test('hostile native metadata preserves the thrown identity and drains the queue
     const session = new WalletSession({generation:1, instance:'worker',
       call() { if (++calls === 1) throw error; return []; }, close() {},
     });
-    const rejected = session.accounts.list();
-    const queued = session.accounts.list();
+    const rejected = session.invoke('account_list');
+    const queued = session.invoke('account_list');
     // Avoid assert.rejects inspecting a hostile exception to format a mismatch.
     await rejected.then(() => assert.fail('expected rejection'), actual => {
       assert.ok(Object.is(actual, error), 'original rejection identity');
@@ -111,7 +111,7 @@ test('first receipt survives changed or throwing metadata on repeated identity',
     });
     const session = new WalletSession({generation:1, instance:'worker', call() { throw error; }, close() {}, });
     for (let i = 0; i < 2; i++) {
-      await session.accounts.list().then(() => assert.fail('expected rejection'), actual => assert.ok(actual === error));
+      await session.invoke('account_list').then(() => assert.fail('expected rejection'), actual => assert.ok(actual === error));
       assert.equal(session.completion(error), first);
     }
     assert.equal(inspections, 1);

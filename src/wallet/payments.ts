@@ -1,3 +1,4 @@
+import { delay, schedule as timeout } from '../abort.js';
 import { observationOptions, recoveryPolicy } from '../options.js';
 import { ObserverBuffer } from '../observer-buffer.js';
 import type { PaymentState, AccountId } from '../types.js';
@@ -79,31 +80,7 @@ const partial = (code: ErrorInfo['code'], state: PaymentState) => failure(
   undefined,
   state,
 );
-function timeout(callback: () => void, ms: number) {
-  const start = performance.now();
-  let timer: ReturnType<typeof setTimeout>;
-  const arm = () => {
-    const left = ms - (performance.now() - start);
-    if (left <= 0) callback();
-    else timer = setTimeout(arm, Math.min(left, 2147483647));
-  };
-  timer = setTimeout(arm, Math.min(ms, 2147483647));
-  return () => clearTimeout(timer);
-}
-function pause(ms: number, signal: AbortSignal) {
-  return new Promise<void>((resolve, reject) => {
-    const stop = timeout(() => {
-        signal.removeEventListener('abort', abort);
-        resolve();
-      }, ms),
-      abort = () => {
-        stop();
-        reject(failure('ABORTED', 'observation', 'none', 'Payment observation aborted.'));
-      };
-    signal.addEventListener('abort', abort, { once: true });
-    if (signal.aborted) abort();
-  });
-}
+const observationAborted = () => failure('ABORTED', 'observation', 'none', 'Payment observation aborted.');
 
 /** Single-step payment lifecycle on the existing native journal and caller-owned clients. */
 export class WalletPayments {
@@ -641,7 +618,7 @@ export class WalletPayments {
               revision = state.revision;
             }
             if (state.phase === 'abandoned') break;
-            await pause(this.observation.pollIntervalMs, signal);
+            await delay(this.observation.pollIntervalMs, signal, observationAborted);
           }
         } catch (caught) {
           buffer.close(caught);
@@ -755,7 +732,7 @@ export class WalletPayments {
         if (value.state.steps.some(step => step.txid !== null)) candidates++;
         if (!Number.isSafeInteger(operations)) throw resource();
       }
-      await pause(1, signal);
+      await delay(1, signal, observationAborted);
       page = await this.page({
         afterSequence: page.items.at(-1)!.sequence, highWater: captured.highWater, limit: 200, signal,
       });
@@ -780,7 +757,7 @@ export class WalletPayments {
           after = row.sequence;
           yield row;
         }
-        await pause(1, signal);
+        await delay(1, signal, observationAborted);
       }
     }
   }
@@ -839,7 +816,7 @@ export class WalletPayments {
         // This durable write must finish even when the network deadline has expired.
         await this.wallet.session.payments.position({ afterSequence: row.sequence });
         if (lastError) {
-          await pause(1, signal);
+          await delay(1, signal, observationAborted);
           break;
         }
       }

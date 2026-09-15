@@ -115,3 +115,31 @@ export function waitFor<T>(value: PromiseLike<T> | T, signal: AbortSignal, error
     else nativeAdd.call(signal, 'abort', onAbort, { once: true });
   });
 }
+
+/** Schedule long delays without overflowing the native timer limit. */
+export function schedule(callback: () => void, ms: number) {
+  const start = performance.now();
+  let timer: ReturnType<typeof setTimeout>;
+  const arm = () => {
+    const left = ms - (performance.now() - start);
+    if (left <= 0) callback();
+    else timer = setTimeout(arm, Math.min(left, 2147483647));
+  };
+  timer = setTimeout(arm, Math.min(ms, 2147483647));
+  return () => clearTimeout(timer);
+}
+/** SDK-owned signal; cancellation wakes the caller or rejects with its domain error. */
+export function delay(ms: number, signal: AbortSignal, error?: () => Error): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const finish = (aborted = false) => {
+      stop();
+      signal.removeEventListener('abort', onAbort);
+      if (aborted && error) reject(error());
+      else resolve();
+    };
+    const onAbort = () => finish(true);
+    const stop = schedule(() => finish(), ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}

@@ -1,4 +1,4 @@
-import type {WalletClient,WalletOptions,ZcashClient,LightClient,PublicClient,Network,Op,LocalProvingOptions,AssetRequirement,SyncStatus} from '../docs/api/public-api.js';
+import type {WalletClient,WalletOptions,ZcashClient,LightClient,PublicClient,Network,Op,LocalProvingOptions,AssetRequirement,SyncStatus} from './types.js';
 import {openWalletRuntime} from './runtime/wallet.js';
 import {networkBinding} from './network.js';
 import {lightClientBinding} from './light.js';

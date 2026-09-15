@@ -1,6 +1,6 @@
 import { bridgeSignal } from '../abort.js';
 import { copyRecord } from './owned-plumbing.js';
-import type { BlockHeader, BlockSelector, ChainTip, HttpTransport, Op } from '../../docs/api/public-api.js';
+import type { BlockHeader, BlockSelector, ChainTip, HttpTransport, Op } from '../types.js';
 import { readRpc, rpcErrorCode } from '../http.js';
 import { failure, invalidArgument } from '../errors.js';
 import { JsonNumber, protocolError } from '../json.js';

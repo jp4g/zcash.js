@@ -1,5 +1,5 @@
 import { signalAborted, unsupportedSignalProxy, waitFor } from '../abort.js';
-import type { LightUnaryMethod, LightStreamMethod, ZcashError } from '../../docs/api/public-api.js';
+import type { LightUnaryMethod, LightStreamMethod, ZcashError } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { recordNotFound } from './grpc-status.js';
 const media = 'application/grpc-web-text+proto';

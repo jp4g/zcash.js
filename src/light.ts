@@ -1,4 +1,4 @@
-import type { CustomLightTransport, GrpcTransport, LightClient, Network, Op } from '../docs/api/public-api.js';
+import type { CustomLightTransport, GrpcTransport, LightClient, Network, Op } from './types.js';
 import { networkBinding } from './network.js';
 import { grpcAdapter, grpcBinding } from './grpc.js';
 import { failure, invalidArgument } from './errors.js';

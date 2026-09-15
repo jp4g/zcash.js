@@ -1,6 +1,6 @@
 import { bridgeSignal, signalAborted } from '../abort.js';
 import { copyRecord } from './owned-plumbing.js';
-import type { Op } from '../../docs/api/public-api.js';
+import type { Op } from '../types.js';
 import type { createGrpcWebByteTransport } from './grpc-web.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 

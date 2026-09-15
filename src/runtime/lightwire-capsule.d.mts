@@ -1,4 +1,4 @@
-import type { LightUnaryMethod, LightStreamMethod } from '../../docs/api/public-api.js';
+import type { LightUnaryMethod, LightStreamMethod } from '../types.js';
 export interface LightwireCodec {
   encodeTreeState(json: string): Uint8Array;
   encodeRequest(method: LightUnaryMethod | LightStreamMethod, json: string): Uint8Array;

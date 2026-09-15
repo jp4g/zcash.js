@@ -1,4 +1,4 @@
-import type { Birthday, resolveBirthday as ResolveBirthday } from '../docs/api/public-api.js';
+import type { Birthday, LightClient, Op } from './types.js';
 import { networkBinding } from './network.js';
 import { snapshot, ownBytes } from './clients/owned-plumbing.js';
 import { operation } from './clients/light-chain-reads.js';
@@ -8,7 +8,7 @@ const invalidBirthday = () => failure('PROTOCOL_MISMATCH', 'account', 'correct-i
 const mismatch = () => failure('NETWORK_MISMATCH', 'account', 'correct-input', 'Birthday network mismatch.');
 const resource = () => failure('RESOURCE_LIMIT', 'account', 'configure', 'Birthday tree exceeds limit.');
 
-export async function resolveBirthday(args: Parameters<typeof ResolveBirthday>[0]): Promise<Birthday> {
+export async function resolveBirthday(args: {light: LightClient; firstScanHeight: number; recoverUntilExclusive?: number} & Op): Promise<Birthday> {
   const owned = snapshot(args, ['light', 'firstScanHeight', 'recoverUntilExclusive', 'signal']);
   const {light, firstScanHeight: first, recoverUntilExclusive: recover} = owned;
   if (!Number.isInteger(first) || first < 1 || first > 0xffff_ffff

@@ -1,4 +1,4 @@
-import type { AccountId, Network, Op, Pool, Proposal, ProposedOutput, PcztArtifact, ReviewedOutput, TransactionPolicy, WalletPcztApi, LocalProvingOptions } from '../../docs/api/public-api.js';
+import type { AccountId, Network, Op, Pool, Proposal, ProposedOutput, PcztArtifact, ReviewedOutput, TransactionPolicy, WalletPcztApi, LocalProvingOptions } from '../types.js';
 import type { openWalletRuntime } from '../runtime/wallet.js';
 import {ProvingAssets} from './proving-assets.js';
 import {operation} from '../clients/light-chain-reads.js';

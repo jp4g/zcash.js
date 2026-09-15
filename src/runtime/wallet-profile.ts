@@ -1,4 +1,4 @@
-import type { ArtifactManifest } from '../../docs/api/public-api.js';
+import type { ArtifactManifest } from '../types.js';
 
 /** Internal baseline wallet profile; not the completed H1 operation surface. */
 export const walletProfile = {

@@ -1,4 +1,4 @@
-import type { Payment, Pool, SyncStatus, TransactionPolicy, WalletClient } from '../../docs/api/public-api.js';
+import type { Payment, Pool, SyncStatus, TransactionPolicy, WalletClient } from '../types.js';
 import { snapshot, ownBytes } from '../clients/owned-plumbing.js';
 import { operation } from '../clients/light-chain-reads.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';

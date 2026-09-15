@@ -1,5 +1,5 @@
 import {signerSelector} from './signer-selector.js';
-import type { AccountsApi, AccountRecord, CreatedAccount, MnemonicImport, Network, Op, Signer, SignerBinding, ViewingImport } from '../../docs/api/public-api.js';
+import type { AccountsApi, AccountRecord, CreatedAccount, MnemonicImport, Network, Op, Signer, SignerBinding, ViewingImport } from '../types.js';
 import type { openWalletRuntime } from '../runtime/wallet.js';
 import { snapshot } from '../clients/owned-plumbing.js';
 import { operation } from '../clients/light-chain-reads.js';

@@ -1,4 +1,4 @@
-import type { LightClient, PublicTransaction, TxId } from '../../docs/api/public-api.js';
+import type { LightClient, PublicTransaction, TxId } from '../types.js';
 import { failure } from '../errors.js';
 import {snapshot,ownBytes} from '../clients/owned-plumbing.js';
 import {operation} from '../clients/light-chain-reads.js';

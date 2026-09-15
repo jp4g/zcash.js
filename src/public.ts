@@ -1,4 +1,4 @@
-import type { PublicClient, Network, HttpTransport, ObservationOptions, Op, BlockSelector, TxId, TransactionObservation, Inclusion, ConfirmedTransaction } from '../docs/api/public-api.js';
+import type { PublicClient, Network, HttpTransport, ObservationOptions, Op, BlockSelector, TxId, TransactionObservation, Inclusion, ConfirmedTransaction } from './types.js';
 import { networkBinding } from './network.js';
 import { httpSourceId, httpEndpoint, readRpc, sendRawTransaction, rpcErrorCode } from './http.js';
 import { snapshot } from './clients/owned-plumbing.js';

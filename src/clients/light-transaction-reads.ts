@@ -1,5 +1,5 @@
 import type { CustomLightTransport, LightUnaryMethod, LightStreamMethod, Op, TxId,
-  PublicTransaction, BroadcastReport, SubtreeRoot, SubtreeRequest, HeightRange } from '../../docs/api/public-api.js';
+  PublicTransaction, BroadcastReport, SubtreeRoot, SubtreeRequest, HeightRange } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { txId, blockHash } from '../primitives.js';
 import { ownBytes } from './owned-plumbing.js';

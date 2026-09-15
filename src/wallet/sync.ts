@@ -1,4 +1,4 @@
-import type { ChainPoint, ErrorInfo, LightClient, ObservationOptions, Op, SyncStatus } from '../../docs/api/public-api.js';
+import type { ChainPoint, ErrorInfo, LightClient, ObservationOptions, Op, SyncStatus } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { operation } from '../clients/light-chain-reads.js';
 import { blockHash } from '../primitives.js';

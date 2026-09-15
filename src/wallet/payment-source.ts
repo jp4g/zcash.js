@@ -1,4 +1,4 @@
-import type {BroadcastReport,ChainPoint,LightClient,Network,PublicClient,TransactionObservation,TxId} from '../../docs/api/public-api.js';
+import type {BroadcastReport,ChainPoint,LightClient,Network,PublicClient,TransactionObservation,TxId} from '../types.js';
 import {networkBinding} from '../network.js';
 import {lightClientBinding} from '../light.js';
 import {publicClientBinding} from '../public.js';

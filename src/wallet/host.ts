@@ -1,7 +1,7 @@
 import type { NativePcztBuildInput, NativeProposalInput, NativeProposalIntent, ProposalInventoryInput } from './proposals.js';
 import type { PaymentInventoryInput, PaymentObserve, PaymentAttemptInput, PaymentAttemptFinish, NativeFusedInput, PaymentReconcile } from './payments.js';
-import type { AccountsApi, ConfirmationsPolicy, Op, ViewingImport, WalletAddressesApi, ZcashError } from '../../docs/api/public-api.js';
-import type { WalletClient } from '../../docs/api/public-api.js';
+import type { AccountsApi, ConfirmationsPolicy, Op, ViewingImport, WalletAddressesApi, ZcashError } from '../types.js';
+import type { WalletClient } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import {saplingAssets} from './proving-assets.js';
 import { ownBytes, snapshot as fields } from '../clients/owned-plumbing.js';

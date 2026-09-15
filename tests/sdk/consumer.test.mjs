@@ -39,7 +39,8 @@ test('packed private package imports and typechecks in an isolated Node consumer
   const { stdout } = await exec('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', folder]);
   const [packed] = JSON.parse(stdout);
   assert.ok(packed.files.some(file => file.path === 'dist/src/index.js'));
-  assert.ok(packed.files.some(file => file.path === 'dist/docs/api/public-api.d.ts'));
+  assert.ok(packed.files.some(file => file.path === 'dist/src/types.d.ts'));
+  assert.ok(packed.files.every(file => !file.path.startsWith('dist/docs/')), 'package declarations must be source-owned');
   assert.ok(packed.files.every(file => !file.path.startsWith('qualification/')));
   const consumer = join(folder, 'consumer');
   await mkdir(consumer);

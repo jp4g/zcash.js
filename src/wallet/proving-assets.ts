@@ -1,4 +1,4 @@
-import type {AssetRequirement,LocalProvingOptions} from '../../docs/api/public-api.js';
+import type {AssetRequirement,LocalProvingOptions} from '../types.js';
 import {snapshot,ownBytes} from '../clients/owned-plumbing.js';
 import {failure,invalidArgument,isZcashError} from '../errors.js';
 import {operation} from '../clients/light-chain-reads.js';

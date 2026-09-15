@@ -1,5 +1,5 @@
 import { admitSignal, signalAborted as nativeAborted } from '../abort.js';
-import type { CustomLightTransport, LightClient, Op, NonEmpty } from '../../docs/api/public-api.js';
+import type { CustomLightTransport, LightClient, Op, NonEmpty } from '../types.js';
 import { txId } from '../primitives.js';
 import { ownBytes, copyRecord } from './owned-plumbing.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';

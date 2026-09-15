@@ -1,4 +1,4 @@
-import type {ErrorInfo, Op, ViewingImport} from '../../docs/api/public-api.js';
+import type {ErrorInfo, Op, ViewingImport} from '../types.js';
 import type {WalletSession, InitializedSigners, NativeSignerAuthorization} from './session.js';
 import {copyRecord} from '../clients/owned-plumbing.js';
 import {invalidArgument} from '../errors.js';

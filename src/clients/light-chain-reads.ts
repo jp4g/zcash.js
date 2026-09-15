@@ -1,5 +1,5 @@
 import { signalAborted, admitSignal } from '../abort.js';
-import type { BlockSelector, Network, TreeState, ChainTip, CompactBlock, HeightRange, CustomLightTransport, Op } from '../../docs/api/public-api.js';
+import type { BlockSelector, Network, TreeState, ChainTip, CompactBlock, HeightRange, CustomLightTransport, Op } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { blockHash } from '../primitives.js';
 import { ownBytes } from './owned-plumbing.js';

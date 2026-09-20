@@ -1,0 +1,14 @@
+{
+  "name": "zcash-single-import-testnet-acceptance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe": "node wallet.mjs probe",
+    "init": "node wallet.mjs init",
+    "status": "node wallet.mjs status"
+  },
+  "dependencies": {
+    "@jp4g/zcash.js": "0.1.0-rc.2",
+    "@scure/bip39": "2.4.0"
+  }
+}

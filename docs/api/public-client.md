@@ -5,8 +5,8 @@ Use a public client when you need chain data without opening a wallet. Construct
 ## Read a transaction
 
 ```ts
-import { txId } from 'zcash.js';
-import type { PublicClient } from 'zcash.js';
+import { txId } from '@jp4g/zcash.js';
+import type { PublicClient } from '@jp4g/zcash.js';
 
 export async function inspectTransaction(client: PublicClient, displayTxid: string) {
   const id = txId(displayTxid);
@@ -21,8 +21,8 @@ A transaction contains owned raw bytes and an observation. Status can be `notSee
 ## Watch or wait for confirmation
 
 ```ts
-import { txId } from 'zcash.js';
-import type { PublicClient, TransactionObservation } from 'zcash.js';
+import { txId } from '@jp4g/zcash.js';
+import type { PublicClient, TransactionObservation } from '@jp4g/zcash.js';
 
 export async function watchTransaction(
   client: PublicClient,

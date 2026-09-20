@@ -1,11 +1,11 @@
 import {
   createLightClient, createPublicClient, createWalletClient, defineNetwork, formatZec,
   grpc, http, isZcashError, parseZec,
-} from "zcash.js";
+} from "@jp4g/zcash.js";
 import type {
   ErrorCode, LocalProvingOptions, MemorySigner, NetworkDefinition, PaymentState,
   Proposal, SecretInput, SignerBinding, WalletOptions,
-} from "zcash.js";
+} from "@jp4g/zcash.js";
 
 // Compile-only: the application supplies validated network/proof data and private inputs.
 declare const networkDefinition: NetworkDefinition;

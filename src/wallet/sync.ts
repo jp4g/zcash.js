@@ -10,6 +10,14 @@ import { applyEnhancement } from './enhancement.js';
 
 type Session = ReturnType<typeof attachWalletWorker>;
 const reverse = (hash: string) => hash.match(/../g)!.reverse().join('');
+const changedSource = new WeakSet<object>();
+const sourceChanged = (check: string) => {
+  const error = failure(
+    'SYNC_REQUIRED', 'sync', 'sync', `Sync source changed at ${check}; retry a validated sync.`, true,
+  );
+  changedSource.add(error);
+  return error;
+};
 const mismatch = () => failure(
   'PROTOCOL_MISMATCH',
   'sync',
@@ -209,6 +217,21 @@ export class WalletSync {
     return this.running;
   }
 
+  /** Submission joins an existing scan without taking ownership of its cancellation. */
+  async refreshForSubmission(signal: AbortSignal): Promise<void> {
+    const pending = operation(signal);
+    try {
+      pending.check();
+      const status = await pending.wait(this.running ?? this.sync({ signal }));
+      pending.check();
+      if (!status.targetReached) {
+        throw failure('SYNC_REQUIRED', 'submission', 'sync', 'Wallet scan did not reach its submission target.', true);
+      }
+    } finally {
+      pending.close();
+    }
+  }
+
   private async run(target: ChainPoint | undefined, signal: AbortSignal | undefined): Promise<SyncStatus> {
     this.activity = 'running';
     this.reached = false;
@@ -222,9 +245,17 @@ export class WalletSync {
         ? this.controller!.signal
         : AbortSignal.any([signal, this.controller!.signal]);
       if (this.subscribers.size) this.publish(await this.getSyncStatus());
-      const point = target ?? await this.light.getTip({ signal: dependent });
-      this.target = Object.freeze({ height: point.height, hash: point.hash });
-      await syncWallet(this.session, this.light, this.target, dependent, this.scanBatchSize);
+      for (let attempt = 0; ; attempt++) {
+        const point = target ?? await this.light.getTip({ signal: dependent });
+        this.target = Object.freeze({ height: point.height, hash: point.hash });
+        try {
+          await syncWallet(this.session, this.light, this.target, dependent, this.scanBatchSize);
+          break;
+        } catch (error) {
+          // Only our chain-view checks permit re-pinning; arbitrary protocol errors do not.
+          if (!(error instanceof Error) || !changedSource.has(error) || attempt === 2 || dependent.aborted) throw error;
+        }
+      }
       this.reached = true; // Native completion validates coverage, including an empty wallet.
       this.activity = 'idle';
       const status = await this.getSyncStatus();
@@ -274,12 +305,25 @@ export async function syncWallet(
   scanBatchSize = 16,
 ) {
   if (!Number.isSafeInteger(scanBatchSize) || scanBatchSize < 1) throw invalidArgument();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await syncPass(session, light, target, signal, scanBatchSize);
+    } catch (error) {
+      // A rejected revision must be replanned, never reused. Bound contention per finite run.
+      if (!isZcashError(error) || error.code !== 'CURSOR_STALE' || attempt === 2 || signal?.aborted
+        || session.completion?.(error)?.completion === 'unknown') throw error;
+    }
+  }
+}
+
+async function syncPass(session: Session, light: LightClient, target: ChainPoint,
+  signal: AbortSignal | undefined, scanBatchSize: number) {
   const batchSize = Math.min(scanBatchSize, 16); // Native/control-message ceiling remains authoritative.
   const op = signal === undefined ? {} : { signal };
   const pin = async () => {
     try {
       const tree = await light.getTreeState({ height: target.height, ...op });
-      if (tree.point.hash !== target.hash) throw mismatch();
+      if (tree.point.hash !== target.hash) throw sourceChanged('target pin');
       return tree;
     } catch (error) {
       if (isZcashError(error) && error.code === 'METHOD_NOT_SUPPORTED') {
@@ -318,7 +362,9 @@ export async function syncWallet(
     if (!range) break;
     const end = Math.min(range.endExclusive - 1, target.height, range.start + batchSize - 1);
     const prior = await light.getTreeState({ height: range.start - 1, ...op });
-    if (range.priorState.hash !== null && prior.point.hash !== reverse(range.priorState.hash)) throw mismatch();
+    if (range.priorState.hash !== null && prior.point.hash !== reverse(range.priorState.hash)) {
+      throw sourceChanged('batch predecessor');
+    }
     const blocks: Uint8Array[] = [];
     let bytes = 0;
     for await (const block of light.streamCompactBlocks({ fromHeight: range.start, toHeight: end, ...op })) {
@@ -336,13 +382,29 @@ export async function syncWallet(
       bytes += block.encoded.length;
     }
     if (!blocks.length) throw mismatch();
-    await session.scan.ingest({
-      revision: plan.revision,
-      target: nativeTarget,
-      priorTreeState: prior.encoded,
-      blocks,
-      ...op,
-    });
+    try {
+      await session.scan.ingest({
+        revision: plan.revision,
+        target: nativeTarget,
+        priorTreeState: prior.encoded,
+        blocks,
+        ...op,
+      });
+    } catch (error) {
+      if (isZcashError(error) && error.code === 'PROTOCOL_MISMATCH'
+        && session.completion?.(error)?.completion !== 'unknown' && !signal?.aborted) {
+        // Native continuity rejection alone is not proof of a reorg. Retry only
+        // when fresh source evidence demonstrates that a pinned point changed.
+        try {
+          await pin();
+          const currentPrior = await light.getTreeState({ height: range.start - 1, ...op });
+          if (currentPrior.point.hash !== prior.point.hash) throw sourceChanged('native batch predecessor');
+        } catch (checkError) {
+          if (checkError instanceof Error && changedSource.has(checkError)) throw checkError;
+        }
+      }
+      throw error;
+    }
   }
   // Upstream polling requests may remain after a successful status update. Visit each once per run.
   const visited = new Set<string>();

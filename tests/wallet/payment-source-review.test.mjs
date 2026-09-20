@@ -42,14 +42,85 @@ test('broadcast acknowledgement must match separately verified broadcaster ident
   await assert.rejects(source.broadcast(new Uint8Array([1]),txid,'source',signal),{code:'PROTOCOL_MISMATCH'});
 });
 
-test('payment observation captures methods and rejects a changing tip',async()=>{
+test('payment observation captures methods and retries a changed tip with fresh evidence',async()=>{
   const {source,client,state}=fixture();
   client.getTip=()=>{throw Error('replacement method must not run');};
   await source.observe(txid,new AbortController().signal);
   const original=client.getTransactionStatus;
   client.getTransactionStatus=async()=>{state.tipHash='56'.repeat(32);return original();};
   const changed=new PaymentSource({...client,getTip:async()=>({height:20,hash:state.tipHash,sourceId:'source',observedAt})},network);
-  await assert.rejects(changed.observe(txid,new AbortController().signal),{code:'PROTOCOL_MISMATCH'});
+  const result=await changed.observe(txid,new AbortController().signal);
+  assert.equal(result.tip.hash,'56'.repeat(32));
+  assert.equal(result.inclusion.confirmations,2);
+});
+
+test('payment mined after the initial tip is re-observed against the advanced tip', async () => {
+  const { client } = fixture();
+  let height = 20, reads = 0;
+  client.getTip = async () => ({ height, hash, sourceId: 'source', observedAt });
+  client.getTransactionStatus = async () => {
+    reads++; height = 21;
+    return { txid, state: 'mined', inclusion: { height: 21, blockHash: hash, confirmations: null },
+      tip: null, priorInclusion: null, sourceId: 'source', observedAt };
+  };
+  const result = await new PaymentSource(client, network).observe(txid, new AbortController().signal);
+  assert.equal(reads, 2);
+  assert.equal(result.inclusion.confirmations, 1);
+});
+
+test('payment tip churn and lagged inclusion exhaust bounded coherent-read retries', async () => {
+  for (const changing of [true, false]) {
+    const { client } = fixture();
+    let height = 20, reads = 0;
+    client.getTip = async () => ({ height, hash, sourceId: 'source', observedAt });
+    client.getTransactionStatus = async () => {
+      reads++; if (changing) height++;
+      return { txid, state: 'mined', inclusion: { height: changing ? height : 21, blockHash: hash, confirmations: null },
+        tip: null, priorInclusion: null, sourceId: 'source', observedAt };
+    };
+    await assert.rejects(new PaymentSource(client, network).observe(txid, new AbortController().signal),
+      { code: 'OBSERVATION_UNAVAILABLE', retryable: true });
+    assert.equal(reads, 3);
+  }
+});
+
+test('payment lag can persist across several tip reads before coherently catching up', async () => {
+  const { client } = fixture();
+  let reads = 0, transactions = 0;
+  client.getTip = async () => ({ height: ++reads <= 4 ? 20 : 21, hash, sourceId: 'source', observedAt });
+  client.getTransactionStatus = async () => {
+    transactions++;
+    return { txid, state: 'mined', inclusion: { height: 21, blockHash: hash, confirmations: null },
+      tip: null, priorInclusion: null, sourceId: 'source', observedAt };
+  };
+  const result = await new PaymentSource(client, network).observe(txid, new AbortController().signal);
+  assert.equal(transactions, 3);
+  assert.equal(result.tip.height, 21);
+  assert.equal(result.inclusion.confirmations, 1);
+});
+
+test('stable hash conflicts remain fatal, including a conflicting ahead-of-tip claim', async () => {
+  for (const height of [20, 21]) {
+    const { client } = fixture();
+    client.getTransactionStatus = async () => ({ txid, state: 'mined',
+      inclusion: { height, blockHash: 'ff'.repeat(32), confirmations: null },
+      tip: null, priorInclusion: null, sourceId: 'source', observedAt });
+    await assert.rejects(new PaymentSource(client, network).observe(txid, new AbortController().signal),
+      { code: 'PROTOCOL_MISMATCH', retryable: false });
+  }
+});
+
+test('cancellation interrupts lag retry spacing without another observation', async () => {
+  const { client } = fixture(), controller = new AbortController();
+  let reads = 0;
+  client.getTransactionStatus = async () => {
+    reads++;
+    setTimeout(() => controller.abort(), 20);
+    return { txid, state: 'mined', inclusion: { height: 21, blockHash: hash, confirmations: null },
+      tip: null, priorInclusion: null, sourceId: 'source', observedAt };
+  };
+  await assert.rejects(new PaymentSource(client, network).observe(txid, controller.signal), { code: 'ABORTED' });
+  assert.equal(reads, 1);
 });
 
 test('observation cancellation returns even when a custom client ignores its signal',async()=>{

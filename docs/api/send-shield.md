@@ -5,8 +5,8 @@ Before sending, sync the account, attach a ready signer (or pass one explicitly)
 ## Send a payment
 
 ```ts
-import { parseZec } from 'zcash.js';
-import type { AccountRecord, WalletClient } from 'zcash.js';
+import { parseZec } from '@jp4g/zcash.js';
+import type { AccountRecord, WalletClient } from '@jp4g/zcash.js';
 
 export async function sendPayment(
   wallet: WalletClient, account: AccountRecord, recipient: string, requestId: string,
@@ -25,13 +25,26 @@ Assign a stable application request ID to one intended payment. Reuse that ID wh
 
 `send` plans, executes, and dispatches, then returns a `PendingPayment`. It does not mean the transaction is mined. `wait` returns confirmation for every required transaction step, or rejects with a timeout/error and any available payment state.
 
+With a light client configured, explicit submission refreshes the wallet scan if
+the observed chain tip has advanced during proving. It joins an existing scan
+or starts one, then obtains fresh payment evidence before native submission
+admission. This preserves the finalized transaction bytes; it does not rebuild,
+re-sign, or retry a network submission. After three unsuccessful refreshes,
+continued tip movement returns `SYNC_REQUIRED`; recover the same operation.
+Automatic startup recovery does not initiate this scan refresh.
+
+Keep `watchSync()` running and consume its statuses while waiting for confirmation.
+The payment observer retries a changing chain view up to three times, then returns
+retryable `OBSERVATION_UNAVAILABLE`. Stable inconsistent evidence remains
+`PROTOCOL_MISMATCH`.
+
 For interactive approval, use [reviewed proposals](proposals.md) so the user approves the exact proposal before execution.
 
 ## Shield transparent funds
 
 ```ts
-import { parseZec } from 'zcash.js';
-import type { AccountRecord, WalletClient } from 'zcash.js';
+import { parseZec } from '@jp4g/zcash.js';
+import type { AccountRecord, WalletClient } from '@jp4g/zcash.js';
 
 export async function shield(wallet: WalletClient, account: AccountRecord, requestId: string) {
   const pending = await wallet.shield({

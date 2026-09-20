@@ -1,5 +1,5 @@
-import { createLightClient, grpc } from "zcash.js";
-import type { CompactBlock, HeightRange, Network } from "zcash.js";
+import { createLightClient, grpc } from "@jp4g/zcash.js";
+import type { CompactBlock, HeightRange, Network } from "@jp4g/zcash.js";
 
 declare const network: Network;
 declare const lightUrl: string; // application-selected fixture endpoint

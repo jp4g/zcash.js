@@ -193,9 +193,13 @@ async function unspent(session: Session, light: LightClient, revision: string,
     const local = await session.scan.state(op),
       block = await session.scan.block({ height: before.height, ...op });
     const nativeHash = before.hash.match(/../g)!.reverse().join('');
-    if (local.revision !== revision || block.revision !== revision || local.tipHeight !== before.height
-
-      || block.point?.height !== before.height
+    if (local.revision !== revision || block.revision !== revision) {
+      throw failure('CURSOR_STALE', 'sync', 'sync', 'Wallet changed before unspent enhancement.');
+    }
+    // A finite scan owns its captured target, not the latest tip. Leave this native
+    // request pending for a later scan; never advance an explicit historical target.
+    if (local.tipHeight !== null && before.height > local.tipHeight) return;
+    if (block.point?.height !== before.height
       || block.point.hash !== nativeHash) {
       throw failure(
         'RECOVERY_REQUIRED',
@@ -204,6 +208,7 @@ async function unspent(session: Session, light: LightClient, revision: string,
         'Source tip is not the retained native chain point.',
       );
     }
+    if (local.tipHeight !== before.height) return;
     const response = await pending.wait(light.getAddressUtxos({ addresses: [request.address], ...op }));
     const groups = unspentInventory(response, before, request.address, request.start);
     const batch: { txid: TxId; bytes: Uint8Array; minedHeight: number | null; unspentOutputs: UnspentOutput[] }[] = [];
@@ -224,8 +229,10 @@ async function unspent(session: Session, light: LightClient, revision: string,
     }
     pending.check();
     const after = sourcePoint(await pending.wait(light.getTip(op)));
-    if (after.height !== before.height || after.hash !== before.hash
-      || after.sourceId !== before.sourceId) throw protocol();
+    if (after.sourceId !== before.sourceId) throw protocol();
+    // The inventory was gathered across a moving view. Discard it, keeping the
+    // native request outstanding; sync's final target pin still checks chain identity.
+    if (after.height !== before.height || after.hash !== before.hash) return;
     pending.check();
     await session.enhancement.apply({
       revision,

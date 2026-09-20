@@ -1,4 +1,4 @@
-import type { PcztArtifact, ReviewedOutput, WalletClient } from "zcash.js";
+import type { PcztArtifact, ReviewedOutput, WalletClient } from "@jp4g/zcash.js";
 
 declare const wallet: WalletClient;
 declare const prepared: PcztArtifact; // single-step, required proofs already satisfied

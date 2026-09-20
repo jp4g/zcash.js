@@ -5,8 +5,8 @@ A stored account tracks wallet history. A signer holds authorization capability.
 ## Recover an existing mnemonic account
 
 ```ts
-import { accountIndex } from 'zcash.js';
-import type { WalletClient } from 'zcash.js';
+import { accountIndex } from '@jp4g/zcash.js';
+import type { WalletClient } from '@jp4g/zcash.js';
 
 export async function importAccount(wallet: WalletClient, mnemonic: Uint8Array, index: number) {
   return wallet.accounts.import({
@@ -29,8 +29,8 @@ For a new account, first sync the wallet and check `targetReached`, then call `w
 Choose a height at or before the account's earliest relevant activity. The helper fetches and validates the preceding tree state; it does not discover when the account was first used.
 
 ```ts
-import { accountIndex, resolveBirthday } from 'zcash.js';
-import type { LightClient, WalletClient } from 'zcash.js';
+import { accountIndex, resolveBirthday } from '@jp4g/zcash.js';
+import type { LightClient, WalletClient } from '@jp4g/zcash.js';
 
 export async function importAtHeight(
   wallet: WalletClient, light: LightClient, mnemonic: Uint8Array, index: number, firstScanHeight: number,
@@ -43,7 +43,7 @@ export async function importAtHeight(
 ## Import viewing authority
 
 ```ts
-import type { WalletClient } from 'zcash.js';
+import type { WalletClient } from '@jp4g/zcash.js';
 
 export async function importWatchOnly(wallet: WalletClient, viewingKey: string) {
   return wallet.accounts.import({

@@ -1,6 +1,6 @@
 // Specification assertions only: no SDK implementation or runtime execution.
-import { createWalletClient } from "zcash.js";
-import type { WalletOptions, RecoveryPolicy, RecoveryReport } from "zcash.js";
+import { createWalletClient } from "@jp4g/zcash.js";
+import type { WalletOptions, RecoveryPolicy, RecoveryReport } from "@jp4g/zcash.js";
 
 declare const options: WalletOptions;
 const offline = { mode: 'offline' } satisfies RecoveryPolicy;

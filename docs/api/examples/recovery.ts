@@ -1,6 +1,6 @@
 // Compile-only specification: no SDK runtime or actual database is supplied.
-import { createWalletClient } from "zcash.js";
-import type { PaymentState, WalletOptions } from "zcash.js";
+import { createWalletClient } from "@jp4g/zcash.js";
+import type { PaymentState, WalletOptions } from "@jp4g/zcash.js";
 
 declare const options: WalletOptions; // same application-owned durable database
 // No application operation-ID store or signer is needed to recover the inventory.

@@ -3,7 +3,7 @@
 SDK failures are structured errors. Use `isZcashError` to distinguish them from application errors and inspect the error code and any retained payment state.
 
 ```ts
-import { isZcashError } from 'zcash.js';
+import { isZcashError } from '@jp4g/zcash.js';
 
 export async function attempt<T>(work: () => Promise<T>) {
   try {
@@ -28,19 +28,21 @@ These returned details belong in the application's private UI/state, not generic
 | `INVALID_ARGUMENT` | Correct the supplied value or option |
 | `NETWORK_MISMATCH` | Check network, endpoint, and runtime configuration |
 | `METHOD_NOT_SUPPORTED` | Use a server/backend that implements the requested method |
-| `SYNC_REQUIRED`, `STALE_PROPOSAL` | Sync and obtain a fresh proposal for review |
+| `SYNC_REQUIRED` | Revalidate/sync; if a finalized payment exists, recover that same operation rather than creating a replacement |
+| `STALE_PROPOSAL` | Obtain a fresh proposal for review after resolving the retained intent |
 | `SIGNER_REQUIRED` | Attach or supply an appropriate signer |
 | `PROVING_MATERIAL_REQUIRED` | Configure matching local proof assets |
 | `STORAGE_BUSY` | Release the other database owner |
 | `RESOURCE_LIMIT` | Reduce concurrent work or adjust the relevant configured budget |
-| `CURSOR_STALE` | Restart pagination from its first page |
+| `CURSOR_STALE` | For pagination, restart from its first page; during sync, retry a fresh sync after reducing concurrent mutations |
+| `OBSERVATION_UNAVAILABLE` | Follow the recovery action; finite calls may exhaust coherent-read retries. Wallet payment events/wait keep polling through narrowly classified tip lag until cancellation or timeout |
 | `ABORTED`, `TIMEOUT` | Inspect progress and retained payment state before retrying |
 | `RECOVERY_REQUIRED` | Inspect recorded state and the indicated recovery action |
 
 ## Cancel a read
 
 ```ts
-import type { PublicClient } from 'zcash.js';
+import type { PublicClient } from '@jp4g/zcash.js';
 
 export async function cancellableTip(client: PublicClient) {
   const controller = new AbortController();

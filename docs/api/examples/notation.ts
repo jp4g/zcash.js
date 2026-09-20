@@ -1,5 +1,5 @@
-import { createWalletClient } from "zcash.js";
-import type { WalletOptions } from "zcash.js";
+import { createWalletClient } from "@jp4g/zcash.js";
+import type { WalletOptions } from "@jp4g/zcash.js";
 
 declare const options: WalletOptions;
 

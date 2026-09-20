@@ -1,5 +1,5 @@
-import { isZcashError } from "zcash.js";
-import type { ErrorCode, ErrorInfo, PaymentState, PendingPayment } from "zcash.js";
+import { isZcashError } from "@jp4g/zcash.js";
+import type { ErrorCode, ErrorInfo, PaymentState, PendingPayment } from "@jp4g/zcash.js";
 
 declare const pending: PendingPayment;
 declare const signal: AbortSignal;

@@ -9,6 +9,7 @@ import { operation } from '../clients/light-chain-reads.js';
 import type { WalletQueueBudget } from '../wallet/host.js';
 import { attachWalletWorker } from '../wallet/host.js';
 import { acquireArtifacts, artifactEndpoint } from './artifacts.js';
+import { bundledArtifact } from './bundled-assets.mjs';
 import { sameRecord, walletProfile } from './wallet-profile.js';
 import type { WalletRuntimeIdentity } from './wallet-profile.js';
 
@@ -67,8 +68,8 @@ function artifact(value: unknown): WasmArtifact {
   return result;
 }
 export function runtimeOptions(value: unknown): RuntimeOptions {
-  const fields = record(
-    value,
+  const supplied = record(
+    value === undefined ? {} : value,
     [
       'baseline',
       'threading',
@@ -80,6 +81,17 @@ export function runtimeOptions(value: unknown): RuntimeOptions {
       'onDiagnostic',
     ],
   );
+  const fields = {
+    baseline: bundledArtifact,
+    threading: { mode: 'baseline' },
+    maxMemoryBytes: 1024 * 1024 * 1024,
+    maxQueuedBytes: 128 * 1024 * 1024,
+    maxQueuedJobs: 8,
+    scanBatchSize: 16,
+    maxPcztBytes: 4 * 1024 * 1024,
+    onDiagnostic: undefined,
+    ...supplied,
+  };
   const raw = record(fields.threading, ['mode', 'artifact', 'workers', 'startupTimeoutMs']);
   let threading: RuntimeOptions['threading'];
   if (raw.mode === 'baseline' && Object.keys(raw).length === 1) threading = { mode: 'baseline' };
@@ -95,7 +107,7 @@ export function runtimeOptions(value: unknown): RuntimeOptions {
   const diagnostic = fields.onDiagnostic;
   if (diagnostic !== undefined && typeof diagnostic !== 'function') throw invalidArgument();
   return {
-    baseline: artifact(fields.baseline),
+    baseline: fields.baseline === bundledArtifact ? bundledArtifact : artifact(fields.baseline),
     threading,
     maxMemoryBytes: positive(fields.maxMemoryBytes),
     maxQueuedBytes: positive(fields.maxQueuedBytes),
@@ -483,11 +495,13 @@ async function createOwner(
       check();
       const selectedLayout = threaded ? { ...layout, 'thread-bootstrap.mjs': 'thread-bootstrap' } : layout;
       const selectedAssets = threaded ? reviewedThreadedAssets : reviewedAssets;
+      // The exact package manifest also authenticates an externally hosted copy.
       if (verified.manifest.files.length !== (threaded ? 6 : 5)
         || verified.manifest.files.some(
           file => !Object.hasOwn(selectedLayout, file.url)
             || (selectedLayout as Record<string, string>)[file.url] !== file.kind
-            || selectedAssets[file.url as keyof typeof selectedAssets] !== file.sha256,
+            || (baseline.manifestSha256 !== bundledArtifact.manifestSha256
+              && selectedAssets[file.url as keyof typeof selectedAssets] !== file.sha256),
         )) throw mismatch();
       const { format: _format, files: _files, ...expected } = verified.manifest;
       void _format;

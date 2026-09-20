@@ -31,7 +31,7 @@ import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { snapshot } from '../clients/owned-plumbing.js';
 import { operation } from '../clients/light-chain-reads.js';
 import { networkBinding } from '../network.js';
-import { PaymentSource } from './payment-source.js';
+import { PaymentSource, isPendingObservation } from './payment-source.js';
 import { WalletProposals } from './proposals.js';
 const id = (value: unknown): string => {
   if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) throw invalidArgument();
@@ -102,8 +102,9 @@ export class WalletPayments {
     private readonly proposals: WalletProposals,
     options: Pick<
       WalletOptions,
-      'network' | 'light' | 'broadcaster' | 'storage' | 'observation' | 'recovery' | 'runtime'
-    >,
+      'network' | 'light' | 'broadcaster' | 'storage' | 'observation' | 'recovery'
+    > & { runtime: import('../types.js').RuntimeOptions },
+    private readonly refreshForSubmission?: (signal: AbortSignal) => Promise<void>,
   ) {
     networkBinding(options.network);
     this.durability = options.storage.kind === 'memory' ? 'ephemeral' : 'durable';
@@ -494,6 +495,25 @@ export class WalletPayments {
     return value;
   }
 
+  /** Refresh only before native attempt admission; never retry a network submission here. */
+  private async prepareSubmission(value: NativePayment, index: number, signal: AbortSignal): Promise<NativePayment> {
+    for (let refreshes = 0; ; refreshes++) {
+      const tip = value.state.steps[index]!.observation?.tip;
+      if (!tip) return value; // Native admission remains authoritative for missing evidence.
+      const scan = await this.wallet.session.scan.state({ signal });
+      const block = await this.wallet.session.scan.block({ height: tip.height, signal });
+      if (scan.tipHeight === tip.height && block.point?.height === tip.height
+        && block.point.hash === tip.hash.match(/../g)!.reverse().join('')) return value;
+      if (refreshes === 3) {
+        throw failure('SYNC_REQUIRED', 'submission', 'sync',
+          'Source kept changing before submission; resume the retained operation after syncing.', true,
+          undefined, this.project(value), value.state.operationId);
+      }
+      await this.refreshForSubmission!(signal);
+      value = await this.observeStep(value, index, this.light ?? this.broadcaster!, signal);
+    }
+  }
+
   private async submitStep(
     value: NativePayment,
     index: number,
@@ -503,6 +523,11 @@ export class WalletPayments {
     automatic: boolean,
     origin: 'broadcast' | 'send' | 'shield',
   ): Promise<NativePayment> {
+    if (!automatic && this.refreshForSubmission) {
+      value = await this.prepareSubmission(value, index, signal);
+      const step = value.state.steps[index]!;
+      if (step.inclusion?.confirmations && step.observation?.state === 'mined') return value;
+    }
     const operationId = value.state.operationId,
       key = operationId + ':' + index;
     const policy = this.policy.mode === 'online' ? this.policy.rebroadcast : undefined;
@@ -606,7 +631,15 @@ export class WalletPayments {
           for (; ;) {
             let value = await this.requirePayment(operationId, signal);
             const source = this.light ?? this.broadcaster;
-            if (source) value = await this.observe(value, source, signal);
+            try {
+              if (source) value = await this.observe(value, source, signal);
+            } catch (error) {
+              // Only our coherent-read retry marker permits another poll. No submission
+              // is performed here, and no unverified observation reaches native state.
+              if (!isPendingObservation(error)) throw error;
+              await delay(this.observation.pollIntervalMs, signal, observationAborted);
+              continue;
+            }
             const state = this.project(value);
             if (state.revision !== revision) {
               buffer.push(state, () => this.wallet.session.reserveWorking(

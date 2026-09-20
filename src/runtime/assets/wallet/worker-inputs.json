@@ -1,0 +1,9 @@
+{
+  "dist/src/errors.js": "7ae187b944c5e74d4d8b7cd6e4ab3c4c0435ebbe7f03b66f0736925d43993973",
+  "dist/src/wallet/session.js": "2ef636ed5725cff869442b2ae4c9b23ffccce7b196d3fa5c1f1d58d9455aad02",
+  "dist/src/clients/owned-plumbing.js": "0a0cdba12c348d5899319f4a88e40ce13b2a298d309430457a101ed3674449e2",
+  "dist/src/wallet/commands.js": "efaaa7cd1ab0bbfe576e0e40555a909733fec27e2c910245dd92494058f98f86",
+  "dist/src/wallet/worker.js": "c81f8e0da77198a2294da85ba0bad77331901680b18c86ea8fc0b585b51e0b22",
+  "dist/src/runtime/wallet-profile.js": "93216c9bd7611725790e0dd503cd9e10d874d8e2cde13d7f9cc37eccde284848",
+  "dist/src/runtime/wallet-worker.js": "544b5eb5ee9b47ae519763f25dd7024368fb6738e62453e5a71da7fd3f832618"
+}

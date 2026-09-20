@@ -2,11 +2,11 @@
 
 This example imports an existing mnemonic account, scans it, issues a receive address, reviews a payment, and waits for confirmation. It uses the configuration described in [open a wallet](wallet-runtime.md).
 
-Before running it, supply a matching network and wallet runtime, a functioning light source and broadcaster, proving material, and a mnemonic account with sufficient eligible funds. `sync()` discovers funds; it does not create them. The example assumes derivation index zero and uses a full scan for explicit recovery.
+Before running it, supply a matching network, a functioning light source and broadcaster, and a mnemonic account with sufficient eligible funds. The package supplies the baseline wallet runtime and local proving material by default. `sync()` discovers funds; it does not create them. The example assumes derivation index zero and uses a full scan for explicit recovery.
 
 ```ts
-import { accountIndex, createWalletClient, formatZec, parseZec } from 'zcash.js';
-import type { MemorySigner, Proposal, SignerBinding, WalletOptions } from 'zcash.js';
+import { accountIndex, createWalletClient, formatZec, parseZec } from '@jp4g/zcash.js';
+import type { MemorySigner, Proposal, SignerBinding, WalletOptions } from '@jp4g/zcash.js';
 
 export async function walletWalkthrough(
   options: WalletOptions,

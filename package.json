@@ -1,7 +1,17 @@
 {
-  "name": "zcash.js",
-  "private": true,
-  "description": "Private initial WASM-independent SDK slice; implemented exports are listed in docs/planning/agnostic-implementation.md.",
+  "name": "@jp4g/zcash.js",
+  "description": "Zcash JavaScript SDK with a bundled, lazily loaded wallet runtime and local proving assets.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jp4g/zcash.js.git"
+  },
+  "bugs": "https://github.com/jp4g/zcash.js/issues",
+  "homepage": "https://github.com/jp4g/zcash.js#readme",
+  "publishConfig": {
+    "access": "public",
+    "tag": "next",
+    "registry": "https://registry.npmjs.org/"
+  },
   "engines": {
     "node": ">=22.12.0"
   },
@@ -11,10 +21,13 @@
     "docs:preview": "vite preview --outDir docs/.vitepress/dist --host 127.0.0.1 --port 4173 --strictPort --base /",
     "docs:typecheck": "tsc -p docs/api/examples/tsconfig.json && node scripts/check-guide.mjs",
     "docs:check-recovery": "node docs/api/check-recovery-spec.mjs",
-    "build": "tsc -p tsconfig.json && node scripts/primitive-capsule.mjs",
+    "build": "tsc -p tsconfig.json && node scripts/primitive-capsule.mjs && node scripts/bundled-assets.mjs",
+    "prepack": "npm run build",
     "test:sdk": "npm run build && node --test tests/sdk/*.test.mjs",
     "test": "npm run build && node --test --test-concurrency=4 tests/*/*.test.mjs",
     "test:sdk:real-firefox": "node tests/sdk/real-firefox-run.mjs",
+    "test:package:browser": "npm run build && node scripts/verify-bundled-browser.mjs",
+    "test:package:node": "npm run build && node scripts/verify-bundled-browser.mjs --node-only",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "check": "npm run lint && npm test"
@@ -29,11 +42,11 @@
     "vitepress": "2.0.0-alpha.20",
     "webpack": "5.110.3"
   },
-  "version": "0.0.0",
+  "version": "0.1.0-rc.2",
   "type": "module",
   "files": [
-    "dist",
-    "docs/planning/agnostic-implementation.md",
+    "dist/src",
+    "CHANGELOG.md",
     "licenses"
   ],
   "exports": {

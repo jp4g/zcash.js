@@ -1,12 +1,15 @@
 # Single-import release handoff
 
-**rc.1 was published by the owner; rc.2 fixes are under qualification.** Publication
-remains owner-only. Do not republish the earlier artifact listed in the history.
+**rc.2 fixes are merged and the fresh Node testnet round trip passed.** Publication
+remains owner-only. rc.1 was previously published and is not changed by this merge.
 Parent: #165. Evidence/history: [release qualification](single-import-release.md).
 
 The current source version is `0.1.0-rc.2`, addressing observation lag (#176) and
-enhancement scan races (#177). A new exact artifact and post-merge qualification
-must be recorded before handing it to the owner. The earlier rc.1 registry
+enhancement scan races (#177), merged by PR #178 at
+`8aa6e41ecf3d2e7971635189f80e1b8afb920f84`. The exact post-merge artifact is
+`/home/jack/zcash-package-consumer-TFjoGs/jp4g-zcash.js-0.1.0-rc.2.tgz`, SHA-256
+`f6ae0df7944d4362759c165af044558e68121bcb34ca1fea2599bb4c833b17fd`.
+It passed fresh Node/Firefox installation and persistence checks. The earlier rc.1 registry
 artifact matched its tested tarball, but its live Node example needed manual
 observation resumes; that is not acceptable qualification for these fixes.
 The owner has set aside live endpoint work to focus on packaging; the remaining
@@ -38,7 +41,12 @@ Node A → B → A acceptance passed; browser and registry acceptance remain pen
   accounting, reopen, and duplicate-submission checks. Qualified tarball digest
   and first-leg pre-submission recovery caveat are in the qualification report;
   repeat qualification after changing publishable package bytes.
-- [ ] Pin rc.2 footprint, tarball digest and post-merge installed-package results.
+- [x] Pin rc.2 footprint and tarball digest: 59,863,855 bytes packed / 86,321,467
+  unpacked. A fresh checkout of the merge passed 604 tests, one optional TLS skip,
+  and the installed-package Node/Firefox checks. GitHub PR and main checks passed.
+- [x] Fresh installed-package rc.2 Node Ironwood round trip passed, uninterrupted:
+  funding, A → B → A, three confirmations, exact receipts/fees, reopen and one
+  submission per payment. Zero manual resumes. See the release report.
 - [x] Implement and Node-qualify #172/#173 recovery: bounded revalidation/replanning,
   actual native revision-race rejection/recovery, and concurrent watch/wait.
   Explicit targets and validation remain intact. See the release report for
@@ -79,12 +87,12 @@ snapshots. The browser runner also checks the installed Node consumer.
 Run the testnet project against the selected final tarball; any content/version
 change after qualification requires a new digest and requalification.
 
-Publish tested bytes, not a newly packed working directory. Once the rc.2 artifact
-is pinned here, the **owner-only** command has this form (not executable as-is):
+Publish tested bytes, not a newly packed working directory. After qualification,
+these are the **owner-only** commands for the pinned rc.2 artifact:
 
 ```sh
-sha256sum /absolute/path/jp4g-zcash.js-0.1.0-rc.2.tgz
-npm publish /absolute/path/jp4g-zcash.js-0.1.0-rc.2.tgz --ignore-scripts --access public --tag next
+sha256sum /home/jack/zcash-package-consumer-TFjoGs/jp4g-zcash.js-0.1.0-rc.2.tgz
+npm publish /home/jack/zcash-package-consumer-TFjoGs/jp4g-zcash.js-0.1.0-rc.2.tgz --ignore-scripts --access public --tag next
 ```
 
 Full live browser acceptance remains outstanding; do not describe it as qualified.

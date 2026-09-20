@@ -9,11 +9,53 @@ identified by the registry-installed rc.1 example. The owner requested issue
 creation, fixes, merge, and post-merge testing. The published single-import
 baseline is preserved separately from the new fixes in Git history.
 
+PR #178 merged the fixes at `8aa6e41ecf3d2e7971635189f80e1b8afb920f84`.
+GitHub PR checks, explicit workflow checks, and post-merge main checks passed.
+
+Exact post-merge artifact:
+`/home/jack/zcash-package-consumer-TFjoGs/jp4g-zcash.js-0.1.0-rc.2.tgz`
+
+SHA-256: `f6ae0df7944d4362759c165af044558e68121bcb34ca1fea2599bb4c833b17fd`.
+Size: 59,863,855 bytes packed / 86,321,467 unpacked.
+
+A new detached checkout of that merge installed dependencies from the lockfile
+and passed lint/build/full tests with proving files enabled: 604 passed, one
+optional TLS skip, zero failures. Its tarball passed the isolated installed Node
+and Firefox 156 bundled WASM/worker/OPFS account create/reopen checks. It is
+byte-identical to the independently tested pre-merge tarball. No SDK executable
+changes are part of this documentation-only evidence update.
+
 The new candidate adds spaced coherent-observation retries and continued
 observation-only polling, and defers unspent enhancement when the source view
 moves beyond the finite scan target. Permanent evidence conflicts remain errors.
-Qualification is in progress; do not treat the earlier manual-resume run as
-hands-off acceptance of these changes. Nothing new has been published.
+The fresh post-merge Node acceptance passed in one uninterrupted process from
+2026-09-20 22:19:00 UTC to 22:22:28 UTC. Its independent application is retained at
+`/home/jack/zcash-rc2-testnet.dLZ6EN`; `result.json` records the audit. It installed
+the exact tarball above, not a source link or the published rc.1.
+
+- Fresh Ironwood-only A/B wallets; 300,000 zat funding from the authorized existing
+  testnet wallet, followed by A → B 100,000 zat and B → A 50,000 zat.
+- Each payment reached at least three confirmations. Exact receipt balance
+  deltas, Ironwood spendability and database reopen checks passed.
+- Final spendable A = 240,000 zat, B = 40,000 zat. The 280,000-zat sum is funding
+  less the two 10,000-zat demo fees (external funding also cost 10,000 zat).
+- Both demo operations retained exactly one acknowledged submission attempt and
+  unchanged finalized transaction digests. Funding also had one attempt.
+- No manual confirmation resumes, process restarts, replacement payment intents,
+  or swallowed command failures. The acceptance runner has an exclusive start
+  marker so a rerun cannot be mislabeled as this uninterrupted pass.
+
+Funding: `a473a4e38b527c4421194a8b18b6043f96456d0d656a60dc4a62869fa5478a5c`.
+A → B: `d29e5e7404f52a33d7da51d397b8b7ebda144424182602ebb4f7e878d8b912d2`.
+B → A: `9fca80d7b214dba0ca1bff66bd6e1201b37ec3fb16dc040a67e0259c570d1cb4`.
+
+These are real live acceptance results, not proof that every future endpoint
+failure is recoverable. Deterministic regressions separately force delayed tip
+catch-up and post-scan advancement. The older rc.1 manual-resume run remains
+historical evidence, not acceptance of these fixes. rc.2 remains unpublished;
+registry acceptance follows owner publication. Full browser testnet sending and
+historical database migration remain unqualified. Wallet recovery material stays
+in ignored private directories and is not part of this report or package.
 
 ## Prior release candidate: 0.1.0-rc.1
 

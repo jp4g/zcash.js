@@ -58,6 +58,15 @@ Automatic recovery does not grant first-dispatch consent, resume unfinished sign
 
 A source can accept a transaction while its response is lost. `unknown` is neither success nor rejection. Continue observing the recorded transaction or explicitly retry its retained bytes after reviewing state. Creating a fresh spend can produce a duplicate payment.
 
+Independent source reads can briefly report a mined transaction ahead of their
+latest-tip view. The wallet does not accept this as confirmation or absence.
+Each observation makes at most three coherent-read attempts, spaced by 250 ms;
+`events()` and `wait()` continue at the configured polling interval if the tip
+still lags. The last coherent state is retained. Caller cancellation, wallet
+closure and the `wait()` timeout remain effective; without a timeout, waiting
+can continue until cancelled. Malformed evidence, source identity changes and
+stable conflicting hashes still fail. No broadcast occurs in this polling path.
+
 `pending.events()` observes changing state. `pending.wait({ confirmations, timeoutMs, signal })` observes every required step. Aborting or timing out a wait does not cancel a transaction, erase its attempts, or release its locks.
 
 Memory storage has no restart recovery. Copying or rolling back database files is outside the SDK's backup/restore API; there is no public database backup/restore method. A mnemonic recovers account authority and scan history, not a lost database's operation journal.

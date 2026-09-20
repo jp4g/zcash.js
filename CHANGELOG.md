@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-rc.2 — observation and enhancement fixes
+
+- Payment observation distinguishes temporary tip lag from malformed or conflicting
+  evidence. Finite reads retry at most three times with cancellable 250 ms spacing;
+  payment events/wait continue polling through this narrowly classified condition
+  without committing incoherent observations or resubmitting transactions (#176).
+- Tip-dependent unspent enhancement remains pending when the source advances
+  beyond the finite scan target or moves during inventory collection. Revision
+  races replan normally; explicit historical targets and hash checks remain intact
+  (#177). Continuous sync can fulfill deferred requests on a later scan.
+- Historical database migration and full live-browser sending remain unqualified.
+  This candidate requires owner publication; it does not change installed rc.1.
+
 ## 0.1.0-rc.1 — single-import release candidate
 
 - Package identity is `@jp4g/zcash.js`.

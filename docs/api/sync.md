@@ -37,6 +37,13 @@ export async function followSync(
 
 `watchSync` starts lazily on the first read. Subscribers share background sync; keep consuming to avoid buffer overflow. Returning the last subscriber stops its background watcher. It does not cancel a separately started finite `sync()` operation.
 
+Unspent-address enhancement requires an inventory tied to the scanned tip. If
+the source advances beyond the captured target, or changes while the inventory
+is read, that request stays pending for a later scan. A finite sync can therefore
+reach its captured target with actionable enhancement still outstanding.
+`watchSync()` scans newer tips and revisits those requests on later polls.
+Explicit historical targets are never advanced just to satisfy enhancement.
+
 You can consume `watchSync()` while awaiting a payment's `wait()`. Payment
 observations can invalidate a native scan revision; sync discards the stale plan
 and revalidates/replans, with at most three attempts per source-view pass.

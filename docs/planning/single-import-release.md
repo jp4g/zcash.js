@@ -2,7 +2,20 @@
 
 Tracking: https://github.com/jp4g/zcash.js/issues/165 (children #166–#171).
 
-## Current release candidate: 0.1.0-rc.1
+## Current candidate: 0.1.0-rc.2
+
+Issues #176 and #177 track the remaining fatal observation/enhancement races
+identified by the registry-installed rc.1 example. The owner requested issue
+creation, fixes, merge, and post-merge testing. The published single-import
+baseline is preserved separately from the new fixes in Git history.
+
+The new candidate adds spaced coherent-observation retries and continued
+observation-only polling, and defers unspent enhancement when the source view
+moves beyond the finite scan target. Permanent evidence conflicts remain errors.
+Qualification is in progress; do not treat the earlier manual-resume run as
+hands-off acceptance of these changes. Nothing new has been published.
+
+## Prior release candidate: 0.1.0-rc.1
 
 Owner selected `0.1.0-rc.1`. Package/lockfile/application pins and installation
 instructions agree; `private` is removed and publishConfig defaults to public

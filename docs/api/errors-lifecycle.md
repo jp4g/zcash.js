@@ -35,7 +35,7 @@ These returned details belong in the application's private UI/state, not generic
 | `STORAGE_BUSY` | Release the other database owner |
 | `RESOURCE_LIMIT` | Reduce concurrent work or adjust the relevant configured budget |
 | `CURSOR_STALE` | For pagination, restart from its first page; during sync, retry a fresh sync after reducing concurrent mutations |
-| `OBSERVATION_UNAVAILABLE` | Follow the recovery action; after chain-tip churn, resume observation of the same payment once the source stabilizes |
+| `OBSERVATION_UNAVAILABLE` | Follow the recovery action; finite calls may exhaust coherent-read retries. Wallet payment events/wait keep polling through narrowly classified tip lag until cancellation or timeout |
 | `ABORTED`, `TIMEOUT` | Inspect progress and retained payment state before retrying |
 | `RECOVERY_REQUIRED` | Inspect recorded state and the indicated recovery action |
 

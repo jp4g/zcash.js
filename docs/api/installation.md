@@ -2,9 +2,9 @@
 
 ## Install the local package
 
-Use Node **22.12 or newer** and ESM. The prepared version is `0.1.0-rc.1`;
+Use Node **22.12 or newer** and ESM. The next candidate is `0.1.0-rc.2`;
 registry availability depends on owner publication. Until then, install the local
-tarball below. After publication, pin `npm install @jp4g/zcash.js@0.1.0-rc.1`.
+tarball below. After publication, pin `npm install @jp4g/zcash.js@0.1.0-rc.2`.
 
 From the repository:
 
@@ -17,7 +17,7 @@ npm pack --pack-destination /tmp/zcash-package
 From your application:
 
 ```sh
-npm install /tmp/zcash-package/jp4g-zcash.js-0.1.0-rc.1.tgz
+npm install /tmp/zcash-package/jp4g-zcash.js-0.1.0-rc.2.tgz
 ```
 
 Use an `.mjs` entry point or set `"type": "module"` in your application's `package.json`. TypeScript applications can use named imports from `@jp4g/zcash.js`. The package does not expose a CommonJS `require` entry.

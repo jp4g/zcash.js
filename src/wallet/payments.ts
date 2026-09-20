@@ -31,7 +31,7 @@ import { failure, invalidArgument, isZcashError } from '../errors.js';
 import { snapshot } from '../clients/owned-plumbing.js';
 import { operation } from '../clients/light-chain-reads.js';
 import { networkBinding } from '../network.js';
-import { PaymentSource } from './payment-source.js';
+import { PaymentSource, isPendingObservation } from './payment-source.js';
 import { WalletProposals } from './proposals.js';
 const id = (value: unknown): string => {
   if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) throw invalidArgument();
@@ -631,7 +631,15 @@ export class WalletPayments {
           for (; ;) {
             let value = await this.requirePayment(operationId, signal);
             const source = this.light ?? this.broadcaster;
-            if (source) value = await this.observe(value, source, signal);
+            try {
+              if (source) value = await this.observe(value, source, signal);
+            } catch (error) {
+              // Only our coherent-read retry marker permits another poll. No submission
+              // is performed here, and no unverified observation reaches native state.
+              if (!isPendingObservation(error)) throw error;
+              await delay(this.observation.pollIntervalMs, signal, observationAborted);
+              continue;
+            }
             const state = this.project(value);
             if (state.revision !== revision) {
               buffer.push(state, () => this.wallet.session.reserveWorking(

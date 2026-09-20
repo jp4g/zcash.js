@@ -1,15 +1,14 @@
 # Single-import release handoff
 
-**Versioned prerelease prepared; publication remains owner-only.** This is not a
-claim of complete release qualification. The agent must not run publication.
+**rc.1 was published by the owner; rc.2 fixes are under qualification.** Publication
+remains owner-only. Do not republish the earlier artifact listed in the history.
 Parent: #165. Evidence/history: [release qualification](single-import-release.md).
 
-Package assembly and clean Node/Firefox installation are verified. Latest
-installable release-candidate artifact:
-`/home/jack/zcash-package-consumer-IL8mxE/jp4g-zcash.js-0.1.0-rc.1.tgz`, SHA-256
-`bd47e04bcd2c1dd5b9ed75df83684790720c10a8a4027690c50df6b6479f358e`.
-The owner selected `0.1.0-rc.1`; `private` is removed and the default publication
-tag is `next`. No publication was performed.
+The current source version is `0.1.0-rc.2`, addressing observation lag (#176) and
+enhancement scan races (#177). A new exact artifact and post-merge qualification
+must be recorded before handing it to the owner. The earlier rc.1 registry
+artifact matched its tested tarball, but its live Node example needed manual
+observation resumes; that is not acceptable qualification for these fixes.
 The owner has set aside live endpoint work to focus on packaging; the remaining
 qualification gates below are recorded, not silently waived.
 
@@ -39,7 +38,7 @@ Node A → B → A acceptance passed; browser and registry acceptance remain pen
   accounting, reopen, and duplicate-submission checks. Qualified tarball digest
   and first-leg pre-submission recovery caveat are in the qualification report;
   repeat qualification after changing publishable package bytes.
-- [x] Pin release-candidate footprint and tarball digest (see qualification report).
+- [ ] Pin rc.2 footprint, tarball digest and post-merge installed-package results.
 - [x] Implement and Node-qualify #172/#173 recovery: bounded revalidation/replanning,
   actual native revision-race rejection/recovery, and concurrent watch/wait.
   Explicit targets and validation remain intact. See the release report for
@@ -56,15 +55,14 @@ Node A → B → A acceptance passed; browser and registry acceptance remain pen
   pre-broadcast observation is blocked by the endpoint returning INTERNAL for an
   absent transaction. The finalized browser payment has zero attempts. See the
   release report; no server-error-to-absence bypass is permitted.
-- [x] Owner selected `0.1.0-rc.1`; package, lockfile, test application pin and guide
-  agree. Fresh installed-package Node/Firefox checks passed on the exact tarball.
+- [x] Next candidate metadata is `0.1.0-rc.2`; package, lockfile, test application
+  pin and guide agree. No agent publication is authorized.
 
 ## Prepare the exact publishable candidate
 
-Metadata preparation is complete. A read-only registry query for this version
-returned E404; this does not prove scope ownership, reserve the package name, or
-verify publishing permissions. The owner must verify npm scope access and decide
-whether to publish this explicitly limited prerelease before full browser acceptance.
+Metadata preparation is complete. The owner published rc.1. After rc.2 testing,
+the owner must decide whether to publish this explicitly limited prerelease
+before full browser acceptance. No publishing credentials are inspected or stored.
 
 ```sh
 npm ci
@@ -81,12 +79,12 @@ snapshots. The browser runner also checks the installed Node consumer.
 Run the testnet project against the selected final tarball; any content/version
 change after qualification requires a new digest and requalification.
 
-Publish those tested bytes, not a newly packed working directory. These are
-**owner-only** commands, conditional on the owner's prerelease decision:
+Publish tested bytes, not a newly packed working directory. Once the rc.2 artifact
+is pinned here, the **owner-only** command has this form (not executable as-is):
 
 ```sh
-sha256sum /home/jack/zcash-package-consumer-IL8mxE/jp4g-zcash.js-0.1.0-rc.1.tgz
-npm publish /home/jack/zcash-package-consumer-IL8mxE/jp4g-zcash.js-0.1.0-rc.1.tgz --ignore-scripts --access public --tag next
+sha256sum /absolute/path/jp4g-zcash.js-0.1.0-rc.2.tgz
+npm publish /absolute/path/jp4g-zcash.js-0.1.0-rc.2.tgz --ignore-scripts --access public --tag next
 ```
 
 Full live browser acceptance remains outstanding; do not describe it as qualified.
@@ -95,7 +93,7 @@ No publishing token belongs in source, issues, command arguments or test logs.
 ## Registry acceptance after owner publication
 
 Create another independent project, install the exact published version with
-`npm install @jp4g/zcash.js@0.1.0-rc.1`, and verify the registry tarball's integrity
+`npm install @jp4g/zcash.js@0.1.0-rc.2`, and verify the registry tarball's integrity
 against the owner-published artifact. Re-run public-import Node/browser wallet
 loading, independent Ironwood send/receipt/restart and duplicate-prevention checks.
 Only then can #171 and the parent be closed. Neither a passing tarball test nor

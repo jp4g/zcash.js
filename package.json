@@ -42,7 +42,7 @@
     "vitepress": "2.0.0-alpha.20",
     "webpack": "5.110.3"
   },
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "type": "module",
   "files": [
     "dist/src",

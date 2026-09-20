@@ -53,11 +53,37 @@ test('unspent enhancement owns positive outputs, brackets native tip and complet
   for(const failAfter of [false,true]){
     const value=unspentFixture();value.control.failAfter=failAfter;
     const result=applyEnhancement(value.session,value.light,'0',value.request);
-    if(failAfter)await assert.rejects(result,{code:'PROTOCOL_MISMATCH'});else await result;
+    await result;
     assert.equal(value.control.raw,17);assert.equal(value.commits.length,failAfter?0:1);
     if(!failAfter){assert.equal(value.commits[0].transactions.length,17);assert.equal(value.commits[0].complete,true);
       assert.equal(value.commits[0].transactions[0].unspentOutputs[0].script[0],1);assert.equal(value.commits[0].transactions[0].txid,value.items[0].txid);}
   }
+});
+
+test('unspent enhancement defers ordinary extension without completing the native request', async () => {
+  const value = unspentFixture(0);
+  value.session.scan.state = async () => ({ revision: '0', tipHeight: 49 });
+  value.session.scan.block = async () => ({ revision: '0', point: null });
+  value.light.getAddressUtxos = async () => { throw Error('future-tip inventory must not be read'); };
+  await applyEnhancement(value.session, value.light, '0', value.request);
+  assert.equal(value.commits.length, 0);
+});
+
+test('unspent enhancement distinguishes revision races from chain recovery', async () => {
+  const value = unspentFixture(0);
+  value.session.scan.state = async () => ({ revision: '1', tipHeight: 50 });
+  await assert.rejects(applyEnhancement(value.session, value.light, '0', value.request), { code: 'CURSOR_STALE' });
+  assert.equal(value.commits.length, 0);
+});
+
+test('unspent enhancement never defers a changed source identity', async () => {
+  const value = unspentFixture(0), original = value.light.getTip;
+  value.light.getTip = async () => {
+    const tip = await original();
+    return { ...tip, sourceId: value.control.tips > 1 ? 'different' : tip.sourceId };
+  };
+  await assert.rejects(applyEnhancement(value.session, value.light, '0', value.request), { code: 'PROTOCOL_MISMATCH' });
+  assert.equal(value.commits.length, 0);
 });
 
 test('unspent enhancement rejects unpinned native chain and cancels an ignored raw read',async()=>{

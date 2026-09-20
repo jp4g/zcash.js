@@ -52,7 +52,7 @@ function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delaye
   const client={network,async getTreeState({height}){control.requests++;const block=height===0?network.genesisHash:hash;return {network,point:{height,hash:block},sapling:null,ironwood:null,encoded:concat(scalar(2,height),bytesField(3,new TextEncoder().encode(block))),sourceId:'source',observedAt:new Date().toISOString()};},
     async getTip(){control.requests++;return {height:control.sourceHeight,hash,sourceId:'source',observedAt:new Date().toISOString()};},
     async getTransaction(){throw Error('not used');},
-    async getTransactionStatus({txid}){control.reads++;control.visited?.push(txid);if(control.stalled){control.started?.();return new Promise(()=>{});}return {txid,state:control.mined?'mined':control.seen.has(txid)?'mempool':'notSeen',inclusion:control.mined?{height:19,blockHash:hash,confirmations:999}:null,tip:null,priorInclusion:control.prior??null,sourceId:'source',observedAt:new Date().toISOString()};},
+    async getTransactionStatus({txid}){control.reads++;control.visited?.push(txid);if(control.stalled){control.started?.();return new Promise(()=>{});}if(control.catchUpAfter && control.reads > control.catchUpAfter)control.sourceHeight=21;return {txid,state:control.mined?'mined':control.seen.has(txid)?'mempool':'notSeen',inclusion:control.mined?{height:control.minedHeight??19,blockHash:control.blockHash??hash,confirmations:999}:null,tip:null,priorInclusion:control.prior??null,sourceId:'source',observedAt:new Date().toISOString()};},
     async broadcastTransaction({bytes}){const index=bytes[0]-1;assert.deepEqual([...bytes],[index+1,2,3]);control.dispatches++;control.order.push(index);control.seen.add(stepTxid(index));control.started?.();if(delayed)return new Promise(resolve=>{control.reply=resolve;});return {txid:stepTxid(index),outcome:'acknowledged',diagnosticCode:null,sourceId:'source',observedAt:new Date().toISOString()};}};
   const wallet={session,close:()=>session.close()};
   const options={network,storage:{kind:'memory'},runtime:{maxQueuedJobs:8},observation:{pollIntervalMs:5,maxBufferedUpdates:buffer},recovery:online?{mode:'online',timeoutMs:recoveryTimeoutMs,...(retry?{rebroadcast:retry}:{})}:{mode:'offline'},...(light?{light:client}:{}),broadcaster:client};
@@ -65,6 +65,42 @@ function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delaye
   t.after(async()=>{await payments.close();await session.close();assert.equal(budget.proving.bytes,0);});
   return {payments,session,journal,control,budget,client,wallet,options};
 }
+
+test('payment wait survives multi-poll lag without observing incoherent state or submitting', async t => {
+  const { payments, control, journal } = setup(t);
+  await payments.recover();
+  control.mined = true; control.minedHeight = 21; control.catchUpAfter = 4;
+  const handle = await payments.operations.resume({ operationId: operationId(1) });
+  const result = await handle.wait({ confirmations: 1, timeoutMs: 5000 });
+  assert.ok(control.reads >= 5);
+  assert.equal(result.transactions[0].height, 21);
+  assert.equal(control.calls.filter(c => c === 'payment_observe').length, 1);
+  assert.equal(control.dispatches, 0);
+  assert.deepEqual(journal[0].state.steps[0].attempts, []);
+});
+
+test('persistent lag respects payment wait deadline and preserves prior coherent state', async t => {
+  const { payments, control, journal } = setup(t);
+  await payments.recover();
+  const handle = await payments.operations.resume({ operationId: operationId(1) });
+  const before = structuredClone(journal[0].state.steps[0]);
+  control.mined = true; control.minedHeight = 21;
+  await assert.rejects(handle.wait({ timeoutMs: 700 }), { code: 'TIMEOUT' });
+  assert.deepEqual(journal[0].state.steps[0], before);
+  assert.equal(control.dispatches, 0);
+  const reads = control.reads;
+  await wait(30);
+  assert.equal(control.reads, reads, 'deadline stops background observation');
+});
+
+test('payment wait does not swallow permanent inclusion conflicts', async t => {
+  const { payments, control } = setup(t);
+  await payments.recover();
+  control.mined = true; control.blockHash = 'ff'.repeat(32);
+  const handle = await payments.operations.resume({ operationId: operationId(1) });
+  await assert.rejects(handle.wait({ timeoutMs: 1000 }), { code: 'PROTOCOL_MISMATCH' });
+  assert.equal(control.dispatches, 0);
+});
 
 test('explicit submission refreshes a tip advanced during proving without changing finalized bytes',async t=>{
   const {payments,control,journal}=setup(t,{submissionSync:true});

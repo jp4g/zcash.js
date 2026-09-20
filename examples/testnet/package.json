@@ -8,7 +8,7 @@
     "status": "node wallet.mjs status"
   },
   "dependencies": {
-    "@jp4g/zcash.js": "0.1.0-rc.1",
+    "@jp4g/zcash.js": "0.1.0-rc.2",
     "@scure/bip39": "2.4.0"
   }
 }

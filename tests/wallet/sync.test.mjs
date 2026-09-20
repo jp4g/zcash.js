@@ -26,6 +26,80 @@ function recoveryFixture() {
   return { control, session, light, target, owner: new WalletSync(session, light, { pollIntervalMs: 5, maxBufferedUpdates: 8 }) };
 }
 
+function enhancementRaceFixture({ historical = false, stale = false } = {}) {
+  const hash = '03'.repeat(32), request = { kind: 'address', address: 'unused', start: 1,
+    endExclusive: null, requestAt: null, txStatus: 'all', outputStatus: 'unspent' };
+  let scanned = 20, revision = 0, outstanding = true, tipReads = 0, applied = 0, plans = 0;
+  const session = { scan: {
+    async state() { return { revision: String(revision), tipHeight: scanned,
+      fullyScannedHeight: scanned, maxScannedHeight: scanned, scanComplete: true }; },
+    async block({ height }) { return { revision: String(revision), point: height <= scanned ? { height, hash } : null }; },
+    async plan({ target }) { plans++; return { revision: String(revision),
+      ranges: scanned >= target.height ? [] : [{ start: scanned + 1, endExclusive: target.height + 1, priorState: { hash } }] }; },
+    async ingest({ blocks }) { scanned += blocks.length; revision++; },
+    async complete({ target }) { assert.equal(target.height, scanned); },
+  }, enhancement: {
+    async requests() { return { revision: String(revision), requests: outstanding ? [request] : [] }; },
+    async apply({ revision: expected }) {
+      assert.equal(expected, String(revision)); applied++; outstanding = false;
+      return { revision: String(++revision) };
+    },
+  } };
+  const light = {
+    async getTip() {
+      tipReads++;
+      if (stale && tipReads === 2) revision++;
+      return { height: stale ? 20 : historical || tipReads > 1 ? 21 : 20,
+        hash, sourceId: 'source', observedAt: 'fixture' };
+    },
+    async getTreeState({ height }) { return { point: { height, hash }, encoded: new Uint8Array() }; },
+    async *streamCompactBlocks({ fromHeight, toHeight }) {
+      for (let height = fromHeight; height <= toHeight; height++) yield { point: { height, hash }, encoded: new Uint8Array([1]) };
+    },
+    async getAddressUtxos() { return { items: [], tip: null, sourceId: 'source', observedAt: 'fixture' }; },
+  };
+  return { owner: new WalletSync(session, light, { pollIntervalMs: 5, maxBufferedUpdates: 16 }),
+    session, light, state: () => ({ outstanding, applied, plans, scanned, tipReads }) };
+}
+
+test('finite scan defers post-scan extension and leaves its native request outstanding', async () => {
+  const f = enhancementRaceFixture();
+  const result = await f.owner.sync();
+  assert.equal(result.targetReached, true);
+  assert.equal(result.target.height, 20);
+  assert.equal(result.enhancement.actionable, 1);
+  assert.equal(f.state().applied, 0);
+});
+
+test('explicit historical target is not advanced to satisfy enhancement', async () => {
+  const f = enhancementRaceFixture({ historical: true });
+  const result = await f.owner.sync({ target: { height: 20, hash: '03'.repeat(32) } });
+  assert.equal(result.targetReached, true);
+  assert.equal(result.target.height, 20);
+  assert.equal(f.state().scanned, 20);
+  assert.equal(f.state().applied, 0);
+});
+
+test('watchSync survives deferred enhancement and resolves it on the next scan', async () => {
+  const f = enhancementRaceFixture();
+  const watcher = f.owner.watchSync({ signal: AbortSignal.timeout(2000) });
+  try {
+    for await (const result of watcher) {
+      if (result.targetReached && result.target.height === 21) break;
+    }
+    assert.equal(f.state().scanned, 21);
+    assert.equal(f.state().applied, 1);
+    assert.equal(f.state().outstanding, false);
+  } finally { await watcher.return(); await f.owner.stop(); }
+});
+
+test('enhancement revision race replans rather than reporting native recovery failure', async () => {
+  const f = enhancementRaceFixture({ stale: true });
+  assert.equal((await f.owner.sync()).targetReached, true);
+  assert.equal(f.state().plans, 2);
+  assert.equal(f.state().applied, 1);
+});
+
 test('mid-batch source change restarts ancestor validation and completes without ingesting inconsistent data', async () => {
   const f = recoveryFixture(), read = f.light.getTreeState;
   let changed = false;

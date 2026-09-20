@@ -3,8 +3,8 @@
 A proposal binds the selected inputs, outputs, fees, and consensus context. Review every step: one payment operation can require several transactions.
 
 ```ts
-import { parseZec } from 'zcash.js';
-import type { AccountRecord, Proposal, WalletClient } from 'zcash.js';
+import { parseZec } from '@jp4g/zcash.js';
+import type { AccountRecord, Proposal, WalletClient } from '@jp4g/zcash.js';
 
 export async function reviewedSend(
   wallet: WalletClient,

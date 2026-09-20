@@ -3,8 +3,8 @@
 `createLightClient` combines the network codecs with a lightwallet transport. `grpc` selects native gRPC on Node and gRPC-Web in browsers. The endpoint must serve the corresponding protocol.
 
 ```ts
-import { createLightClient, grpc } from 'zcash.js';
-import type { Network } from 'zcash.js';
+import { createLightClient, grpc } from '@jp4g/zcash.js';
+import type { Network } from '@jp4g/zcash.js';
 
 export function connectLight(network: Network, endpoint: string) {
   return createLightClient({
@@ -24,7 +24,7 @@ Creation is lazy; the first use performs the handshake. Server identity and netw
 ## Stream a finite block range
 
 ```ts
-import type { LightClient } from 'zcash.js';
+import type { LightClient } from '@jp4g/zcash.js';
 
 export async function readBlocks(
   light: LightClient, fromHeight: number, toHeight: number, signal: AbortSignal,

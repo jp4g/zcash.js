@@ -2,6 +2,7 @@ import { admitSignal } from './abort.js';
 import { addressInput, broadcastInput } from './clients/request-inputs.js';
 import { confirmationsPolicy, observationOptions, recoveryPolicy } from './options.js';
 import { provingOptions } from './wallet/proving-assets.js';
+import { packageProving } from './runtime/package-proving.js';
 import type {
   WalletClient,
   WalletOptions,
@@ -187,7 +188,7 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
             input.network,
             dataField(input.broadcaster, 'getTransactionStatus') === undefined,
           );
-    const proving = input.proving === undefined ? undefined : provingOptions(input.proving);
+    const proving = provingOptions(input.proving === undefined ? packageProving() : input.proving);
     const options = {
       network: input.network,
       runtime,
@@ -213,7 +214,9 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
     accounts = walletAccounts(wallet, input.network);
     sync = new WalletSync(wallet.session, light, observation, runtime.scanBatchSize);
     const proposals = new WalletProposals(wallet.session, input.network, proving);
-    payments = new WalletPayments(wallet, proposals, options);
+    const submissionSync = sync;
+    payments = new WalletPayments(wallet, proposals, options,
+      light ? signal => submissionSync.refreshForSubmission(signal) : undefined);
     const report = await payments.recover({ signal: pending.signal });
     pending.check();
     const runtimeOwner = wallet,

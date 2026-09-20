@@ -5,7 +5,7 @@
 Pass the returned `Network` to every client and viewing operation for that chain. It is an SDK-owned value; do not manufacture one with a TypeScript cast.
 
 ```ts
-import { blockHash, defineNetwork } from 'zcash.js';
+import { blockHash, defineNetwork } from '@jp4g/zcash.js';
 
 export async function loadNetwork(
   identity: string,
@@ -28,7 +28,7 @@ The parameter document is canonical UTF-8 JSON: `encoding` (`main`, `test`, or `
 ## Keep money exact
 
 ```ts
-import { accountIndex, blockHash, diversifierIndex, formatZec, parseZec, txId } from 'zcash.js';
+import { accountIndex, blockHash, diversifierIndex, formatZec, parseZec, txId } from '@jp4g/zcash.js';
 
 export function paymentInputs(zec: string, transactionHex: string, blockHex: string) {
   return {

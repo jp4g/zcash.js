@@ -10,16 +10,19 @@ import {scalar,bytesField,concat} from '../clients/light-chain-reads-fixtures.mj
 const network=await defineNetwork(networkDefinition()),txid='12'.repeat(32),hash='34'.repeat(32);
 const operationId=n=>n.toString(16).padStart(64,'0');
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delayed=false,steps=1,retry}={}){
+function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delayed=false,steps=1,retry,submissionSync=false,recoveryTimeoutMs=30}={}){
   const journal=Array.from({length:count},(_,index)=>({sequence:String(index+1),observationSequence:'0',state:{operationId:operationId(index+1),revision:'1',accountIds:['account'],phase:finalized?'ready':'proposed',missing:finalized?[]:['artifact','finalizedBytes'],steps:[{index:0,dependsOn:[],txid:finalized?txid:null,exactBytesSha256:finalized?'56'.repeat(32):null,attempts:[],inclusion:null,observation:null,expiry:{height:0,reached:false,confirmedUnminedAt:null},blockedBy:[]}]}}));
   const stepTxid=index=>(0x12+index).toString(16).repeat(32);
   for(const row of journal){row.state.steps=Array.from({length:steps},(_,index)=>({...structuredClone(row.state.steps[0]),index,dependsOn:index?[index-1]:[],txid:finalized?stepTxid(index):null}));row.observationSequences=Array(steps).fill('0');}
   const control={revision:1,calls:[],requests:0,dispatches:0,finish:0,position:'0',closed:0,reads:0,mined:false,stalled:false,started:null,reply:null};
   control.seen=new Set();control.order=[];control.policies=[];
+  control.scannedHeight=19;control.sourceHeight=20;control.refreshes=0;
   const channels=new MessageChannel(),budget={jobs:0,bytes:0,active:false,wake:new Set(),signers:new Map(),proving:{capacity:128*1024*1024,bytes:0,active:false}};
   const current=row=>{row.state.revision=String(control.revision);return structuredClone({state:row.state,observationSequence:row.observationSequence,observationSequences:row.observationSequences});};
   installWalletWorker({generation:1,instance:'wallet',close(){control.closed++;},call(_g,_i,command,args){
     control.calls.push(command);
+    if(command==='scan_state')return {revision:String(control.revision),tipHeight:control.scannedHeight,maxScannedHeight:control.scannedHeight,fullyScannedHeight:control.scannedHeight,scanComplete:true};
+    if(command==='scan_block_hash')return {revision:String(control.revision),point:args.height<=control.scannedHeight?{height:args.height,hash}:null};
     const row=journal.find(row=>row.state.operationId===args.operationId);
     if(command==='payment_list')return {revision:String(control.revision),highWater:args.highWater??String(count),observationPosition:control.position,
       items:journal.filter(row=>BigInt(row.sequence)>BigInt(args.afterSequence)&&BigInt(row.sequence)<=BigInt(args.highWater??count)).slice(0,args.limit).map(row=>({sequence:row.sequence,operationId:row.state.operationId}))};
@@ -30,6 +33,7 @@ function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delaye
     if(command==='payment_reconcile'){if(args.policy)control.policies.push(args.policy);for(const step of row.state.steps)for(const attempt of step.attempts)if(attempt.outcome==='started')attempt.outcome='unknown';control.revision++;return current(row);}
     if(command==='payment_observe'){if(control.observeError)throw Object.assign(Error(control.observeError),{commit:control.observeCommit??'none'});step.observation=args.observation;step.inclusion=args.observation.inclusion;row.observationSequence=String(+row.observationSequence+1);row.observationSequences[step.index]=row.observationSequence;control.revision++;if(control.observeGate){control.observeStarted?.();return control.observeGate.then(()=>current(row));}return current(row);}
     if(command==='payment_attempt_begin'){
+      if(submissionSync)assert.equal(control.scannedHeight,control.sourceHeight,'submission requires the scanned observation tip');
       assert.equal(args.maximum,65536);if(!step.txid)throw Object.assign(Error('NOT_FINALIZED'),{commit:'none'});
       if(args.mode==='automatic')return null;
       assert.equal(args.observationSequence,row.observationSequences[step.index]);
@@ -46,16 +50,53 @@ function setup(t,{count=1,finalized=true,light=true,online=false,buffer=2,delaye
   }},channels.port2);
   const session=attachWalletWorker(channels.port1,async()=>{channels.port2.close();},{maxQueuedJobs:8,maxQueuedBytes:65536,maxPcztBytes:65536},budget);
   const client={network,async getTreeState({height}){control.requests++;const block=height===0?network.genesisHash:hash;return {network,point:{height,hash:block},sapling:null,ironwood:null,encoded:concat(scalar(2,height),bytesField(3,new TextEncoder().encode(block))),sourceId:'source',observedAt:new Date().toISOString()};},
-    async getTip(){control.requests++;return {height:20,hash,sourceId:'source',observedAt:new Date().toISOString()};},
+    async getTip(){control.requests++;return {height:control.sourceHeight,hash,sourceId:'source',observedAt:new Date().toISOString()};},
     async getTransaction(){throw Error('not used');},
     async getTransactionStatus({txid}){control.reads++;control.visited?.push(txid);if(control.stalled){control.started?.();return new Promise(()=>{});}return {txid,state:control.mined?'mined':control.seen.has(txid)?'mempool':'notSeen',inclusion:control.mined?{height:19,blockHash:hash,confirmations:999}:null,tip:null,priorInclusion:control.prior??null,sourceId:'source',observedAt:new Date().toISOString()};},
     async broadcastTransaction({bytes}){const index=bytes[0]-1;assert.deepEqual([...bytes],[index+1,2,3]);control.dispatches++;control.order.push(index);control.seen.add(stepTxid(index));control.started?.();if(delayed)return new Promise(resolve=>{control.reply=resolve;});return {txid:stepTxid(index),outcome:'acknowledged',diagnosticCode:null,sourceId:'source',observedAt:new Date().toISOString()};}};
   const wallet={session,close:()=>session.close()};
-  const options={network,storage:{kind:'memory'},runtime:{maxQueuedJobs:8},observation:{pollIntervalMs:5,maxBufferedUpdates:buffer},recovery:online?{mode:'online',timeoutMs:30,...(retry?{rebroadcast:retry}:{})}:{mode:'offline'},...(light?{light:client}:{}),broadcaster:client};
-  const payments=new WalletPayments(wallet,{},options);
+  const options={network,storage:{kind:'memory'},runtime:{maxQueuedJobs:8},observation:{pollIntervalMs:5,maxBufferedUpdates:buffer},recovery:online?{mode:'online',timeoutMs:recoveryTimeoutMs,...(retry?{rebroadcast:retry}:{})}:{mode:'offline'},...(light?{light:client}:{}),broadcaster:client};
+  const payments=new WalletPayments(wallet,{},options,submissionSync?async()=>{
+    control.refreshes++;
+    if(control.refreshError)throw control.refreshError;
+    control.scannedHeight=control.sourceHeight;
+    if(control.advanceOnRefresh)control.sourceHeight++;
+  }:undefined);
   t.after(async()=>{await payments.close();await session.close();assert.equal(budget.proving.bytes,0);});
   return {payments,session,journal,control,budget,client,wallet,options};
 }
+
+test('explicit submission refreshes a tip advanced during proving without changing finalized bytes',async t=>{
+  const {payments,control,journal}=setup(t,{submissionSync:true});
+  await payments.recover();
+  const before=structuredClone(journal[0].state.steps[0]);
+  const pending=await payments.dispatch({operationId:operationId(1),origin:'send'});
+  const state=await pending.snapshot();
+  assert.equal(control.refreshes,1);assert.equal(control.dispatches,1);
+  assert.equal(state.steps[0].txid,before.txid);
+  assert.equal(state.steps[0].exactBytesSha256,before.exactBytesSha256);
+  assert.equal(state.steps[0].attempts.length,1);
+  assert.equal(state.steps[0].attempts[0].outcome,'acknowledged');
+});
+
+test('persistent tip movement exhausts bounded refresh before any submission attempt',async t=>{
+  const {payments,control,journal}=setup(t,{submissionSync:true});
+  control.advanceOnRefresh=true;
+  await payments.recover();
+  await assert.rejects(payments.broadcast({operationId:operationId(1)}),error=>error.code==='SYNC_REQUIRED'
+    &&error.retryable&&error.operationId===operationId(1));
+  assert.equal(control.refreshes,3);assert.equal(control.dispatches,0);
+  assert.equal(journal[0].state.steps[0].attempts.length,0);
+});
+
+test('submission scan failure preserves finalized operation with no attempt',async t=>{
+  const {payments,control,journal}=setup(t,{submissionSync:true});
+  control.refreshError=Error('scan failed');
+  await payments.recover();
+  await assert.rejects(payments.broadcast({operationId:operationId(1)}),/scan failed/);
+  assert.equal(control.dispatches,0);assert.equal(control.refreshes,1);
+  assert.equal(journal[0].state.steps[0].attempts.length,0);
+});
 
 test('offline recovery traverses more than one page without IDs or network, then paginates locally',async t=>{
   const {payments,control}=setup(t,{count:405,finalized:false,light:false});
@@ -145,10 +186,11 @@ test('close cancels a hung observer and leaves runtime closure to its owner',asy
 });
 
 test('recovery retains native no-commit observation uncertainty but rejects storage failure',async t=>{
-  const uncertain=setup(t,{online:true});uncertain.control.observeError='RECOVERY_REQUIRED';
+  // This tests native error classification, not a race against the 30 ms deadline fixture.
+  const uncertain=setup(t,{online:true,recoveryTimeoutMs:1000});uncertain.control.observeError='RECOVERY_REQUIRED';
   const report=await uncertain.payments.recover();assert.equal(report.local,'complete');
   assert.equal(report.lastError.code,'RECOVERY_REQUIRED');assert.equal(report.deferredOperations,1);
-  const broken=setup(t,{online:true});broken.control.observeError='STORAGE_ERROR';
+  const broken=setup(t,{online:true,recoveryTimeoutMs:1000});broken.control.observeError='STORAGE_ERROR';
   await assert.rejects(broken.payments.recover(),{code:'STORAGE_ERROR'});
 });
 

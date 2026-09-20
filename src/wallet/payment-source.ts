@@ -21,6 +21,13 @@ const protocol = () => failure(
   'configure',
   'Payment source returned inconsistent evidence.',
 );
+const changedObservations = new WeakSet<object>();
+const changedObservation = () => {
+  const error = failure('OBSERVATION_UNAVAILABLE', 'observation', 'resume-operation',
+    'Chain tip changed during payment observation; retry coherent observation.', true);
+  changedObservations.add(error);
+  return error;
+};
 const mismatch = () => failure(
   'NETWORK_MISMATCH',
   'observation',
@@ -205,6 +212,17 @@ export class PaymentSource {
   }
 
   async observe(id: TxId, signal: AbortSignal): Promise<TransactionObservation> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.observeOnce(id, signal);
+      } catch (error) {
+        if (!(error instanceof Error) || !changedObservations.has(error)
+          || attempt === 2 || signal.aborted) throw error;
+      }
+    }
+  }
+
+  private async observeOnce(id: TxId, signal: AbortSignal): Promise<TransactionObservation> {
     const pending = operation(signal);
     try {
       pending.check();
@@ -227,8 +245,15 @@ export class PaymentSource {
         pending.check();
         const claimed = evidence.claimed,
           p = await pending.wait(this.tree(claimed.height, pending.signal));
-        if (p.sourceId !== source || p.height > tip.height || (p.height === tip.height && p.hash !== tip.hash)
-          || (claimed.blockHash !== null && claimed.blockHash !== p.hash)) throw protocol();
+        if (p.sourceId !== source) throw protocol();
+        if (p.height > tip.height || (p.height === tip.height && p.hash !== tip.hash)
+          || (claimed.blockHash !== null && claimed.blockHash !== p.hash)) {
+          const latest = evidenceFields(await pending.wait(this.call('getTip', { signal: pending.signal })),
+            ['height', 'hash', 'sourceId', 'observedAt']);
+          if (latest.sourceId !== source) throw protocol();
+          if (!same(tip, point({ height: latest.height, hash: latest.hash }))) throw changedObservation();
+          throw protocol();
+        }
         inclusion = { height: p.height, blockHash: p.hash, confirmations: tip.height - p.height + 1 };
       }
       pending.check();
@@ -236,7 +261,8 @@ export class PaymentSource {
         await pending.wait(this.call('getTip', { signal: pending.signal })),
         ['height', 'hash', 'sourceId', 'observedAt'],
       );
-      if (after.sourceId !== source || !same(tip, point({ height: after.height, hash: after.hash }))) throw protocol();
+      if (after.sourceId !== source) throw protocol();
+      if (!same(tip, point({ height: after.height, hash: after.hash }))) throw changedObservation();
       pending.check();
       return {
         txid: txId(id),

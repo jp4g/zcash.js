@@ -341,7 +341,7 @@ export interface WalletOptions extends Op {
   readonly recovery?: RecoveryPolicy;
   readonly network: Network;
   readonly storage: WalletStorage;
-  readonly runtime: RuntimeOptions;
+  readonly runtime?: Partial<RuntimeOptions>;
   readonly confirmations: ConfirmationsPolicy; // applies to query accounting as well
   /** Omitted = no scan/startup observation route; never invent an endpoint. */
   readonly light?: LightClient;
@@ -349,7 +349,7 @@ export interface WalletOptions extends Op {
   readonly broadcaster?: PublicClient | LightClient;
   /** Omitted = no planning/send policy. Must match query confirmations. */
   readonly transactionPolicy?: TransactionPolicy;
-  /** Omitted = no local proving; a UFVK never substitutes for proving authority. */
+  /** Omitted = bundled local proving assets, loaded on demand. A UFVK never grants spending authority. */
   readonly proving?: LocalProvingOptions;
   readonly observation: ObservationOptions;
 }

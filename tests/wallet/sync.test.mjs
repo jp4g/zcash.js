@@ -3,6 +3,160 @@ import test from 'node:test';
 import { syncWallet, WalletSync } from '../../dist/src/wallet/sync.js';
 import { failure } from '../../dist/src/errors.js';
 
+function recoveryFixture() {
+  const hash = '03'.repeat(32), target = { height: 2, hash };
+  const control = { scanned: 0, revision: 0, ingests: 0, pins: 0, tips: 0, plans: 0 };
+  const session = { scan: {
+    async state() { return { revision: String(control.revision), maxScannedHeight: control.scanned, fullyScannedHeight: control.scanned }; },
+    async block({ height }) { return { revision: String(control.revision), point: { height, hash } }; },
+    async plan() { control.plans++; return { revision: String(control.revision), ranges: control.scanned === 2 ? [] : [{ start: control.scanned + 1, endExclusive: 3, priorState: { hash } }] }; },
+    async ingest({ revision, blocks }) {
+      if (revision !== String(control.revision)) throw failure('CURSOR_STALE', 'sync', 'sync', 'Stale plan.');
+      control.ingests++; control.scanned += blocks.length; control.revision++;
+    },
+    async complete({ revision }) { assert.equal(revision, String(control.revision)); },
+  }, enhancement: { async requests() { return { revision: String(control.revision), requests: [] }; } } };
+  const light = {
+    async getTip() { control.tips++; return target; },
+    async getTreeState({ height }) { if (height === 2) control.pins++; return { point: { height, hash }, encoded: new Uint8Array() }; },
+    async *streamCompactBlocks({ fromHeight, toHeight }) {
+      for (let height = fromHeight; height <= toHeight; height++) yield { point: { height, hash }, encoded: new Uint8Array([height]) };
+    },
+  };
+  return { control, session, light, target, owner: new WalletSync(session, light, { pollIntervalMs: 5, maxBufferedUpdates: 8 }) };
+}
+
+test('mid-batch source change restarts ancestor validation and completes without ingesting inconsistent data', async () => {
+  const f = recoveryFixture(), read = f.light.getTreeState;
+  let changed = false;
+  f.light.getTreeState = async args => {
+    if (args.height === 0 && !changed) { changed = true; return { point: { height: 0, hash: '04'.repeat(32) } }; }
+    return read(args);
+  };
+  const result = await f.owner.sync();
+  assert.equal(result.targetReached, true);
+  assert.equal(f.control.tips, 2);
+  assert.equal(f.control.ingests, 1);
+});
+
+test('automatic targets may be re-pinned but explicit targets never change', async () => {
+  for (const explicit of [false, true]) {
+    const f = recoveryFixture();
+    const old = { ...f.target, hash: '04'.repeat(32) };
+    f.light.getTip = async () => ++f.control.tips === 1 ? old : f.target;
+    if (explicit) {
+      await assert.rejects(f.owner.sync({ target: old }), error => error.code === 'SYNC_REQUIRED'
+        && error.retryable && error.message.includes('target pin') && !error.syncStatus.targetReached);
+      assert.equal(f.control.tips, 0);
+      assert.equal(f.control.pins, 3);
+      assert.equal(f.control.ingests, 0);
+      assert.deepEqual((await f.owner.getSyncStatus()).target, old);
+    } else {
+      assert.equal((await f.owner.sync()).targetReached, true);
+      assert.equal(f.control.tips, 2);
+    }
+  }
+});
+
+test('revision changed between plan and ingest is discarded and replanned with bounded contention', async () => {
+  for (const persistent of [false, true]) {
+    const f = recoveryFixture(), stream = f.light.streamCompactBlocks;
+    let changes = 0;
+    f.light.streamCompactBlocks = async function* (args) {
+      if (persistent || changes === 0) { changes++; f.control.revision++; }
+      yield* stream(args);
+    };
+    if (persistent) {
+      await assert.rejects(syncWallet(f.session, f.light, f.target), { code: 'CURSOR_STALE' });
+      assert.equal(changes, 3);
+      assert.equal(f.control.ingests, 0);
+    } else {
+      await syncWallet(f.session, f.light, f.target);
+      assert.equal(changes, 1);
+      assert.equal(f.control.ingests, 1);
+      assert.equal(f.control.scanned, 2);
+    }
+  }
+});
+
+test('malformed block order is not retried as chain movement', async () => {
+  const f = recoveryFixture();
+  f.light.streamCompactBlocks = async function* () {
+    yield { point: { height: 99 }, encoded: new Uint8Array([1]) };
+  };
+  await assert.rejects(f.owner.sync(), { code: 'PROTOCOL_MISMATCH' });
+  assert.equal(f.control.tips, 1);
+  assert.equal(f.control.ingests, 0);
+});
+
+test('native rejection retries only when fresh pinned-point evidence proves source movement', async () => {
+  for (const changes of [false, true]) {
+    const f = recoveryFixture(), ingest = f.session.scan.ingest, read = f.light.getTreeState;
+    let failures = 0, moved = false;
+    f.light.getTip = async () => {
+      f.control.tips++;
+      return { ...f.target, hash: moved ? '04'.repeat(32) : f.target.hash };
+    };
+    f.light.getTreeState = async args => {
+      const tree = await read(args);
+      if (args.height === f.target.height && moved) tree.point.hash = '04'.repeat(32);
+      return tree;
+    };
+    f.session.scan.ingest = async args => {
+      if (!failures++) {
+        moved = changes;
+        throw failure('PROTOCOL_MISMATCH', 'sync', 'sync', 'Native batch rejected.');
+      }
+      return ingest(args);
+    };
+    if (changes) {
+      assert.equal((await f.owner.sync()).targetReached, true);
+      assert.equal(f.control.tips, 2);
+      assert.equal(f.control.ingests, 1);
+    } else {
+      await assert.rejects(f.owner.sync(), { code: 'PROTOCOL_MISMATCH' });
+      assert.equal(f.control.tips, 1);
+      assert.equal(f.control.ingests, 0);
+    }
+  }
+});
+
+test('stale completion revalidates the target and does not rescan committed blocks', async () => {
+  const f = recoveryFixture(), complete = f.session.scan.complete;
+  let calls = 0;
+  f.session.scan.complete = async args => {
+    if (++calls === 1) { f.control.revision++; throw failure('CURSOR_STALE', 'sync', 'sync', 'Observation changed revision.'); }
+    return complete(args);
+  };
+  await syncWallet(f.session, f.light, f.target);
+  assert.equal(calls, 2);
+  assert.equal(f.control.ingests, 1);
+  assert.equal(f.control.pins, 5); // Two pins per pass, plus the retained ancestor check.
+});
+
+test('caller cancellation prevents stale-plan retry', async () => {
+  const f = recoveryFixture(), controller = new AbortController();
+  f.session.scan.ingest = async () => {
+    controller.abort();
+    throw failure('CURSOR_STALE', 'sync', 'sync', 'Stale plan.');
+  };
+  await assert.rejects(syncWallet(f.session, f.light, f.target, controller.signal), { code: 'CURSOR_STALE' });
+  assert.equal(f.control.plans, 1);
+  assert.equal(f.control.ingests, 0);
+});
+
+test('unknown native completion is never replayed as a stale plan or changed source', async () => {
+  for (const code of ['CURSOR_STALE', 'PROTOCOL_MISMATCH']) {
+    const f = recoveryFixture();
+    f.session.completion = () => ({ completion: 'unknown' });
+    f.session.scan.ingest = async () => { throw failure(code, 'sync', 'reopen', 'Unknown write completion.'); };
+    await assert.rejects(f.owner.sync(), { code });
+    assert.equal(f.control.plans, 1);
+    assert.equal(f.control.tips, 1);
+    assert.equal(f.control.pins, 1);
+  }
+});
+
 test('newly discovered enhancement requests cannot grow a finite pass without bound', async () => {
   const target = { height: 1, hash: '03'.repeat(32) };
   let applied = 0;
@@ -178,6 +332,22 @@ test('watch never cancels independently started finite sync and active watch ret
   const next = f.owner.watchSync(); await next.next(); await until(() => f.calls() === 2);
   await assert.rejects(f.owner.sync(), error => error.code === 'STORAGE_BUSY');
   await next.return();
+});
+
+test('submission refresh joins finite sync without taking cancellation ownership', async () => {
+  const f = observing(), controller = new AbortController();
+  const finite = f.owner.sync();
+  await until(() => f.calls() === 1);
+  const joined = f.owner.refreshForSubmission(controller.signal);
+  controller.abort();
+  await assert.rejects(joined, { code: 'ABORTED' });
+  assert.equal(f.calls(), 1);
+  assert.equal(f.aborted(), 0);
+  await f.owner.stop();
+  assert.equal((await finite).activity, 'stopped');
+  const ready = recoveryFixture();
+  await ready.owner.refreshForSubmission(new AbortController().signal);
+  assert.equal((await ready.owner.getSyncStatus()).targetReached, true);
 });
 
 test('slow subscriber overflow is explicit and releases the last watch', async () => {

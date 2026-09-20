@@ -1,0 +1,82 @@
+{
+  "wallet/wallet.mjs": {
+    "sha256": "0d00ed7ffbe0d11cb64cb895bb5bc7070c57ed9869ed012606bc53b70452e4d8",
+    "byteLength": 78420
+  },
+  "wallet/worker.mjs": {
+    "sha256": "899efadd1fbd258fac5e58ab68b91b411e1296704e2639f27caafdde59a8f305",
+    "byteLength": 24197
+  },
+  "wallet/bindings_bg.wasm": {
+    "sha256": "3545cfd587e6724a7da50ba26461cf64b52ce2b96b00a5f017821738883ec6b5",
+    "byteLength": 21146464
+  },
+  "wallet/node-fs.mjs": {
+    "sha256": "e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e",
+    "byteLength": 3648
+  },
+  "wallet/opfs.mjs": {
+    "sha256": "ac1c6f7bd38467e655ff84c1a28154a5f9086fb1e877dc9709b21d4fa4c2c645",
+    "byteLength": 2042
+  },
+  "wallet/manifest.json": {
+    "sha256": "0f96be360949ff6d8a9167d21be2cacf91005c41f5a16a226b5e1d434a9426f7",
+    "byteLength": 1598
+  },
+  "wallet/build.json": {
+    "sha256": "56a964e1236ce4d3446108d7362b750c63b27eff9b243abdd8679b1be7a58f8e",
+    "byteLength": 687
+  },
+  "wallet/dependency-graph.json": {
+    "sha256": "5a7ccbebc967e1744285a92c73a883c5556804bf082ffc306b12db53086f721d",
+    "byteLength": 67134
+  },
+  "wallet/native-build.json": {
+    "sha256": "315362c3602ec805f91342e032fb026d65586e1407670fca87d9a5794321f36a",
+    "byteLength": 87889
+  },
+  "wallet/worker-inputs.json": {
+    "sha256": "4beb0797622d5fd4eac7f920bbb3ff8d86b64de30ca82bef9234567652d3606a",
+    "byteLength": 717
+  },
+  "proving/sapling-spend.params": {
+    "sha256": "8e48ffd23abb3a5fd9c5589204f32d9c31285a04b78096ba40a79b75677efc13",
+    "byteLength": 47958396
+  },
+  "proving/sapling-output.params": {
+    "sha256": "2f0ebbcbb9bb0bcffe95a397e7eba89c29eb4dde6191c339db88570e3f3fb0e4",
+    "byteLength": 3592860
+  },
+  "wallet/LICENSE": {
+    "sha256": "2e7089f4758e3a4fef6b8bfeebe615fce4a97dfbb98a41b810af05ca1abb97a5",
+    "byteLength": 1087
+  },
+  "wallet/licenses/CODECS.txt": {
+    "sha256": "267be5847ba3eb439ac5c5c0150d76d34fb98782f7ce5788f6464e439ed9e847",
+    "byteLength": 64894
+  },
+  "wallet/licenses/NATIVE.txt": {
+    "sha256": "d8a950c800a8c6dfb0b3159424eb6d973306d2a5fe90770f4269ef74503ed5f5",
+    "byteLength": 627080
+  },
+  "wallet/licenses/PLATFORM.txt": {
+    "sha256": "4b3ef10863e18e9e935f7293c255c179937972e63447e1463bc5b37ecd4a7e49",
+    "byteLength": 101057
+  },
+  "wallet/licenses/README.md": {
+    "sha256": "0688f4cd44a16e21a36c9e91a28a0af39f70736b76d652a4809bbdf7b16a20de",
+    "byteLength": 2543
+  },
+  "wallet/licenses/RUST-NIGHTLY.html": {
+    "sha256": "f0930de3401c733ab496ca9d472ef5793a377cb6eaf4b40ad7760c64abd318d7",
+    "byteLength": 1515091
+  },
+  "wallet/licenses/RUST-STABLE.html": {
+    "sha256": "68129500b616d5838629e68f55ff3aed5e096dacf60ce9eb41bbe599a563afa6",
+    "byteLength": 1512520
+  },
+  "wallet/licenses/native-sources.json": {
+    "sha256": "d271c477a5614150024894c78410e188be2b8dae66a4ebf382d164600ab5bc45",
+    "byteLength": 177113
+  }
+}

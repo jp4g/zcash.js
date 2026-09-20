@@ -1,5 +1,5 @@
-import { formatZec } from "zcash.js";
-import type { AccountId, ScanState, WalletBalance, WalletClient } from "zcash.js";
+import { formatZec } from "@jp4g/zcash.js";
+import type { AccountId, ScanState, WalletBalance, WalletClient } from "@jp4g/zcash.js";
 
 declare const wallet: WalletClient;
 declare const accountId: AccountId;

@@ -1,4 +1,4 @@
-import type { AccountId, Signer, WalletClient } from "zcash.js";
+import type { AccountId, Signer, WalletClient } from "@jp4g/zcash.js";
 
 declare const wallet: WalletClient;
 declare const accountId: AccountId;

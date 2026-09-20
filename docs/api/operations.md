@@ -7,7 +7,7 @@ A payment is a recorded operation, potentially containing multiple transaction s
 Reopen the same database with the same network/runtime configuration. Wallet opening reconciles recorded operations; your application does not need a separate file of operation IDs to discover them.
 
 ```ts
-import type { PaymentState, WalletClient } from 'zcash.js';
+import type { PaymentState, WalletClient } from '@jp4g/zcash.js';
 
 export async function discoverPayments(wallet: WalletClient) {
   const operations: PaymentState[] = [];
@@ -39,7 +39,7 @@ export async function resumePayment(wallet: WalletClient, operationId: string) {
 Omitting the policy selects online recovery with a 15-second deadline when `light` is present, otherwise offline. Online recovery needs a light client; rebroadcast additionally needs a broadcaster.
 
 ```ts
-import type { RecoveryPolicy } from 'zcash.js';
+import type { RecoveryPolicy } from '@jp4g/zcash.js';
 
 export const recovery: RecoveryPolicy = {
   mode: 'online',

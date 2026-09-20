@@ -2,6 +2,8 @@ import { waitFor } from '../abort.js';
 /* eslint-disable no-control-regex -- Canonical encoding and URL validation intentionally match ASCII control characters. */
 import type { ArtifactFile, ArtifactManifest, WasmArtifact, ZcashError } from '../types.js';
 import { failure, invalidArgument, isZcashError } from '../errors.js';
+import { bundledArtifact, bundledUrls } from './bundled-assets.mjs';
+import { packageAsset } from './package-assets.js';
 
 /** Internal exact profile supplied by the integration owner. No supported production
  * ABI, operation, network-parameter or host-service revisions are assumed here. */
@@ -184,7 +186,7 @@ export async function acquireArtifacts(
     pin: string,
     policy: ArtifactPolicy;
   try {
-    endpoint = artifactEndpoint(artifact);
+    endpoint = artifact === bundledArtifact ? new URL(artifact.manifestUrl) : artifactEndpoint(artifact);
     pin = artifact.manifestSha256;
     // Snapshot all caller-owned configuration before asynchronous admission.
     policy = structuredClone(supplied);
@@ -263,13 +265,15 @@ export async function acquireArtifacts(
     let complete = false;
     try {
       check();
-      response = await bounded<Response>(fetch(url, {
-        credentials: 'omit',
-        redirect: 'error',
-        cache: 'no-store',
-        referrerPolicy: 'no-referrer',
-        signal: controller.signal,
-      }).then((value) => {
+      response = await bounded<Response>((artifact === bundledArtifact
+        ? packageAsset(url, controller.signal)
+        : fetch(url, {
+            credentials: 'omit',
+            redirect: 'error',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+            signal: controller.signal,
+          })).then((value) => {
         response = value;
         if (stopped) void value.body?.cancel().catch(() => { });
         return value;
@@ -345,7 +349,13 @@ export async function acquireArtifacts(
       || canonical(manifest.schemas) !== canonical(policy.schemas)) throw mismatch();
     if (manifest.files.length > policy.maxFiles) throw limit();
     const directory = new URL('.', endpoint);
-    const urls = manifest.files.map(file => assetUrl(file, directory));
+    const urls = manifest.files.map((file) => {
+      const confined = assetUrl(file, directory);
+      if (artifact !== bundledArtifact) return confined;
+      const shipped = bundledUrls()[`wallet/${file.url}`];
+      if (!shipped) throw unavailable();
+      return shipped.href;
+    });
     if (new Set(urls).size !== urls.length) throw invalidArgument();
     const count = (kind: string) => manifest.files.filter(file => file.kind === kind).length;
     if (count('module') !== 1 || count('worker') !== 1 || count('wasm') < 1

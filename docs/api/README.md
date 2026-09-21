@@ -2,7 +2,10 @@
 
 Build a Zcash application with TypeScript: read the chain, maintain a local wallet, receive funds, review a payment, and recover its state after a restart.
 
-The SDK is implemented and experimental. The package is currently private: install a local build, not an assumed npm release. Public and light queries use the included codecs. Wallet operations automatically load the included baseline WASM runtime; local proving assets are included and loaded when needed.
+The SDK is available from npm as an experimental release candidate. Start with
+[Installation](installation.md). Public and light queries use the included
+codecs. Wallet operations automatically load the included baseline WASM runtime;
+local proving assets are included and loaded when needed.
 
 ## Choose your starting point
 

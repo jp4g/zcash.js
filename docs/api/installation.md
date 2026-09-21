@@ -1,75 +1,62 @@
 # Installation and first request
 
-## Install the local package
+## Install from npm
 
-Use Node **22.12 or newer** and ESM. The next candidate is `0.1.0-rc.2`;
-registry availability depends on owner publication. Until then, install the local
-tarball below. After publication, pin `npm install @jp4g/zcash.js@0.1.0-rc.2`.
-
-From the repository:
+Use Node **22.12 or newer** for Node applications.
 
 ```sh
-npm ci
-mkdir -p /tmp/zcash-package
-npm pack --pack-destination /tmp/zcash-package
+npm install @jp4g/zcash.js@0.1.0-rc.3
 ```
 
-From your application:
+The package includes TypeScript declarations, the wallet engine, workers, and
+proving files. You do not need a separate runtime package or Rust toolchain.
 
-```sh
-npm install /tmp/zcash-package/jp4g-zcash.js-0.1.0-rc.2.tgz
-```
+Use TypeScript with ESM imports. For a Node project, set `"type": "module"` in
+`package.json` and use `"module": "NodeNext"` in `tsconfig.json`. Browser
+applications can use their existing TypeScript/ESM bundler.
 
-Use an `.mjs` entry point or set `"type": "module"` in your application's `package.json`. TypeScript applications can use named imports from `@jp4g/zcash.js`. The package does not expose a CommonJS `require` entry.
+## Make your first request
 
-`npm pack` builds and verifies the included assets before creating the tarball.
-Installing it requires no Rust toolchain or separate runtime/proving download.
-The tarball includes executable code, TypeScript declarations, lazy runtime and
-proving assets, integrity/build inventories, the README/changelog and licenses.
-Source tests, private wallets and internal planning documents are excluded.
-
-## Read the latest block
-
-This function is a complete first query. Supply your network definition and the URL of its JSON-RPC server; the SDK does not choose a network or provider for you.
+In `index.ts`:
 
 ```ts
-import { createPublicClient, defineNetwork, http } from '@jp4g/zcash.js';
-import type { NetworkDefinition } from '@jp4g/zcash.js';
+import { createLightClient } from '@jp4g/zcash.js';
 
-export async function latestBlock(definition: NetworkDefinition, rpcUrl: string) {
-  const network = await defineNetwork(definition);
-  const client = createPublicClient({
-    network,
-    transport: http(rpcUrl, {
-      sourceId: 'app-rpc',
-      timeoutMs: 15_000,
-      readRetry: { attempts: 1, delayMs: 0 },
-      maxResponseBytes: 4 * 1024 * 1024,
-    }),
-    observation: { pollIntervalMs: 5_000, maxBufferedUpdates: 16 },
-  });
-  const tip = await client.getTip();
-  return client.getBlockHeader({ hash: tip.hash });
-}
+const light = await createLightClient('https://testnet.zec.rocks:443', {
+  network: 'testnet',
+});
+
+const tip = await light.getTip();
+console.log(tip.height, tip.hash);
 ```
 
-`getTip()` returns a height, display-order block hash, source label, and observation time. Querying the header by that hash keeps the second request tied to the same block if the tip changes. A missing header returns `null`; an unsupported server method rejects.
+Run this through your TypeScript project's usual build/run command. The endpoint
+above serves native gRPC for Node; browser requirements are below.
 
-See [network configuration](networks-amounts.md) for `NetworkDefinition`. Use a server that supports the RPC methods you call. A network mismatch fails rather than silently switching networks.
+The SDK supplies the testnet genesis hash, activation schedule, and transport
+defaults. No wallet is created and no funds are needed for this request.
+`getTip()` returns the block height, display-order block hash, source label, and
+observation time.
+
+Omitting `network` selects **mainnet**; use a matching mainnet endpoint. A network
+mismatch fails rather than silently changing chains. See
+[network configuration](networks-amounts.md) for custom definitions and
+[light clients](light-client.md) for transport overrides.
 
 ## Browser applications
 
-Import the same package through your ESM bundler. Queries do not start the bundled wallet runtime or open a database. Your server must allow the application's origin through CORS. For lightwallet queries, the browser endpoint must provide **gRPC-Web**, not only native gRPC.
+Import the same package through your TypeScript/ESM bundler. Queries do not start
+the wallet runtime or open a database. Browser lightwallet endpoints must provide
+**gRPC-Web** and permit your application's origin through **CORS**; a native
+gRPC endpoint alone is not sufficient.
 
-Wallet applications additionally need workers and the storage/runtime setup in [platforms](platforms.md).
+For wallets, bundlers emit the lazy runtime, worker, and proving assets alongside
+your application. Deploy those assets too. See [platforms](platforms.md) for
+storage requirements and current limitations.
 
-## Develop the SDK locally
+## Next steps
 
-```sh
-npm run check
-npm run docs:typecheck
-npm run docs:build
-npm run docs:dev
-```
-
-The last command serves the guide at `http://127.0.0.1:4173/`.
+- [Open a wallet](wallet-runtime.md) to create accounts and scan for funds.
+- [Light client](light-client.md) for queries and streams.
+- [Public client](public-client.md) if you use a JSON-RPC server.
+- [Build from source](building-locally.md) only if you want to develop or package the SDK yourself.

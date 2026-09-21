@@ -18,4 +18,5 @@
 - [Wallet walkthrough](walkthrough.md)
 - [Platforms and limits](platforms.md)
 - [API reference](reference.md)
+- [Build from source](building-locally.md)
 - [Maintain and publish](gitbook.md)

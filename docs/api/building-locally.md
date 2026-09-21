@@ -30,10 +30,10 @@ npm pack --pack-destination /tmp/zcash-package
 `npm pack` builds and verifies the included assets before creating the tarball.
 It prints the filename, which includes the checkout's package version.
 
-From your application, install that file (this example uses rc.3):
+From your application, install that file (this example uses rc.4):
 
 ```sh
-npm install /tmp/zcash-package/jp4g-zcash.js-0.1.0-rc.3.tgz
+npm install /tmp/zcash-package/jp4g-zcash.js-0.1.0-rc.4.tgz
 ```
 
 The tarball includes executable code, TypeScript declarations, lazy runtime and

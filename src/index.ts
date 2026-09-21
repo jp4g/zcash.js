@@ -15,6 +15,7 @@ export type {
 
   WalletClient,
   WalletOptions,
+  WalletEndpointOptions,
   ZcashClient,
   WalletStorage,
   RuntimeOptions,

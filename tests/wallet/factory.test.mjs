@@ -95,5 +95,42 @@ test('public wallet factory admission, ownership, recovery and close',async()=>{
         assert.deepEqual(ranges,expected);
       } finally {await scanningWallet.close();}
     }
+    // Endpoint defaults use the same factory, without opening a connection on startup.
+    const connected=await createWalletClient('http://127.0.0.1:1',{storage:{kind:'memory'},network:'testnet'});
+    try {
+      assert.equal(connected.network.identity,'zcash-testnet');
+      assert.equal(connected.recovery.local,'complete');
+      await connected.getBalance({accountId:'account'});
+      assert.deepEqual(calls.filter(call=>call.command==='account_balance').at(-1).args.confirmations,
+        {trusted:3,untrusted:3,allowZeroConfirmationShielding:false});
+    } finally {await connected.close();}
+    const overrides={storage:{kind:'memory'},network,confirmations:{trusted:5,untrusted:6,allowZeroConfirmationShielding:false}};
+    const openingDefaults=createWalletClient('http://127.0.0.1:1',overrides);
+    overrides.confirmations.trusted=99;
+    const overridden=await openingDefaults;
+    try {
+      assert.equal(overridden.network,network);
+      await overridden.getBalance({accountId:'account'});
+      assert.equal(calls.filter(call=>call.command==='account_balance').at(-1).args.confirmations.trusted,5);
+    } finally {await overridden.close();}
+    const policyDefaults=await createWalletClient('http://127.0.0.1:1',{
+      storage:{kind:'memory'},network,transactionPolicy:mismatched.transactionPolicy,
+    });
+    try {
+      await policyDefaults.getBalance({accountId:'account'});
+      assert.equal(calls.filter(call=>call.command==='account_balance').at(-1).args.confirmations.trusted,2);
+    } finally {await policyDefaults.close();}
+    await assert.rejects(createWalletClient('http://127.0.0.1:1',{
+      storage:{kind:'memory'},network,transactionPolicy:mismatched.transactionPolicy,
+      confirmations:{trusted:9,untrusted:9,allowZeroConfirmationShielding:false},
+    }),{code:'INVALID_ARGUMENT'});
+    const before=opened;
+    for(const config of [undefined,{}, {storage:{kind:'memory'},extra:true},
+      {storage:{kind:'memory'},observation:{pollIntervalMs:0,maxBufferedUpdates:1}},
+      {storage:{kind:'memory'},transactionPolicy:null}]) {
+      await assert.rejects(createWalletClient('http://127.0.0.1:1',config),{code:'INVALID_ARGUMENT'});
+    }
+    await assert.rejects(createWalletClient('http://127.0.0.1:1',{storage:{kind:'memory'},signal:AbortSignal.abort()}),{code:'ABORTED'});
+    assert.equal(opened,before,'invalid endpoint config never acquires a runtime');
   }finally{await Promise.allSettled(sessions.map(session=>session.close()));mock.reset();}
 });

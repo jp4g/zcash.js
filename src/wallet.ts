@@ -6,6 +6,7 @@ import { packageProving } from './runtime/package-proving.js';
 import type {
   WalletClient,
   WalletOptions,
+  WalletEndpointOptions,
   ZcashClient,
   LightClient,
   PublicClient,
@@ -15,7 +16,7 @@ import type {
 } from './types.js';
 import { openWalletRuntime, runtimeOptions, walletStorage } from './runtime/wallet.js';
 import { networkBinding } from './network.js';
-import { lightClientBinding } from './light.js';
+import { createLightClient, lightClientBinding } from './light.js';
 import { publicClientBinding } from './public.js';
 import { operation } from './clients/light-chain-reads.js';
 import { snapshot, dataField } from './clients/owned-plumbing.js';
@@ -142,7 +143,13 @@ function capture<T extends LightClient | PublicClient>(client: T, network: Netwo
   return Object.freeze(copy) as unknown as T;
 }
 /** Own the configured components and their lifetime; native code owns wallet state. */
-export async function createWalletClient(args: WalletOptions): Promise<WalletClient> {
+export function createWalletClient(endpoint: string, options: WalletEndpointOptions): Promise<WalletClient>;
+export function createWalletClient(args: WalletOptions): Promise<WalletClient>;
+export async function createWalletClient(
+  args: WalletOptions | string, options?: WalletEndpointOptions,
+): Promise<WalletClient> {
+  if (typeof args === 'string') return walletFromEndpoint(args, options);
+  if (options !== undefined) throw invalidArgument();
   const input = snapshot(
     args,
     [
@@ -393,6 +400,55 @@ export async function createWalletClient(args: WalletOptions): Promise<WalletCli
   } finally {
     pending.close();
   }
+}
+
+async function walletFromEndpoint(endpoint: string, options: WalletEndpointOptions | undefined): Promise<WalletClient> {
+  const input = snapshot(options, [
+    'network', 'transportOptions', 'storage', 'runtime', 'confirmations', 'observation',
+    'transactionPolicy', 'proving', 'recovery', 'signal',
+  ]) as unknown as WalletEndpointOptions;
+  admitSignal(input.signal);
+  if (input.signal?.aborted) throw failure('ABORTED', 'runtime', 'none', 'Wallet startup aborted.');
+  // Own nested configuration before awaiting network initialization.
+  const storage = walletStorage(input.storage);
+  const runtime = runtimeOptions(input.runtime);
+  const policy = input.transactionPolicy === undefined ? undefined : policyCopy(input.transactionPolicy);
+  const confirmations = confirmationsPolicy(input.confirmations === undefined
+    ? policy?.confirmations ?? { trusted: 3, untrusted: 3, allowZeroConfirmationShielding: false }
+    : input.confirmations);
+  const observation = observationOptions(input.observation === undefined
+    ? { pollIntervalMs: 5000, maxBufferedUpdates: 16 }
+    : input.observation);
+  const recovery = recoveryPolicy(input.recovery === undefined ? { mode: 'offline' } : input.recovery, true, true);
+  const proving = input.proving === undefined ? undefined : provingOptions(input.proving);
+  const transactionPolicy = policy ?? policyCopy({
+    spendPools: ['ironwood'],
+    transparent: 'disallow',
+    changePool: 'ironwood',
+    feeRule: 'zip317-standard',
+    confirmations,
+    expiry: { kind: 'offset', blocks: 80 },
+    lockExpiryBlocks: 20,
+    shieldingThreshold: 10000n,
+    freshness: { mode: 'require-synced', maxLagBlocks: 0 },
+  });
+  const light = await createLightClient(endpoint, {
+    ...(input.network === undefined ? {} : { network: input.network }),
+    ...(input.transportOptions === undefined ? {} : { transportOptions: input.transportOptions }),
+  });
+  return createWalletClient({
+    network: light.network,
+    light,
+    broadcaster: light,
+    storage,
+    runtime,
+    confirmations,
+    observation,
+    recovery,
+    transactionPolicy,
+    ...(proving === undefined ? {} : { proving }),
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
+  });
 }
 
 export function createZcashClient(args: ZcashClient): ZcashClient {

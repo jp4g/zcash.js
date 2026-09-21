@@ -17,7 +17,7 @@ downloaded or inferred from your endpoint. Future upgrades require an updated
 SDK or an explicit matching definition. The normal light-client endpoint form
 creates this network for you; reuse `light.network` for the wallet.
 
-For a custom deployment, the full definition form remains available:
+For a custom deployment, supply a full definition:
 
 ```ts
 import { blockHash, defineNetwork } from '@jp4g/zcash.js';

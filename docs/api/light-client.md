@@ -34,7 +34,7 @@ export async function customLight(endpoint: string, network: NetworkDefinition) 
 }
 ```
 
-The existing explicit transport form remains synchronous and supports custom adapters:
+The explicit transport form is synchronous and supports custom adapters:
 
 ```ts
 import { createLightClient, grpc } from '@jp4g/zcash.js';

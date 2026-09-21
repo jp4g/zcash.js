@@ -23,7 +23,7 @@ const { createWalletClient, defineNetwork } = await import('@jp4g/zcash.js');
 sample('afterImport');
 const network = await defineNetwork({identity:'memory-probe',genesisHash:'03'.repeat(32),parametersFormat:'zcash-js-network/1',parameters:new TextEncoder().encode(JSON.stringify({encoding:'regtest',Overwinter:10,Sapling:20,Blossom:30,Heartwood:40,Canopy:50,Nu5:60,Nu6:70,Nu6_1:80,Nu6_2:90,Nu6_3:100}))});
 const runtime = process.env.MEMORY_RUNTIME ? {baseline:JSON.parse(process.env.MEMORY_RUNTIME)} : undefined;
-const wallet = await createWalletClient({network,storage:{kind:'memory'},...(runtime?{runtime}:{}),confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},observation:{pollIntervalMs:1000,maxBufferedUpdates:16},recovery:{mode:'offline'}});
+const wallet = await createWalletClient('http://127.0.0.1:1', {network,storage:{kind:'memory'},...(runtime?{runtime}:{})});
 try { await wallet.accounts.list(); sample('walletOpen'); } finally { await wallet.close(); }
 sample('walletClosed');
 console.log(JSON.stringify({node:process.version,platform:process.platform,architecture:process.arch,samples}));
@@ -48,7 +48,8 @@ window.runWallet = async () => {
   let account,address;
   try {
     for(const reopened of [false,true]) {
-      const wallet=await createWalletClient(options);
+      const wallet=reopened ? await createWalletClient(options)
+        : await createWalletClient('https://offline.invalid', {network,storage:options.storage});
       try {
         if(!reopened){account=await wallet.accounts.import({...${JSON.stringify(fixture.import)},birthday:'fullScan'});address=await wallet.addresses.next({accountId:account.id,request:{format:'transparent'}});}
         else {if((await wallet.accounts.get({accountId:account.id})).id!==account.id)throw Error('account persistence');if(!(await wallet.addresses.list({accountId:account.id})).some(item=>item.address===address.address))throw Error('address persistence');}

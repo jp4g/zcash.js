@@ -25,7 +25,11 @@ local proving assets are included and loaded when needed.
 - `createLightClient`: lightwallet queries and streams over native gRPC in Node or gRPC-Web in a browser.
 - `createWalletClient`: a local database, scanning, accounts, proposals, signing, and recorded payment operations.
 
-Clients are independent. Pass a light client to a wallet to enable sync; pass a broadcaster explicitly to enable submission. `createZcashClient({ public, light, wallet })` groups existing instances and checks their networks; it does not create or own them.
+`createWalletClient(endpoint, { network, storage })` configures its light client
+and submission route with wallet defaults. For explicit component composition,
+pass `light` for scanning and `broadcaster` for submission.
+`createZcashClient({ public, light, wallet })` groups existing instances and checks
+their networks; it does not create or own them.
 
 ## A first example
 

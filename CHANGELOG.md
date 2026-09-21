@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-rc.4 — wallet endpoint defaults
+
+- `createWalletClient(endpoint, { network, storage })` configures network,
+  light client, broadcaster, confirmations, observation and an Ironwood-only
+  transaction policy. Storage remains explicit; startup recovery is offline.
+- Complete option objects override defaults. The explicit component form keeps
+  its offline/read-only configuration semantics.
+
 ## 0.1.0-rc.3 — built-in network and light-client defaults
 
 - `defineNetwork()` defaults to mainnet; `defineNetwork('testnet')` selects the

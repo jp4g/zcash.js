@@ -1,6 +1,10 @@
 # Send and shield funds
 
-Before sending, sync the account, attach a ready signer (or pass one explicitly), configure a transaction policy and proving assets, and provide a broadcaster. The account must actually be funded.
+Before sending, fund and sync the account, then attach a ready signer (or pass one
+explicitly). Endpoint-created wallets supply an Ironwood transaction policy,
+bundled proving assets, and a submission route. For explicit component setup,
+configure `transactionPolicy` and `broadcaster` yourself. See [Open a
+wallet](wallet-runtime.md) for defaults and overrides.
 
 ## Send a payment
 

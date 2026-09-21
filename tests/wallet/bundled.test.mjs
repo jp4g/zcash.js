@@ -5,6 +5,20 @@ import { createWalletClient, defineNetwork } from '@jp4g/zcash.js';
 import { packageProving } from '../../dist/src/runtime/package-proving.js';
 import { ProvingAssets, saplingAssets } from '../../dist/src/wallet/proving-assets.js';
 
+test('endpoint wallet defaults open the bundled engine without contacting the endpoint', async () => {
+  for (const network of [undefined, 'testnet']) {
+    const wallet = await createWalletClient('http://127.0.0.1:1', {
+      storage: { kind: 'memory' }, ...(network === undefined ? {} : { network }),
+    });
+    try {
+      assert.equal(wallet.network.identity, network === 'testnet' ? 'zcash-testnet' : 'zcash-mainnet');
+      assert.deepEqual(await wallet.accounts.list(), []);
+      assert.equal(wallet.recovery.local, 'complete');
+      await assert.rejects(wallet.propose({ accountId: 'test', to: 'test', amount: 1n }), { code: 'SYNC_REQUIRED' });
+    } finally { await wallet.close(); }
+  }
+});
+
 test('bundled proving files load offline through the canonical integrity checks', async t => {
   t.mock.method(globalThis, 'fetch', () => { throw Error('bundled proving must not fetch external assets'); });
   const options = packageProving();

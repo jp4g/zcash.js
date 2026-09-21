@@ -359,6 +359,13 @@ export interface WalletOptions extends Op {
   readonly proving?: LocalProvingOptions;
   readonly observation: ObservationOptions;
 }
+/** Connected wallet defaults; storage is always an explicit durability choice. */
+export interface WalletEndpointOptions extends
+  Omit<WalletOptions, 'network' | 'light' | 'broadcaster' | 'confirmations' | 'observation'>,
+  LightClientOptions {
+  readonly confirmations?: ConfirmationsPolicy;
+  readonly observation?: ObservationOptions;
+}
 
 export interface ViewKeyHandle extends Disposable {
   readonly [opaque]: 'viewing-handle';

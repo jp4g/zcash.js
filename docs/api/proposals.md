@@ -2,6 +2,22 @@
 
 A proposal binds the selected inputs, outputs, fees, and consensus context. Review every step: one payment operation can require several transactions.
 
+Endpoint-created wallets use the Ironwood-only policy described in
+[Open a wallet](wallet-runtime.md). To select different pools or transaction
+limits, supply a complete `transactionPolicy` when opening the wallet:
+
+```ts
+import { createWalletClient } from '@jp4g/zcash.js';
+import type { TransactionPolicy, WalletStorage } from '@jp4g/zcash.js';
+
+export function openWithPolicy(endpoint: string, storage: WalletStorage, transactionPolicy: TransactionPolicy) {
+  return createWalletClient(endpoint, { network: 'testnet', storage, transactionPolicy });
+}
+```
+
+The policy's confirmation requirements also apply to balance queries unless
+explicitly supplied separately; conflicting confirmation requirements reject.
+
 ```ts
 import { parseZec } from '@jp4g/zcash.js';
 import type { AccountRecord, Proposal, WalletClient } from '@jp4g/zcash.js';

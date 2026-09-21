@@ -4,14 +4,14 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { generateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
-import { accountIndex, addresses, createWalletClient, formatZec, parseZec, resolveBirthday } from '@jp4g/zcash.js';
-import { connect } from './network.mjs';
+import { accountIndex, addresses, createLightClient, createWalletClient, formatZec, parseZec, resolveBirthday } from '@jp4g/zcash.js';
 import { waitForConfirmation } from './confirmation.mjs';
 
 const command = process.argv[2] ?? 'status';
 assert.ok(['probe', 'init', 'addresses', 'status', 'send', 'receive', 'confirm'].includes(command), 'commands: probe | init | addresses | status | send A B AMOUNT REQUEST_ID | receive B TXID AMOUNT | confirm A OPERATION_ID');
 const directory = resolve(process.env.TESTNET_WALLET_DIR ?? 'private');
-const { network, light } = await connect(process.env.TESTNET_ENDPOINT);
+const light = await createLightClient(process.env.TESTNET_ENDPOINT ?? 'https://testnet.zec.rocks:443', { network: 'testnet' });
+const network = light.network;
 const confirmations = { trusted: 3, untrusted: 3, allowZeroConfirmationShielding: false };
 const common = { network, light, broadcaster: light, confirmations,
   observation: { pollIntervalMs: 5000, maxBufferedUpdates: 16 }, recovery: { mode: 'offline' },

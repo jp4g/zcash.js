@@ -95,6 +95,8 @@ export type {
   ReceiverType,
   Network,
   NetworkDefinition,
+  BuiltinNetwork,
+  LightClientOptions,
   Op,
   AccountIndex,
   DiversifierIndex,

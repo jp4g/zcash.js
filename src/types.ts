@@ -18,7 +18,8 @@ export type NonEmpty<T> = readonly [T, ...T[]];
 export interface Op { readonly signal?: AbortSignal }
 export interface Disposable { dispose(): Promise<void> }
 
-/** Validated protocol descriptor; no built-in activation schedule is asserted. */
+export type BuiltinNetwork = 'mainnet' | 'testnet';
+/** Validated protocol descriptor, from a package preset or an explicit definition. */
 export interface Network {
   readonly [opaque]: 'network';
   readonly identity: string;
@@ -30,6 +31,11 @@ export interface NetworkDefinition {
   /** Exact versioned consensus/encoding parameter document; schema is a G4 gate. */
   readonly parameters: Uint8Array;
   readonly parametersFormat: string;
+}
+/** Endpoint shorthand. Omitted network selects mainnet, never endpoint auto-detection. */
+export interface LightClientOptions {
+  readonly network?: BuiltinNetwork | Network | NetworkDefinition;
+  readonly transportOptions?: Partial<TransportOptions>;
 }
 export interface ConsensusContext {
   readonly network: Network;

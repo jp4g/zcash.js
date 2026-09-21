@@ -1,4 +1,5 @@
-import type { Network, NetworkDefinition, Op } from './types.js';
+import type { BuiltinNetwork, Network, NetworkDefinition, Op } from './types.js';
+import { networkPreset } from './network-presets.js';
 import { bindNetworkDefinition } from './network-parameters.js';
 import { ownBytes } from './clients/owned-plumbing.js';
 import { failure, invalidArgument, isZcashError } from './errors.js';
@@ -20,7 +21,8 @@ const cancelled = () => failure('ABORTED', 'validation', 'none', 'Network defini
 const limit = () => failure('RESOURCE_LIMIT', 'validation', 'correct-input', 'Network definition exceeds limit.');
 
 /** Package-owned handle-free codecs: lazy native initialization, no worker or fetch. */
-export async function defineNetwork(args: NetworkDefinition & Op): Promise<Network> {
+export async function defineNetwork(args: BuiltinNetwork | (NetworkDefinition & Op) = 'mainnet'): Promise<Network> {
+  if (typeof args === 'string') args = networkPreset(args);
   let input: Record<string, unknown>;
   try {
     if (!args || typeof args !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(args))) throw 0;

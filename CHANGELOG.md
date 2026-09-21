@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-rc.3 — built-in network and light-client defaults
+
+- `defineNetwork()` defaults to mainnet; `defineNetwork('testnet')` selects the
+  package-pinned testnet genesis and activation schedule. Full definitions still work.
+- `await createLightClient(endpoint, { network: 'testnet' })` replaces application
+  network/transport boilerplate. Endpoint-only calls default to mainnet. Network
+  objects and transport options remain explicit overrides; handshake checks are unchanged.
+- Existing `createLightClient({ network, transport })` stays synchronous.
+- No new dependencies or runtime/proving assets. This version needs owner publication.
+
 ## 0.1.0-rc.2 — observation and enhancement fixes
 
 - Payment observation distinguishes temporary tip lag from malformed or conflicting

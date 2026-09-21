@@ -3,6 +3,40 @@
 `createLightClient` combines the network codecs with a lightwallet transport. `grpc` selects native gRPC on Node and gRPC-Web in browsers. The endpoint must serve the corresponding protocol.
 
 ```ts
+import { createLightClient } from '@jp4g/zcash.js';
+
+export async function connectTestnet(endpoint: string) {
+  const light = await createLightClient(endpoint, { network: 'testnet' });
+  return light; // light.network is ready to pass to createWalletClient
+}
+```
+
+`await createLightClient(endpoint)` defaults to **mainnet**. Testnet must be
+explicit; the server cannot choose your network. This form initializes only the
+network codec; the connection and validated handshake still wait until first use.
+It defaults to a 30-second per-request deadline, two read attempts 500 ms apart,
+a 4 MiB response limit, no credentials, and source label `lightwallet`.
+Broadcasts are not automatically retried. Browser endpoints still need gRPC-Web/CORS.
+
+Pass a registered `Network` or a full `NetworkDefinition` as `network` to override
+the preset. Optional `transportOptions` overrides individual transport fields;
+`readRetry`, if provided, supplies both `attempts` and `delayMs`.
+
+```ts
+import { createLightClient } from '@jp4g/zcash.js';
+import type { NetworkDefinition } from '@jp4g/zcash.js';
+
+export async function customLight(endpoint: string, network: NetworkDefinition) {
+  return createLightClient(endpoint, {
+    network,
+    transportOptions: { sourceId: 'my-node', timeoutMs: 15000 },
+  });
+}
+```
+
+The existing explicit transport form remains synchronous and supports custom adapters:
+
+```ts
 import { createLightClient, grpc } from '@jp4g/zcash.js';
 import type { Network } from '@jp4g/zcash.js';
 

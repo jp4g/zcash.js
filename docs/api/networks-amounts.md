@@ -5,6 +5,21 @@
 Pass the returned `Network` to every client and viewing operation for that chain. It is an SDK-owned value; do not manufacture one with a TypeScript cast.
 
 ```ts
+import { defineNetwork } from '@jp4g/zcash.js';
+
+const mainnet = await defineNetwork(); // same as defineNetwork('mainnet')
+const testnet = await defineNetwork('testnet');
+```
+
+The package includes genesis hashes and activation schedules through NU6.3,
+matching the bundled `zcash_protocol` 0.10.6. Presets are release-pinned, not
+downloaded or inferred from your endpoint. Future upgrades require an updated
+SDK or an explicit matching definition. The normal light-client endpoint form
+creates this network for you; reuse `light.network` for the wallet.
+
+For a custom deployment, the full definition form remains available:
+
+```ts
 import { blockHash, defineNetwork } from '@jp4g/zcash.js';
 
 export async function loadNetwork(
@@ -21,7 +36,12 @@ export async function loadNetwork(
 }
 ```
 
-Your application supplies the genesis hash and the exact consensus parameter document for the deployment. `identity` is an application label, not a built-in network selector. There is no exported `mainnet` preset.
+For custom definitions, your application supplies the genesis hash and exact
+consensus document. The object's `identity` remains a label, not a preset selector.
+Full objects replace the preset; they are not partially merged into mainnet.
+
+Preset provenance: [zcash_protocol 0.10.6 consensus](https://docs.rs/zcash_protocol/0.10.6/src/zcash_protocol/consensus.rs.html)
+and [Zcash genesis definitions](https://github.com/zcash/zcash/blob/master/src/chainparams.cpp).
 
 The parameter document is canonical UTF-8 JSON: `encoding` (`main`, `test`, or `regtest`), followed by `Overwinter`, `Sapling`, `Blossom`, `Heartwood`, `Canopy`, `Nu5`, `Nu6`, `Nu6_1`, `Nu6_2`, and `Nu6_3`, in that order. Each upgrade is a nondecreasing activation height or `null`; no activated upgrade may follow an inactive one. Whitespace, duplicate keys, and extra keys are rejected. Obtain the matching document from your deployment configuration; changing a label does not change consensus rules. The [validator](https://github.com/jp4g/zcash.js/blob/main/src/network-parameters.ts) defines the exact format.
 

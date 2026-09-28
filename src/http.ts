@@ -1,8 +1,10 @@
-import { waitFor } from './abort.js';
-import type { HttpTransport, TransportOptions, ZcashError } from './types.js';
+import { bridgeSignal, waitFor } from './abort.js';
+import type { BlockHash, HttpTransport, Op, TransportOptions, ZcashError } from './types.js';
 import { failure, invalidArgument, isZcashError } from './errors.js';
 import { JsonNumber, parseJson, protocolError } from './json.js';
 import type { Json } from './json.js';
+import { blockHash } from './primitives.js';
+import { copyRecord } from './clients/owned-plumbing.js';
 
 interface State {
   readonly url: string;
@@ -301,6 +303,21 @@ function ownParameters(method: string, params: readonly RpcParameter[]): RpcPara
   if (parameters.some(value => !['string', 'boolean'].includes(typeof value)
     && !(typeof value === 'number' && Number.isSafeInteger(value)))) throw invalidArgument();
   return parameters;
+}
+
+/** Read an endpoint-reported genesis identity before defining a custom network. */
+export async function readGenesisHash(transport: HttpTransport, args: Op = {}): Promise<BlockHash> {
+  const owned = await bridgeSignal(copyRecord(args, ['signal']).signal, true);
+  try {
+    const value = await readRpc(transport, 'getblockhash', [0], owned.signal);
+    try {
+      return blockHash(value as string);
+    } catch {
+      throw protocolError();
+    }
+  } finally {
+    owned.close();
+  }
 }
 
 /** Internal read engine; no public raw-RPC escape hatch or broadcast replay. */

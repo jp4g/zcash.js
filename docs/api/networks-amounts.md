@@ -45,6 +45,52 @@ and [Zcash genesis definitions](https://github.com/zcash/zcash/blob/master/src/c
 
 The parameter document is canonical UTF-8 JSON: `encoding` (`main`, `test`, or `regtest`), followed by `Overwinter`, `Sapling`, `Blossom`, `Heartwood`, `Canopy`, `Nu5`, `Nu6`, `Nu6_1`, `Nu6_2`, and `Nu6_3`, in that order. Each upgrade is a nondecreasing activation height or `null`; no activated upgrade may follow an inactive one. Whitespace, duplicate keys, and extra keys are rejected. Obtain the matching document from your deployment configuration; changing a label does not change consensus rules. The [validator](https://github.com/jp4g/zcash.js/blob/main/src/network-parameters.ts) defines the exact format.
 
+## Bootstrap a local regtest endpoint
+
+`readGenesisHash(transport, { signal? })` reads `getblockhash(0)` before a
+`Network` or client exists. It returns a validated `BlockHash` and uses the
+transport's headers, retries, timeout, and response limit. No custom `fetch`
+helper is needed.
+
+This example assumes your node uses the activation schedule shown below;
+replace it with your deployment's exact schedule.
+
+```ts
+import {
+  createPublicClient, defineNetwork, httpTransport, readGenesisHash,
+} from '@jp4g/zcash.js';
+
+export async function connectRegtest(rpcUrl: string) {
+  const transport = httpTransport(rpcUrl, {
+    sourceId: 'local-regtest', timeoutMs: 15_000,
+    readRetry: { attempts: 2, delayMs: 100 }, maxResponseBytes: 4 * 1024 * 1024,
+  });
+  const genesisHash = await readGenesisHash(transport);
+  const network = await defineNetwork({
+    identity: 'local-regtest', genesisHash,
+    parametersFormat: 'zcash-js-network/1',
+    parameters: new TextEncoder().encode(JSON.stringify({
+      encoding: 'regtest',
+      Overwinter: 1, Sapling: 1, Blossom: 1, Heartwood: 1, Canopy: 1,
+      Nu5: 1, Nu6: 1, Nu6_1: null, Nu6_2: null, Nu6_3: null,
+    })),
+  });
+  const client = createPublicClient({
+    network, transport,
+    observation: { pollIntervalMs: 1_000, maxBufferedUpdates: 16 },
+  });
+  const tip = await client.getTip();
+  const header = await client.getBlockHeader({ hash: tip.hash });
+  return { client, tip, header };
+}
+```
+
+Discovery reports the endpoint's identity; it does not authenticate that endpoint
+against an independently trusted chain. For a known chain, supply its configured
+genesis hash instead (or use the mainnet/testnet presets). The public client still
+independently reads and hashes the genesis header on its first query and rejects
+a mismatch. Discovery does not infer activation heights or change consensus rules.
+
 ## Keep money exact
 
 ```ts

@@ -2,6 +2,10 @@
 
 Use a public client when you need chain data without opening a wallet. Import `createPublicClient` and `httpTransport` from `@jp4g/zcash.js`, then pass `httpTransport(url, options)` as the client’s `transport`. The factory was previously named `http`; update both imports and calls to `httpTransport`.
 
+For a custom/regtest endpoint without a configured genesis hash, use
+[`readGenesisHash` to bootstrap the network](networks-amounts.md#bootstrap-a-local-regtest-endpoint)
+before constructing the client.
+
 ## Read a transaction
 
 ```ts

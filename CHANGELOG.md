@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `readGenesisHash(transport, { signal? })` for custom-network bootstrap
+  using the existing HTTP transport, without application-written JSON-RPC.
+
 - Rename the public `http` transport factory to `httpTransport`. Update imports
   and calls to the new name; transport options and behavior are unchanged.
 

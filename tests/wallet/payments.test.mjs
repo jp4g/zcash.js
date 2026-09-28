@@ -1,3 +1,4 @@
+import { waitForConfirmation } from '../../examples/testnet/confirmation.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MessageChannel} from 'node:worker_threads';
@@ -306,4 +307,27 @@ test('recovery propagates uncertain observation commits and cursor storage failu
   broken.control.positionError = 'STORAGE_ERROR';
   await assert.rejects(broken.payments.recover(), {code: 'STORAGE_ERROR'});
   assert.equal(broken.control.position, '0');
+});
+
+test('confirmation helper preserves payment timeout context and drains scanning', async t => {
+  const { payments, control } = setup(t);
+  await payments.recover();
+  const pending = await payments.operations.resume({ operationId: operationId(1) });
+  control.stalled = true;
+  let scanClosed = false;
+  const wallet = { async *watchSync({ signal }) {
+    try {
+      await new Promise((_, reject) => signal.addEventListener('abort', () => {
+        reject(Object.assign(Error('Scan stopped'), { code: 'ABORTED' }));
+      }, { once: true }));
+    } finally { scanClosed = true; }
+  } };
+  await assert.rejects(waitForConfirmation(wallet, pending, { timeoutMs: 500 }), error => {
+    assert.equal(error.code, 'TIMEOUT');
+    assert.equal(error.operationId, operationId(1));
+    assert.equal(error.paymentState.operationId, operationId(1));
+    return true;
+  });
+  assert.equal(scanClosed, true);
+  assert.equal(control.dispatches, 0);
 });

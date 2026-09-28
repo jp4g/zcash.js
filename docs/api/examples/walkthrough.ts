@@ -103,6 +103,8 @@ try {
   if (await review(proposal)) {
     const pending = await wallet.send({ proposal }); // execute this exact immutable proposal
     await waitForConfirmation(wallet, pending);
+  } else {
+    await wallet.operations.abandon({ operationId: proposal.operationId });
   }
   // #endregion send
 } catch (error: unknown) {

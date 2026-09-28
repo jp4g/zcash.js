@@ -1,3 +1,4 @@
+import { waitForConfirmation } from './confirmation.js';
 import type { PcztArtifact, ReviewedOutput, WalletClient } from "@jp4g/zcash.js";
 
 declare const wallet: WalletClient;
@@ -15,6 +16,6 @@ if (await reviewBuiltOutputs(prepared.outputs)) {
   if (authorized.proofsComplete && authorized.authorizationComplete) {
     const pending = await wallet.finalize({ pczt: authorized }); // stores, no network
     await pending.broadcast(); // explicit dispatch of stored bytes
-    await pending.wait({ confirmations: 3 });
+    await waitForConfirmation(wallet, pending);
   }
 }

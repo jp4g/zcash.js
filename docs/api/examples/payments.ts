@@ -10,6 +10,7 @@ export async function sendPayment() {
   return pending.wait({ confirmations: 3, timeoutMs: 120_000 });
 }
 export async function shieldFunds() {
-  const pending = await wallet.shield({ accountId, toPool: 'sapling', signer });
+  // Open with the explicit allow-owned transparent policy in the shielding guide.
+  const pending = await wallet.shield({ accountId, toPool: 'ironwood', signer });
   return pending.snapshot(); // inspect initial attempts, not a mining claim
 }

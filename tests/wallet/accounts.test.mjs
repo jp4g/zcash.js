@@ -113,3 +113,9 @@ test('mnemonic onboarding rejects removed pool selection before authority or dis
   }
   await accounts.import({viewingKey:fixture.ufvk,birthday:'fullScan',enabledPools:['sapling']});
 });
+
+test('older external runtime rejects signer restoration before secret dispatch',async()=>{
+  const f=wallet();f.value.supportsMnemonicRestoration=false;
+  const api=walletAccounts(f.value,network).api;
+  await assert.rejects(api.restoreSigner({accountId:'account',mnemonic:new Uint8Array([1])}),{code:'METHOD_NOT_SUPPORTED',recovery:'configure'});
+});

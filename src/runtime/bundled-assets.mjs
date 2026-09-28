@@ -10,4 +10,4 @@ export function bundledUrls() { return urls ??= Object.freeze({
   "proving/sapling-spend.params": new URL("./assets/proving/sapling-spend.params", import.meta.url),
   "proving/sapling-output.params": new URL("./assets/proving/sapling-output.params", import.meta.url),
 }); }
-export const bundledArtifact = Object.freeze({ get manifestUrl() { return bundledUrls()["wallet/manifest.json"].href; }, manifestSha256: "0f96be360949ff6d8a9167d21be2cacf91005c41f5a16a226b5e1d434a9426f7" });
+export const bundledArtifact = Object.freeze({ get manifestUrl() { return bundledUrls()["wallet/manifest.json"].href; }, manifestSha256: "59158fcde9e073d8bdc7832ae1026e7563c5f5ae3bf9e5f65cab7f05b2910c5e" });

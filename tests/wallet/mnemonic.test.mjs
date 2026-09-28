@@ -122,3 +122,10 @@ test('shared signer admission enforces configured/request PCZT bounds before nat
     assert.equal((await created.authority.capabilities()).maxPcztBytes,4194304);
   } finally {await created.authority.dispose();}
 });
+
+test('canceled signer restoration releases issued authority despite no database commit',async t=>{
+  const abort=new AbortController(),f=fixture(t,{abort}),wallet=f.wallet();let rejected;
+  await assert.rejects(createMnemonicAccount(wallet,'restore',{mnemonic:new Uint8Array([1]),accountId:'account',signal:abort.signal}),error=>{rejected=error;return error.code==='ABORTED';});
+  assert.equal(wallet.session.completion(rejected).completion,'none');
+  assert.deepEqual(f.counts(),{leases:0,released:1});
+});

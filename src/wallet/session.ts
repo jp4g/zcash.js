@@ -68,6 +68,7 @@ export interface InitializedSigners {
 }
 export interface MnemonicAccountInput {
   readonly mnemonic: Uint8Array;
+  readonly accountId?: string;
   readonly passphrase?: Uint8Array;
   readonly accountIndex?: number;
   readonly birthday?: unknown;
@@ -187,7 +188,8 @@ export class WalletSession {
           }
           return Reflect.apply(method, this.owner, [input.token, input.accountId]) as ReturnType<NativeWalletCalls[C]>;
         }
-        if (operation === 'account_import_mnemonic_signer' || operation === 'account_create_mnemonic_signer') {
+        if (operation === 'account_import_mnemonic_signer' || operation === 'account_create_mnemonic_signer'
+          || operation === 'account_restore_mnemonic_signer') {
           const { mnemonic, passphrase, ...input } = args as MnemonicAccountInput;
           return this.owner.call(
             this.generation,

@@ -285,6 +285,9 @@ export async function openWalletRuntime(
     pending.check();
     return Object.freeze({
       identity: owner.identity,
+      // Previously reviewed external runtimes predate the restore command.
+      supportsMnemonicRestoration: owner.identity.mode === 'baseline'
+        && baseline.manifestSha256 === bundledArtifact.manifestSha256,
       session: opened.session,
       close: opened.close,
       // Internal signer composition retains this owner independently of its creating wallet.

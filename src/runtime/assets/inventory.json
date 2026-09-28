@@ -1,15 +1,15 @@
 {
   "wallet/wallet.mjs": {
-    "sha256": "0d00ed7ffbe0d11cb64cb895bb5bc7070c57ed9869ed012606bc53b70452e4d8",
-    "byteLength": 78420
+    "sha256": "89061bf1695d863fd1eb6854922445e0c008d4df12fb696341aa8915edbb9a32",
+    "byteLength": 78683
   },
   "wallet/worker.mjs": {
-    "sha256": "899efadd1fbd258fac5e58ab68b91b411e1296704e2639f27caafdde59a8f305",
-    "byteLength": 24197
+    "sha256": "6032a2d0af2f55cc7e6d006e2419b2a18391d1ddf0c408e494aa84ef59369a36",
+    "byteLength": 24382
   },
   "wallet/bindings_bg.wasm": {
-    "sha256": "3545cfd587e6724a7da50ba26461cf64b52ce2b96b00a5f017821738883ec6b5",
-    "byteLength": 21146464
+    "sha256": "91092c7e71c7afcf17959c6c3938ac0d7f6de152d2a9c1179329d8fcca8aa1cd",
+    "byteLength": 21193637
   },
   "wallet/node-fs.mjs": {
     "sha256": "e5ae70677191f3eb9898ea3dac0182cf10491cd98ef04c33ad4edfdb0265bd3e",
@@ -20,11 +20,11 @@
     "byteLength": 2042
   },
   "wallet/manifest.json": {
-    "sha256": "0f96be360949ff6d8a9167d21be2cacf91005c41f5a16a226b5e1d434a9426f7",
+    "sha256": "59158fcde9e073d8bdc7832ae1026e7563c5f5ae3bf9e5f65cab7f05b2910c5e",
     "byteLength": 1598
   },
   "wallet/build.json": {
-    "sha256": "56a964e1236ce4d3446108d7362b750c63b27eff9b243abdd8679b1be7a58f8e",
+    "sha256": "1034a6c780b574ef4bda49795a6311252ea41b2845049c54a6c34a08a4c09274",
     "byteLength": 687
   },
   "wallet/dependency-graph.json": {
@@ -32,11 +32,11 @@
     "byteLength": 67134
   },
   "wallet/native-build.json": {
-    "sha256": "315362c3602ec805f91342e032fb026d65586e1407670fca87d9a5794321f36a",
-    "byteLength": 87889
+    "sha256": "b291bc558692866c69bf5fc9068699c59943bdbb2ec55e2ead10ae56019e6565",
+    "byteLength": 87882
   },
   "wallet/worker-inputs.json": {
-    "sha256": "4beb0797622d5fd4eac7f920bbb3ff8d86b64de30ca82bef9234567652d3606a",
+    "sha256": "cd8c48d3f89b60f0841ceab5089e36eef2bcc80961f7a7faae452bd5937c9eb5",
     "byteLength": 717
   },
   "proving/sapling-spend.params": {

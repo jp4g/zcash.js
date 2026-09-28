@@ -504,6 +504,7 @@ export function attachWalletWorker(port: MessagePort, destroy: () => Promise<voi
       list: (args: ProposalInventoryInput & Op) => call('proposal_list', args),
     },
     mnemonic: {
+      restore: (args: MnemonicAccountInput & Op) => call('account_restore_mnemonic_signer', args),
       create: (args: MnemonicAccountInput & Op) => call('account_create_mnemonic_signer', args),
       import: (args: MnemonicAccountInput & Op) => call('account_import_mnemonic_signer', args),
     },

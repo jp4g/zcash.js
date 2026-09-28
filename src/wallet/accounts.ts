@@ -43,14 +43,16 @@ export function walletAccounts(wallet: Wallet, network: Network) {
       ),
   });
   async function mnemonic(
-    kind: 'create' | 'import',
-    args: Parameters<AccountsApi['create']>[0] | MnemonicImport,
+    kind: 'create' | 'import' | 'restore',
+    args: Parameters<AccountsApi['create']>[0] | MnemonicImport | Parameters<AccountsApi['restoreSigner']>[0],
   ): Promise<CreatedAccount> {
     const input = snapshot(
       args,
-      kind === 'create'
-        ? ['mnemonic', 'passphrase', 'name', 'signal']
-        : ['mnemonic', 'passphrase', 'name', 'accountIndex', 'birthday', 'signal'],
+      kind === 'restore'
+        ? ['mnemonic', 'passphrase', 'accountId', 'signal']
+        : kind === 'create'
+          ? ['mnemonic', 'passphrase', 'name', 'signal']
+          : ['mnemonic', 'passphrase', 'name', 'accountIndex', 'birthday', 'signal'],
     );
     const pending = operation(input.signal);
     let created: Awaited<ReturnType<typeof createMnemonicAccount>> | undefined;
@@ -68,7 +70,9 @@ export function walletAccounts(wallet: Wallet, network: Network) {
         throw error;
       }
     } catch (error) {
-      if (created && error && typeof error === 'object') wallet.session.committed(error, { account: created.account });
+      if (kind !== 'restore' && created && error && typeof error === 'object') {
+        wallet.session.committed(error, { account: created.account });
+      }
       throw error;
     } finally {
       pending.close();
@@ -98,6 +102,16 @@ export function walletAccounts(wallet: Wallet, network: Network) {
   const api = Object.freeze({
     create: args => mnemonic('create', args),
     import: importAccount,
+    async restoreSigner(args) {
+      check();
+      if (wallet.supportsMnemonicRestoration === false) {
+        throw failure(
+          'METHOD_NOT_SUPPORTED', 'account', 'configure',
+          'Mnemonic signer restoration requires the bundled baseline runtime.',
+        );
+      }
+      return (await mnemonic('restore', args)).signer;
+    },
     async list(args: Op = {}) {
       check();
       return (await wallet.session.accounts.list(snapshot(args, ['signal']))).map(project);

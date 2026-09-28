@@ -425,6 +425,12 @@ export interface AccountsApi {
   get(args: { accountId: AccountId } & Op): Promise<AccountRecord | null>;
   /** Reject unresolved operations/locks; local history deletion cannot erase funds. */
   remove(args: { accountId: AccountId; acknowledge: 'deletes-local-history' } & Op): Promise<void>;
+  /** Restore caller-owned, unattached authority for an existing mnemonic-derived account.
+   * Verifies the mnemonic/passphrase against its viewing key without changing wallet history.
+   */
+  restoreSigner(
+    args: { accountId: AccountId; mnemonic: SecretInput; passphrase?: SecretInput } & Op,
+  ): Promise<MemorySigner>;
   attachSigner(args: { accountId: AccountId; signer: Signer } & Op): Promise<SignerBinding>;
   detachSigner(args: { accountId: AccountId } & Op): Promise<void>;
 }

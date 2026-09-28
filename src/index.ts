@@ -5,6 +5,7 @@ export { resolveBirthday } from './birthday.js';
 export { createPublicClient } from './public.js';
 export { accountFromViewingKey, viewing, addresses } from './viewing.js';
 export { defineNetwork } from './network.js';
+export { encodeNetworkParameters } from './network-parameters.js';
 export { createLightClient } from './light.js';
 export { grpc } from './grpc.js';
 export { parseZec, formatZec } from './amounts.js';
@@ -96,6 +97,7 @@ export type {
   ReceiverType,
   Network,
   NetworkDefinition,
+  NetworkParameters,
   BuiltinNetwork,
   LightClientOptions,
   Op,

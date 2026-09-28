@@ -17,32 +17,37 @@ downloaded or inferred from your endpoint. Future upgrades require an updated
 SDK or an explicit matching definition. The normal light-client endpoint form
 creates this network for you; reuse `light.network` for the wallet.
 
-For a custom deployment, supply a full definition:
+For a custom deployment, supply the genesis hash and a complete typed schedule:
 
 ```ts
-import { blockHash, defineNetwork } from '@jp4g/zcash.js';
+import { blockHash, defineNetwork, encodeNetworkParameters } from '@jp4g/zcash.js';
+
+import type { NetworkParameters } from '@jp4g/zcash.js';
 
 export async function loadNetwork(
   identity: string,
   genesisHash: string,
-  parameterBytes: Uint8Array,
+  parameters: NetworkParameters,
 ) {
   return defineNetwork({
     identity,
     genesisHash: blockHash(genesisHash),
-    parametersFormat: 'zcash-js-network/1',
-    parameters: parameterBytes,
+    ...encodeNetworkParameters(parameters),
   });
 }
 ```
 
 For custom definitions, your application supplies the genesis hash and exact
-consensus document. The object's `identity` remains a label, not a preset selector.
+consensus schedule. `encodeNetworkParameters` accepts fields in any order and produces
+the canonical bytes and format tag for `defineNetwork`. Every activation field is
+required; the encoder does not infer or fill in consensus rules. The object's `identity` remains a label, not a preset selector.
 Full objects replace the preset; they are not partially merged into mainnet.
 
 Preset provenance: [zcash_protocol 0.10.6 consensus](https://docs.rs/zcash_protocol/0.10.6/src/zcash_protocol/consensus.rs.html)
 and [Zcash genesis definitions](https://github.com/zcash/zcash/blob/master/src/chainparams.cpp).
 
+Advanced callers can still provide `parametersFormat: 'zcash-js-network/1'` and
+`parameters: Uint8Array` directly. This byte form retains strict validation.
 The parameter document is canonical UTF-8 JSON: `encoding` (`main`, `test`, or `regtest`), followed by `Overwinter`, `Sapling`, `Blossom`, `Heartwood`, `Canopy`, `Nu5`, `Nu6`, `Nu6_1`, `Nu6_2`, and `Nu6_3`, in that order. Each upgrade is a nondecreasing activation height or `null`; no activated upgrade may follow an inactive one. Whitespace, duplicate keys, and extra keys are rejected. Obtain the matching document from your deployment configuration; changing a label does not change consensus rules. The [validator](https://github.com/jp4g/zcash.js/blob/main/src/network-parameters.ts) defines the exact format.
 
 ## Bootstrap a local regtest endpoint
@@ -57,7 +62,7 @@ replace it with your deployment's exact schedule.
 
 ```ts
 import {
-  createPublicClient, defineNetwork, httpTransport, readGenesisHash,
+  createPublicClient, defineNetwork, encodeNetworkParameters, httpTransport, readGenesisHash,
 } from '@jp4g/zcash.js';
 
 export async function connectRegtest(rpcUrl: string) {
@@ -68,12 +73,11 @@ export async function connectRegtest(rpcUrl: string) {
   const genesisHash = await readGenesisHash(transport);
   const network = await defineNetwork({
     identity: 'local-regtest', genesisHash,
-    parametersFormat: 'zcash-js-network/1',
-    parameters: new TextEncoder().encode(JSON.stringify({
+    ...encodeNetworkParameters({
       encoding: 'regtest',
       Overwinter: 1, Sapling: 1, Blossom: 1, Heartwood: 1, Canopy: 1,
       Nu5: 1, Nu6: 1, Nu6_1: null, Nu6_2: null, Nu6_3: null,
-    })),
+    }),
   });
   const client = createPublicClient({
     network, transport,

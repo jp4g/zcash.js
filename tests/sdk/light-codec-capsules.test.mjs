@@ -9,7 +9,7 @@ import {createHash} from 'node:crypto';
 
 test('packed light codecs are lazy, native, owned and bound to their capsule receipts',async()=>{
   const root=resolve(import.meta.dirname,'../..'), scratch=await mkdtemp(join(tmpdir(),'packed-light-codecs-'));
-  const [packed]=JSON.parse(execFileSync('npm',['pack','--json','--pack-destination',scratch],{cwd:root,encoding:'utf8'}));
+  const [packed]=JSON.parse(execFileSync('npm',['pack','--ignore-scripts','--json','--pack-destination',scratch],{cwd:root,encoding:'utf8'}));
   await mkdir(join(scratch,'unpacked'));
   execFileSync('tar',['-xzf',join(scratch,packed.filename),'-C',join(scratch,'unpacked')]);
   const runtime=join(scratch,'unpacked/package/dist/src/runtime');

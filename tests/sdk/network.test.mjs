@@ -12,7 +12,7 @@ const definition=()=>({identity:'synthetic-regtest',genesisHash:'03'.repeat(32),
 
 test('packed defineNetwork uses one lazy native capsule, owns input, and admits only real instances',async()=>{
   const scratch=await mkdtemp(join(tmpdir(),'packed-network-'));
-  const [packed]=JSON.parse(execFileSync('npm',['pack','--json','--pack-destination',scratch],{cwd:root,encoding:'utf8'}));
+  const [packed]=JSON.parse(execFileSync('npm',['pack','--ignore-scripts','--json','--pack-destination',scratch],{cwd:root,encoding:'utf8'}));
   const paths=packed.files.map(file=>file.path);
   for(const name of ['primitive-capsule.mjs','primitive-capsule.json','primitive-capsule.d.mts'])assert.ok(paths.includes('dist/src/runtime/'+name));
   await mkdir(join(scratch,'unpacked'));

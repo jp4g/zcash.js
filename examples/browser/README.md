@@ -18,6 +18,7 @@ A native gRPC endpoint is not enough. No provider is selected automatically.
 
 **List local accounts** opens a named OPFS wallet, lists its stored accounts and
 closes it. A new wallet returns `[]`; this action does not create accounts or scan.
+It requires only the network and wallet name; leave the endpoint blank.
 It works offline after assets have loaded. Do not share the same wallet name
 between simultaneously open clients. Site-data deletion removes OPFS databases.
 

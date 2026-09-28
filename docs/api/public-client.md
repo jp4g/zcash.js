@@ -16,7 +16,7 @@ custom networks accept a validated `Network` or `NetworkDefinition`. No provider
 selected for you, and the first read still verifies the endpoint's genesis header.
 Construction initializes local codecs but makes no requests.
 
-The shorthand defaults to a 30-second HTTP deadline, two read attempts 500 ms
+The shorthand defaults to a 30-second deadline per HTTP attempt, two read attempts 500 ms
 apart, a 4 MiB response limit, and the source label `public-rpc`. Observers poll
 every second and buffer at most 16 updates. Override selected fields with
 `transportOptions` and `observation`; `readRetry`, when supplied, replaces the

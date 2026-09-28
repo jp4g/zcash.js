@@ -4,8 +4,9 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { generateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
-import { accountIndex, addresses, createLightClient, createWalletClient, formatZec, parseZec, resolveBirthday } from '@jp4g/zcash.js';
+import { addresses, createLightClient, createWalletClient, formatZec, parseZec, resolveBirthday } from '@jp4g/zcash.js';
 import { waitForConfirmation } from './confirmation.mjs';
+import { initializeAccount } from './initialize.mjs';
 
 const command = process.argv[2] ?? 'status';
 assert.ok(['probe', 'init', 'addresses', 'status', 'send', 'receive', 'confirm'].includes(command), 'commands: probe | init | addresses | status | send A B AMOUNT REQUEST_ID | receive B TXID AMOUNT | confirm A OPERATION_ID');
@@ -62,22 +63,24 @@ if (command === 'probe') {
   report({ network: 'testnet', server: await light.getServerInfo(), tip: await light.getTip() });
 } else if (command === 'init') {
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const tip = await light.getTip();
-  const state = { firstScanHeight: Math.max(280000, tip.height - 10),
-    A: { mnemonic: generateMnemonic(wordlist, 256) }, B: { mnemonic: generateMnemonic(wordlist, 256) } };
-  // Exclusive initial creation prevents overwriting a funded wallet's recovery material.
-  await writeFile(statePath, json(state) + '\n', { flag: 'wx', mode: 0o600 });
+  let state;
+  try { state = await load(); }
+  catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    const tip = await light.getTip();
+    state = { firstScanHeight: Math.max(280000, tip.height - 10),
+      A: { mnemonic: generateMnemonic(wordlist, 256) }, B: { mnemonic: generateMnemonic(wordlist, 256) } };
+    // Exclusive creation never replaces an existing wallet's recovery material.
+    await writeFile(statePath, json(state) + '\n', { flag: 'wx', mode: 0o600 });
+  }
   for (const label of ['A', 'B']) {
-    const wallet = await open(label), bytes = new TextEncoder().encode(state[label].mnemonic);
-    let signer;
+    const wallet = await open(label);
     try {
-      const imported = await wallet.accounts.import({ mnemonic: bytes, accountIndex: accountIndex(0),
-        birthday: await resolveBirthday({ light, firstScanHeight: state.firstScanHeight }) });
-      signer = imported.signer;
-      const address = await nextAddress(wallet, imported.account.id);
-      Object.assign(state[label], { accountId: imported.account.id, address });
+      state[label] = await initializeAccount(wallet, state[label],
+        () => resolveBirthday({ light, firstScanHeight: state.firstScanHeight }));
+      await verifyAddress(state[label].address);
       await save(state);
-    } finally { bytes.fill(0); await wallet.close(); await signer?.dispose(); }
+    } finally { await wallet.close(); }
   }
   report({ network: 'testnet', receiveA: state.A.address, receiveB: state.B.address, firstScanHeight: state.firstScanHeight });
 } else if (command === 'addresses') {

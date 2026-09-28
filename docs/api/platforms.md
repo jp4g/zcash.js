@@ -35,8 +35,8 @@ system's `flock` utility for crash-safe ownership. macOS and Windows persistent
 wallet storage are not qualified. Bundling the WASM does not change that existing
 platform limit; the memory wallet has no filesystem-lock dependency.
 
-Fresh wallet databases and reopening with the same candidate runtime have been
-tested. Historical database migration is not yet qualified; same-version reopen
+Fresh wallet databases, reopening, and the [closed-wallet Linux backup/restore
+procedure](operations.md#closed-wallet-backup-on-linux) have same-candidate tests. Historical database migration is not yet qualified; same-version reopen
 tests are not evidence of upgrade compatibility for an older wallet database.
 
 The repository runs Node tests in CI. Actual Firefox SDK and wallet-host checks are separate runnable checks; a passing bundle build is not a browser execution test. The [test guide](https://github.com/jp4g/zcash.js/blob/main/tests/README.md) describes which checks execute real native fixtures and which need external runtime/proving packages.

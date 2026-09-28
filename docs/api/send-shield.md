@@ -10,7 +10,7 @@ wallet](wallet-runtime.md) for defaults and overrides.
 
 ```ts
 import { parseZec } from '@jp4g/zcash.js';
-import type { AccountRecord, WalletClient } from '@jp4g/zcash.js';
+import type { AccountRecord, PendingPayment, WalletClient } from '@jp4g/zcash.js';
 
 export async function sendPayment(
   wallet: WalletClient, account: AccountRecord, recipient: string, requestId: string,
@@ -21,7 +21,24 @@ export async function sendPayment(
     amount: parseZec('0.00125'),
     idempotencyKey: requestId,
   });
-  return pending.wait({ confirmations: 3, timeoutMs: 120_000 });
+  return waitForConfirmation(wallet, pending);
+}
+
+async function waitForConfirmation(wallet: WalletClient, pending: PendingPayment) {
+  const timeoutMs = 120_000;
+  const stop = new AbortController();
+  const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(timeoutMs)]);
+  const watching = (async () => {
+    for await (const _status of wallet.watchSync({ signal })) { /* Drain every status. */ }
+    throw Error('Sync watcher ended before confirmation.');
+  })();
+  const waiting = pending.wait({ confirmations: 3, timeoutMs, signal });
+  try {
+    return await Promise.race([watching, waiting]);
+  } finally {
+    stop.abort();
+    await Promise.allSettled([watching, waiting]);
+  }
 }
 ```
 
@@ -37,7 +54,7 @@ re-sign, or retry a network submission. After three unsuccessful refreshes,
 continued tip movement returns `SYNC_REQUIRED`; recover the same operation.
 Automatic startup recovery does not initiate this scan refresh.
 
-Keep `watchSync()` running and consume its statuses while waiting for confirmation.
+The helper above consumes `watchSync()` while waiting, then cancels and drains both tasks. It follows the [tested testnet helper](https://github.com/jp4g/zcash.js/blob/main/examples/testnet/confirmation.mjs). `pending.wait()` alone observes payment state; it does not scan your wallet.
 The payment observer retries a changing chain view up to three times, then returns
 retryable `OBSERVATION_UNAVAILABLE`. Stable inconsistent evidence remains
 `PROTOCOL_MISMATCH`.

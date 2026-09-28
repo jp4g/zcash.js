@@ -1,3 +1,4 @@
+import { waitForConfirmation } from './confirmation.js';
 import {
   createLightClient, createPublicClient, createWalletClient, defineNetwork, formatZec,
   grpc, httpTransport, isZcashError, parseZec,
@@ -101,7 +102,7 @@ try {
   // Review every step, recipient, amount, fee and expiry without modifying the proposal.
   if (await review(proposal)) {
     const pending = await wallet.send({ proposal }); // execute this exact immutable proposal
-    await pending.wait({ confirmations: 3, timeoutMs: 120_000 });
+    await waitForConfirmation(wallet, pending);
   }
   // #endregion send
 } catch (error: unknown) {

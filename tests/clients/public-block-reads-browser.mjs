@@ -26,7 +26,7 @@ export async function runBrowser() {
     check(Object.values(eager).every(n => n === 0), 'lazy imports');
     globalThis.fetch = originals.fetch;
     const context = (mode, options = {}) => ({ sourceId,
-      transport: root.http(`${location.origin}/rpc/${mode}`, { ...transportOptions, ...options }) });
+      transport: root.httpTransport(`${location.origin}/rpc/${mode}`, { ...transportOptions, ...options }) });
     const value = await getBlock(context('good'), { height: 1 });
     check(value.point.height === 1 && value.point.hash === block.hash && value.time === block.time
       && value.previousHash === block.previousblockhash && value.sourceId === sourceId, 'coherent block');

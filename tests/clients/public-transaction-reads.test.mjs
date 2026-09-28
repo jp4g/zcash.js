@@ -13,7 +13,7 @@ test('real accepted transactions retain exact bytes and mempool observation', as
     if (e.code === 'ERR_MODULE_NOT_FOUND') return {}; throw e;
   });
   assert.equal(typeof module.getTransaction, 'function', 'positive internal read must exist');
-  const { http } = await import(pathToFileURL(`${build}/src/http.js`));
+  const { httpTransport } = await import(pathToFileURL(`${build}/src/http.js`));
   const server = await fixture(call => {
     assert.deepEqual(call.params, [vectors.find(v => v.display === call.params[0]).display, 1]);
     assert.equal(call.method, 'getrawtransaction');
@@ -22,7 +22,7 @@ test('real accepted transactions retain exact bytes and mempool observation', as
   });
   try {
     for (const v of vectors) {
-      const actual = await module.getTransaction({ transport: http(`${server.origin}/rpc`, transportOptions), sourceId: 'fixture' },
+      const actual = await module.getTransaction({ transport: httpTransport(`${server.origin}/rpc`, transportOptions), sourceId: 'fixture' },
         { txid: v.display, decodeTransaction: raw => decodeTransaction(raw, v.branch) }, { txid: v.display });
       assert.equal(Buffer.from(actual.raw).toString('hex'), v.hex);
       assert.equal(actual.observation.state, 'mempool');
@@ -35,13 +35,13 @@ test('real accepted transactions retain exact bytes and mempool observation', as
 test('transaction observations retain uncertainty and reject DTO/decoder contradictions', async () => {
   const v = vectors[0];
   const { getTransaction } = await import(pathToFileURL(`${build}/src/clients/public-transaction-reads.js`));
-  const { http } = await import(pathToFileURL(`${build}/src/http.js`));
+  const { httpTransport } = await import(pathToFileURL(`${build}/src/http.js`));
   let dto = { txid: v.display, hex: v.hex, in_active_chain: false,
     blockhash: blockOne.verbose.hash, height: -1, confirmations: 0 };
   const server = await fixture(call => result(call.method === 'getrawtransaction' ? dto
     : call.method === 'getblock' ? { ...blockOne.verbose, nTx: 1, tx: [v.display] }
     : call.params[1] ? blockOne.verbose : blockOne.raw));
-  const source = { transport: http(`${server.origin}/rpc`, transportOptions), sourceId: 'fixture' };
+  const source = { transport: httpTransport(`${server.origin}/rpc`, transportOptions), sourceId: 'fixture' };
   const context = { txid: v.display, decodeTransaction: raw => decodeTransaction(raw, v.branch) };
   try {
     const off = await getTransaction(source, context, { txid: v.display });
@@ -70,7 +70,7 @@ test('transaction observations retain uncertainty and reject DTO/decoder contrad
 test('native cancellation stops an in-flight transaction response after a synthetic event', async () => {
   const v = vectors[0];
   const { getTransaction } = await import(pathToFileURL(`${build}/src/clients/public-transaction-reads.js`));
-  const { http } = await import(pathToFileURL(`${build}/src/http.js`));
+  const { httpTransport } = await import(pathToFileURL(`${build}/src/http.js`));
   let started;
   const seen = new Promise(resolve => { started = resolve; });
   const server = await fixture((_call, _req, res) => {
@@ -80,7 +80,7 @@ test('native cancellation stops an in-flight transaction response after a synthe
     const controller = new AbortController();
     controller.signal.addEventListener('abort', event => event.stopImmediatePropagation());
     const pending = assert.rejects(getTransaction({ sourceId: 'fixture',
-      transport: http(`${server.origin}/rpc`, transportOptions) },
+      transport: httpTransport(`${server.origin}/rpc`, transportOptions) },
     { txid: v.display, decodeTransaction: raw => decodeTransaction(raw, v.branch) },
     { txid: v.display, signal: controller.signal }), error => error.code === 'ABORTED');
     await seen;
@@ -95,7 +95,7 @@ test('native cancellation stops an in-flight transaction response after a synthe
 test('mined transaction composes block reads with a signal and preserves cancellation', async () => {
   const v = vectors[0];
   const { getTransaction } = await import(pathToFileURL(`${build}/src/clients/public-transaction-reads.js`));
-  const { http } = await import(pathToFileURL(`${build}/src/http.js`));
+  const { httpTransport } = await import(pathToFileURL(`${build}/src/http.js`));
   const server = await fixture(call => {
     if (call.method === 'getrawtransaction') return result({ txid: v.display, hex: v.hex,
       in_active_chain: true, blockhash: blockOne.verbose.hash, height: 1, confirmations: 1 });
@@ -104,7 +104,7 @@ test('mined transaction composes block reads with a signal and preserves cancell
   });
   const context = { txid: v.display, decodeTransaction: raw => decodeTransaction(raw, v.branch) };
   try {
-    const source = { transport: http(`${server.origin}/rpc`, transportOptions), sourceId: 'fixture' };
+    const source = { transport: httpTransport(`${server.origin}/rpc`, transportOptions), sourceId: 'fixture' };
     const actual = await getTransaction(source, context, { txid: v.display, signal: new AbortController().signal });
     assert.equal(actual.observation.state, 'mined');
     assert.deepEqual(actual.observation.inclusion, { height: 1, blockHash: blockOne.verbose.hash, confirmations: null });
@@ -116,7 +116,7 @@ test('mined transaction composes block reads with a signal and preserves cancell
       controller.signal.addEventListener('abort', event => event.stopImmediatePropagation());
       let admitted = 0;
       const before = server.calls.length;
-      const transport = http(`${server.origin}/rpc`, { ...transportOptions, headers() {
+      const transport = httpTransport(`${server.origin}/rpc`, { ...transportOptions, headers() {
         if (admitted++ === stage) controller.abort();
         return {};
       } });
@@ -131,11 +131,11 @@ test('mined transaction composes block reads with a signal and preserves cancell
 test('validated mined height reaches native decoder; off-chain contexts remain null', async () => {
   const v=vectors[0];
   const {getTransaction}=await import(pathToFileURL(`${build}/src/clients/public-transaction-reads.js`));
-  const {http}=await import(pathToFileURL(`${build}/src/http.js`));
+  const {httpTransport}=await import(pathToFileURL(`${build}/src/http.js`));
   let mined=true, seen;
   const server=await fixture(call=>result(call.method==='getrawtransaction'?{txid:v.display,hex:v.hex,in_active_chain:mined,...(mined?{height:1,blockhash:blockOne.verbose.hash,confirmations:1}:{})}:call.method==='getblock'?{...blockOne.verbose,nTx:1,tx:[v.display]}:call.params[1]?blockOne.verbose:blockOne.raw));
   try {
-    const source={transport:http(server.origin+'/rpc',transportOptions),sourceId:'fixture'};
+    const source={transport:httpTransport(server.origin+'/rpc',transportOptions),sourceId:'fixture'};
     const context={txid:v.display,decodeTransaction(raw,height){seen=height;return decodeTransaction(raw,v.branch);}};
     await getTransaction(source,context,{txid:v.display});assert.equal(seen,1);
     mined=false;await getTransaction(source,context,{txid:v.display});assert.equal(seen,null);

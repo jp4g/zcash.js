@@ -1,6 +1,6 @@
 # Query the public chain
 
-Use a public client when you need chain data without opening a wallet. Construct it as shown in [installation](installation.md).
+Use a public client when you need chain data without opening a wallet. Import `createPublicClient` and `httpTransport` from `@jp4g/zcash.js`, then pass `httpTransport(url, options)` as the client’s `transport`. The factory was previously named `http`; update both imports and calls to `httpTransport`.
 
 ## Read a transaction
 

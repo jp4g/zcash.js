@@ -31,7 +31,7 @@ async function exec(command, args, options = {}) {
     await rm(folder, { recursive: true, force: true });
   }
 }
-const implemented = ['accountFromViewingKey', 'accountIndex', 'addresses', 'blockHash', 'createCustomSigner', 'createLightClient', 'createPublicClient', 'createWalletClient', 'createZcashClient', 'defineNetwork', 'diversifierIndex', 'formatZec', 'grpc', 'http', 'isZcashError', 'parseZec', 'pczt', 'resolveBirthday', 'txId', 'viewing'];
+const implemented = ['accountFromViewingKey', 'accountIndex', 'addresses', 'blockHash', 'createCustomSigner', 'createLightClient', 'createPublicClient', 'createWalletClient', 'createZcashClient', 'defineNetwork', 'diversifierIndex', 'formatZec', 'grpc', 'httpTransport', 'isZcashError', 'parseZec', 'pczt', 'resolveBirthday', 'txId', 'viewing'];
 
 test('packed release candidate imports and typechecks in an isolated Node consumer', async (t) => {
   const folder = await mkdtemp(join(tmpdir(), 'zcash-sdk-consumer-'));
@@ -95,7 +95,7 @@ test('packed release candidate imports and typechecks in an isolated Node consum
     assert.deepEqual(Object.keys(native), ['createGrpcNodeTransport']);
     assert.equal(native.createGrpcNodeTransport('http://127.0.0.1:1', { sourceId: 'fixture', timeoutMs: 10 }).kind, 'custom-lightwallet');
     assert.equal(sdk.parseZec('9007199254740993.00000001'), 900719925474099300000001n);
-    sdk.http('https://synthetic.invalid', { sourceId: 'fixture', timeoutMs: 10, readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 256 });
+    sdk.httpTransport('https://synthetic.invalid', { sourceId: 'fixture', timeoutMs: 10, readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 256 });
     await assert.rejects(import('@jp4g/zcash.js/dist/src/http.js'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
     Object.defineProperty(globalThis, 'WebAssembly', { configurable: true, value: originalWasm });
     const network = await sdk.defineNetwork({identity:'bundled-consumer',genesisHash:'03'.repeat(32),parametersFormat:'zcash-js-network/1',parameters:new TextEncoder().encode(JSON.stringify({encoding:'regtest',Overwinter:10,Sapling:20,Blossom:30,Heartwood:40,Canopy:50,Nu5:60,Nu6:70,Nu6_1:80,Nu6_2:90,Nu6_3:100}))});
@@ -123,7 +123,7 @@ test('packed release candidate imports and typechecks in an isolated Node consum
     export const names=Object.keys(sdk).sort();
     export const wallet=sdk.createWalletClient;
     export const amount=sdk.formatZec(sdk.parseZec('1.00000001'));
-    export const transport=sdk.http('https://synthetic.invalid',{sourceId:'webpack',timeoutMs:1000,maxResponseBytes:4096,readRetry:{attempts:1,delayMs:0}});
+    export const transport=sdk.httpTransport('https://synthetic.invalid',{sourceId:'webpack',timeoutMs:1000,maxResponseBytes:4096,readRetry:{attempts:1,delayMs:0}});
   `);
   for(const variant of ['full','query',...(process.env.WALLET_WEBPACK_OUTPUT?['wallet']:[])]){
     const queryOnly=variant==='query',walletOnly=variant==='wallet';
@@ -131,7 +131,7 @@ test('packed release candidate imports and typechecks in an isolated Node consum
       import {createWalletClient,defineNetwork} from '@jp4g/zcash.js';
       export async function runWallet(options){const network=await defineNetwork(options.network);const wallet=await createWalletClient({...options,network,confirmations:{trusted:1,untrusted:1,allowZeroConfirmationShielding:false},observation:{pollIntervalMs:1000,maxBufferedUpdates:16},recovery:{mode:'offline'}});let count;try{count=(await wallet.accounts.list()).length;await wallet.getSyncStatus();}finally{await wallet.close();}if(count!==0)throw Error('fresh bundled wallet must be empty');return {closed:true,accounts:count};}
     `);
-    if(queryOnly)await writeFile(join(consumer,'webpack-entry.mjs'),"import {parseZec,formatZec,createPublicClient,http} from '@jp4g/zcash.js'; export {createPublicClient,http}; export const amount=formatZec(parseZec('1.00000001'));\n");
+    if(queryOnly)await writeFile(join(consumer,'webpack-entry.mjs'),"import {parseZec,formatZec,createPublicClient,httpTransport} from '@jp4g/zcash.js'; export {createPublicClient,httpTransport}; export const amount=formatZec(parseZec('1.00000001'));\n");
     const compiler=webpack({mode:'production',context:consumer,target:['web','es2022'],entry:'./webpack-entry.mjs',devtool:false,...(walletOnly?{experiments:{outputModule:true}}:{}),
       performance:{hints:false},module:{parser:{javascript:{dynamicImportMode:'eager'}}},optimization:{minimize:false},output:{path:join(consumer,'webpack'),filename:'bundle.js',library:walletOnly?{type:'module'}:{name:'SDKProbe',type:'var'},...(walletOnly?{module:true}:{}),globalObject:'globalThis',publicPath:''}});
     let stats;try{stats=await new Promise((resolve,reject)=>compiler.run((error,result)=>error?reject(error):resolve(result)));}finally{await new Promise((resolve,reject)=>compiler.close(error=>error?reject(error):resolve()));}
@@ -155,7 +155,7 @@ test('packed release candidate imports and typechecks in an isolated Node consum
     globals.fetch=()=>{throw Error('unexpected asset or endpoint request');};
     const context=vm.createContext(globals,{codeGeneration:{strings:false,wasm:false}});vm.runInContext(code,context);
     assert.equal(context.SDKProbe.amount,'1.00000001');
-    if(queryOnly){assert.doesNotMatch(code,/wallet-worker|SQLite|sapling-spend|openWalletRuntime/);assert.equal(typeof context.SDKProbe.createPublicClient,'function');assert.equal(typeof context.SDKProbe.http,'function');}
+    if(queryOnly){assert.doesNotMatch(code,/wallet-worker|SQLite|sapling-spend|openWalletRuntime/);assert.equal(typeof context.SDKProbe.createPublicClient,'function');assert.equal(typeof context.SDKProbe.httpTransport,'function');}
     else{assert.deepEqual([...context.SDKProbe.names],implemented);assert.equal(typeof context.SDKProbe.wallet,'function');}
   }
 
@@ -186,7 +186,7 @@ test('packed release candidate imports and typechecks in an isolated Node consum
   }else t.diagnostic('Actual installed wallet check requires WALLET_RUNTIME_PACKAGE and trusted WALLET_TLS_CERT/WALLET_TLS_KEY.');
 
   await writeFile(join(consumer, 'consumer.ts'), `
-    import { parseZec, formatZec, txId, blockHash, accountIndex, diversifierIndex, http, grpc, createLightClient, createPublicClient, isZcashError, defineNetwork } from '@jp4g/zcash.js';
+    import { parseZec, formatZec, txId, blockHash, accountIndex, diversifierIndex, httpTransport, grpc, createLightClient, createPublicClient, isZcashError, defineNetwork } from '@jp4g/zcash.js';
     import type { TxId, BlockHash, AccountIndex, DiversifierIndex, HttpTransport, LightClient, ZcashError, Network, NetworkDefinition } from '@jp4g/zcash.js';
     const definition: NetworkDefinition = null!;
     const network: Promise<Network> = defineNetwork(definition);
@@ -197,10 +197,10 @@ test('packed release candidate imports and typechecks in an isolated Node consum
     const text: string = formatZec(amount);
     const tx: TxId = txId('a'.repeat(64));
     const hash: BlockHash = blockHash('b'.repeat(64));
-    const publicClient: import('@jp4g/zcash.js').PublicClient = createPublicClient({ network: null! as Network, transport: http('https://synthetic.invalid', { sourceId: 'public', timeoutMs: 1000, readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4096 }), observation: { pollIntervalMs: 1000, maxBufferedUpdates: 4 } });
+    const publicClient: import('@jp4g/zcash.js').PublicClient = createPublicClient({ network: null! as Network, transport: httpTransport('https://synthetic.invalid', { sourceId: 'public', timeoutMs: 1000, readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4096 }), observation: { pollIntervalMs: 1000, maxBufferedUpdates: 4 } });
     const account: AccountIndex = accountIndex(0);
     const index: DiversifierIndex = diversifierIndex(0n);
-    const transport: HttpTransport = http('https://synthetic.invalid', {
+    const transport: HttpTransport = httpTransport('https://synthetic.invalid', {
       sourceId: 'test', timeoutMs: 1000, readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4096,
     });
     const caught: unknown = null;

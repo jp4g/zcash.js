@@ -23,7 +23,7 @@ test('packed public JSON-RPC client runs all methods and closes cancelled HTTP r
     return Object.entries(publicResponse(call,vector,mode)).map(([key,value])=>`${JSON.stringify(key)}:${JSON.stringify(value)}`).join(',');
   });
   try {
-    const result=await publicClientChecks(api,(mode='good')=>api.http(server.origin+'/rpc',{...transportOptions,maxResponseBytes:4*1024*1024,headers:()=>({'x-fixture-mode':mode})}),vector,(method,mode)=>{
+    const result=await publicClientChecks(api,(mode='good')=>api.httpTransport(server.origin+'/rpc',{...transportOptions,maxResponseBytes:4*1024*1024,headers:()=>({'x-fixture-mode':mode})}),vector,(method,mode)=>{
       const key=`${method}:${mode}`;return calls.includes(key)?Promise.resolve():new Promise(resolve=>waiting.set(key,resolve));
     });
     const deadline=Date.now()+3000;while(closed.size<2&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,10));

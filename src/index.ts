@@ -10,7 +10,7 @@ export { grpc } from './grpc.js';
 export { parseZec, formatZec } from './amounts.js';
 export { accountIndex, diversifierIndex, txId, blockHash } from './primitives.js';
 export { isZcashError } from './errors.js';
-export { http } from './http.js';
+export { httpTransport } from './http.js';
 export type {
 
   WalletClient,

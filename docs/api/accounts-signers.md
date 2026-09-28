@@ -68,6 +68,29 @@ Continue with [receive addresses](receive-addresses.md); creating an account doe
 not fund it. Use [recovery](#recover-an-existing-mnemonic-account) for an existing
 phrase instead of generating a replacement.
 
+## Restore signing after reopening
+
+Use the existing account ID from `accounts.list()` or `accounts.get()`. There is no birthday lookup, network request, reimport or temporary wallet.
+
+```ts
+import type { AccountRecord, WalletClient } from '@jp4g/zcash.js';
+
+export async function restoreSigning(wallet: WalletClient, accountId: AccountRecord['id'], mnemonic: Uint8Array) {
+  const signer = await wallet.accounts.restoreSigner({ accountId, mnemonic });
+  try {
+    const binding = await wallet.accounts.attachSigner({ accountId, signer });
+    return { signer, binding }; // caller disposes both when finished
+  } catch (error) {
+    await signer.dispose();
+    throw error;
+  }
+}
+```
+
+Supply the original `passphrase` bytes too if the account used a BIP39 passphrase. Restoration uses the stored derivation index and verifies the resulting viewing key before returning a caller-owned, unattached signer. A different mnemonic or passphrase rejects with `ACCOUNT_KEY_MISMATCH`. Wallet history, addresses and scan progress stay unchanged. Accounts imported only from viewing keys have no stored derivation index and reject with `SIGNER_CAPABILITY_MISMATCH`; use their external signer with `attachSigner` instead.
+
+The bundled baseline runtime supports restoration. Previously reviewed external baseline and threaded runtime artifacts reject with `METHOD_NOT_SUPPORTED`; use the bundled baseline runtime for this operation.
+
 ## Recover from a known scan height
 
 Choose a height at or before the account's earliest relevant activity. The helper fetches and validates the preceding tree state; it does not discover when the account was first used.

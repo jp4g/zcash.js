@@ -47,17 +47,15 @@ async function save(state) {
   await rename(temporary, statePath);
 }
 async function signerFor(wallet, state, label) {
-  const authority = await createWalletClient({ ...common, storage: { kind: 'memory' } });
   const bytes = new TextEncoder().encode(state[label].mnemonic);
   try {
-    const imported = await authority.accounts.import({ mnemonic: bytes, accountIndex: accountIndex(0),
-      birthday: await resolveBirthday({ light, firstScanHeight: state.firstScanHeight }) });
+    const signer = await wallet.accounts.restoreSigner({ accountId: state[label].accountId, mnemonic: bytes });
     try {
-      const binding = await wallet.accounts.attachSigner({ accountId: state[label].accountId, signer: imported.signer });
+      const binding = await wallet.accounts.attachSigner({ accountId: state[label].accountId, signer });
       assert.equal(binding.state, 'ready');
-      return { signer: imported.signer, binding };
-    } catch (error) { await imported.signer.dispose(); throw error; }
-  } finally { bytes.fill(0); await authority.close(); }
+      return { signer, binding };
+    } catch (error) { await signer.dispose(); throw error; }
+  } finally { bytes.fill(0); }
 }
 
 if (command === 'probe') {

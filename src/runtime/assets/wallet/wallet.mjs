@@ -1367,6 +1367,7 @@ const operations = new Set([
 	"account_create_hd",
 	"account_import_mnemonic",
 	"account_import_mnemonic_signer",
+	"account_restore_mnemonic_signer",
 	"account_create_mnemonic_signer",
 	"account_list",
 	"account_get",
@@ -2069,7 +2070,8 @@ function viewsForStorage(storage) {
 				if ([
 					"account_import_mnemonic",
 					"account_import_mnemonic_signer",
-					"account_create_mnemonic_signer"
+					"account_create_mnemonic_signer",
+					"account_restore_mnemonic_signer"
 				].includes(operation)) {
 					if (seed !== void 0) throw "INVALID_ARGUMENT";
 					try {
@@ -2078,7 +2080,7 @@ function viewsForStorage(storage) {
 					} catch {
 						throw "INVALID_ARGUMENT";
 					}
-					result = storage.run(() => operation === "account_import_mnemonic" ? views_mnemonic_call(token, input, ownedMnemonic, ownedPassphrase) : signer_create_account(token, operation === "account_create_mnemonic_signer" ? "account_create_hd" : "account_import_hd", input, ownedMnemonic, ownedPassphrase));
+					result = storage.run(() => operation === "account_import_mnemonic" ? views_mnemonic_call(token, input, ownedMnemonic, ownedPassphrase) : signer_create_account(token, operation === "account_restore_mnemonic_signer" ? "account_restore_signer" : operation === "account_create_mnemonic_signer" ? "account_create_hd" : "account_import_hd", input, ownedMnemonic, ownedPassphrase));
 				} else if (mnemonic !== void 0 || passphrase !== void 0) throw "INVALID_ARGUMENT";
 				else if (operation === "account_import_hd" || operation === "account_create_hd") {
 					try {
@@ -2104,11 +2106,11 @@ function viewsForStorage(storage) {
 				ownedPassphrase?.fill(0);
 			}
 			const value = lift(JSON.parse(result));
-			if (operation === "account_import_mnemonic_signer" || operation === "account_create_mnemonic_signer") {
+			if (operation === "account_import_mnemonic_signer" || operation === "account_create_mnemonic_signer" || operation === "account_restore_mnemonic_signer") {
 				if (signal !== void 0 && aborted.call(signal)) {
 					storage.run(() => signer_release(value.signerToken));
 					throw Object.assign(Error("ABORTED"), {
-						commit: "committed",
+						commit: operation === "account_restore_mnemonic_signer" ? "none" : "committed",
 						account: value.account
 					});
 				}
@@ -2193,7 +2195,7 @@ function decodeTransaction(raw, branch) {
 //#region runtime/entry.mjs
 const runtimeIdentity = {
 	"abiVersion": "checked-bindgen-0.2.128/1",
-	"buildSha256": "56a964e1236ce4d3446108d7362b750c63b27eff9b243abdd8679b1be7a58f8e",
+	"buildSha256": "1034a6c780b574ef4bda49795a6311252ea41b2845049c54a6c34a08a4c09274",
 	"contractRevision": "zakura-private-wallet/1",
 	"dependencyGraphSha256": "5a7ccbebc967e1744285a92c73a883c5556804bf082ffc306b12db53086f721d",
 	"memory": {

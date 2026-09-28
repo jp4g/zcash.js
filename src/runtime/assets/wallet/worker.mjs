@@ -52,7 +52,7 @@ var WalletSession = class {
 					if (!method) throw failure("METHOD_NOT_SUPPORTED", "account", "configure", "Native signer binding unavailable.");
 					return Reflect.apply(method, this.owner, [input.token, input.accountId]);
 				}
-				if (operation === "account_import_mnemonic_signer" || operation === "account_create_mnemonic_signer") {
+				if (operation === "account_import_mnemonic_signer" || operation === "account_create_mnemonic_signer" || operation === "account_restore_mnemonic_signer") {
 					const { mnemonic, passphrase, ...input } = args;
 					return this.owner.call(this.generation, this.instance, operation, input, void 0, mnemonic, passphrase);
 				}
@@ -204,6 +204,10 @@ const walletCommands = {
 		write: true,
 		secret: true
 	},
+	account_restore_mnemonic_signer: {
+		stage: "account",
+		secret: true
+	},
 	account_create_mnemonic_signer: {
 		stage: "account",
 		write: true,
@@ -328,6 +332,7 @@ const nativeCodes = {
 	INVALID_MNEMONIC: "INVALID_MNEMONIC",
 	ENTROPY_UNAVAILABLE: "ENTROPY_UNAVAILABLE",
 	SIGNER_MISMATCH: "ACCOUNT_KEY_MISMATCH",
+	SIGNER_CAPABILITY_MISMATCH: "SIGNER_CAPABILITY_MISMATCH",
 	ACCOUNT_INDEX_EXHAUSTED: "RESOURCE_LIMIT",
 	METHOD_NOT_SUPPORTED: "METHOD_NOT_SUPPORTED",
 	CHAIN_MISMATCH: "PROTOCOL_MISMATCH",

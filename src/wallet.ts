@@ -284,6 +284,7 @@ export async function createWalletClient(
         list: call(accountOwner.api.list, true),
         get: call(accountOwner.api.get),
         remove: call(accountOwner.api.remove),
+        restoreSigner: call(accountOwner.api.restoreSigner),
         attachSigner: call(accountOwner.api.attachSigner),
         detachSigner: call(accountOwner.api.detachSigner),
       }),

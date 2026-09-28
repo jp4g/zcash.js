@@ -1,7 +1,7 @@
 {
   "format": "zcash-js-native-build/1",
-  "revision": "83b4693a83722d534d98cc5c7a7532e38a54a4db",
-  "tree": "4fffb9423c7cbf46c8adf07198eed66cc7284fe8",
+  "revision": "9741e95a21e2314b3f817e3ed1427d17f919beb6",
+  "tree": "40cc239759fea0082bba50f42bc7f6b88c97b833",
   "lockSha256": "000468112fd96098f705585187e92e9310b6445522a8b4797b76f4463bd5fc4a",
   "nativePolicy": {
     "zakura-client-backend": {
@@ -1218,7 +1218,7 @@
     }
   },
   "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
-  "producerSha256": "35a36b3c5c7d8de4e283f5a42b20ee319405214170f2ecd8ccdf7cac2bf78d45",
+  "producerSha256": "7048d797e0a2e1d26decd215593c256526d160e9d747a53c3c53c0dae279611b",
   "environment": {
     "CARGO_BUILD_JOBS": "2",
     "WALLET_SDK": "/tmp/zcash-native-tools/wasi-sdk-27.0-x86_64-linux",
@@ -1227,13 +1227,13 @@
     "AR_wasm32_unknown_unknown": "/tmp/zcash-native-tools/wasi-sdk-27.0-x86_64-linux/bin/llvm-ar",
     "CFLAGS_wasm32_unknown_unknown": "--target=wasm32-wasi --sysroot=/tmp/zcash-native-tools/wasi-sdk-27.0-x86_64-linux/share/wasi-sysroot -DSQLITE_OS_OTHER=1 -USQLITE_THREADSAFE -DSQLITE_THREADSAFE=0 -DSQLITE_TEMP_STORE=3 -DSQLITE_OMIT_LOAD_EXTENSION=1",
     "LIBSQLITE3_FLAGS": "-DSQLITE_ENABLE_MEMSYS5 -DSQLITE_ZERO_MALLOC -DLONGDOUBLE_TYPE=double -DSQLITE_OMIT_WAL",
-    "RUSTFLAGS": "--remap-path-prefix=/tmp/zcash-single-import-native=/source --remap-path-prefix=/home/jack/.cargo=/cargo -C link-arg=--max-memory=268435456"
+    "RUSTFLAGS": "--remap-path-prefix=/tmp/zcash-signer-native=/source --remap-path-prefix=/home/jack/.cargo=/cargo -C link-arg=--max-memory=268435456"
   },
   "bindgenSha256": "dc9e4f1e03996c26fb8bfedfded73d81120a37251c3f19eb87bb460f1f89a5be",
   "sdkClangSha256": "e78c818b321d834a20df5796afa9a9329dc53fd1f0a2597166c7a283b355be77",
   "inspection": {
     "pass": true,
-    "sha256": "3545cfd587e6724a7da50ba26461cf64b52ce2b96b00a5f017821738883ec6b5",
+    "sha256": "91092c7e71c7afcf17959c6c3938ac0d7f6de152d2a9c1179329d8fcca8aa1cd",
     "imports": [
       {
         "module": "./bindings_bg.js",
@@ -1615,14 +1615,14 @@
     }
   },
   "artifacts": {
-    "bindings_bg.wasm": "3545cfd587e6724a7da50ba26461cf64b52ce2b96b00a5f017821738883ec6b5",
+    "bindings_bg.wasm": "91092c7e71c7afcf17959c6c3938ac0d7f6de152d2a9c1179329d8fcca8aa1cd",
     "bindings_bg.wasm.d.ts": "f44e1a7358c5cb442f11ec09febfe4a4cfc0bc83f7b9346a4287bf3bf78c054d",
     "bindings.d.ts": "d7a67a3674e5622b8e3b97fff373b033ef75bd8436089d86df0f662d54c95ea6",
     "bindings.js": "b8c5ba77993e6cc1259b14d50bb1ffea53c4ef260001cedc0028f9e7d796fab8",
     "bytes.mjs": "408153ead4462acc2ec6069a27ee611b1ee4e386ff230c89454e42e72be6d7cd",
     "network.mjs": "1b2b24c3bc15ecca9da475ce447208b51797aec6fd06ce3de743b1e5ca27fe1c",
     "transaction.mjs": "42408426c99f6984638dc4109e99dea76b45ab21c4ee260ed7f9d87cc9616dbd",
-    "views.mjs": "b9b5d5c889787a13c3ac1d3a3e956024f987c97284d60d59c60ccde065f31865",
+    "views.mjs": "44b9fb1cd4d4620338bf61efab48f1e97d8801e9671505a69246edae1d4253d0",
     "wallet-host/adapter.c": "07c3289ac0ce16295e7a6722373d8707d50f8196fa2b90512801e70e0a863fce",
     "wallet-host/browser-worker.mjs": "36afc0023f67a0f962a7f3d3f44e3818dae1df7104a464c2f4ecb7aa380711ad",
     "wallet-host/build.rs": "62c4db57983ea1226e9e5453ecf0ed036be13b1c88577852ced8ebbec82cbaab",

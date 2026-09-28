@@ -6,7 +6,7 @@ import { copyFileSync, cpSync, mkdirSync, readFileSync, readdirSync, writeFileSy
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
-const revision = '83b4693a83722d534d98cc5c7a7532e38a54a4db';
+const revision = '9741e95a21e2314b3f817e3ed1427d17f919beb6';
 const bindgenSha256 = 'dc9e4f1e03996c26fb8bfedfded73d81120a37251c3f19eb87bb460f1f89a5be';
 assert.equal(process.argv.length, 6, 'usage: node scripts/build-native-wallet.mjs SOURCE WASI_SDK WASM_BINDGEN NEW_OUTPUT');
 const [source, sdk, bindgen, output] = process.argv.slice(2).map(value => resolve(value));

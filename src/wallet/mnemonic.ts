@@ -9,7 +9,7 @@ type Wallet = Awaited<ReturnType<typeof openWalletRuntime>>;
 /** Private composition until real native authorization completes MemorySigner. */
 export async function createMnemonicAccount(
   wallet: Wallet,
-  kind: 'create' | 'import',
+  kind: 'create' | 'import' | 'restore',
   args: MnemonicAccountInput & Op,
 ) {
   // This lease precedes even dispatch admission; a committed account can outlive its wallet.
@@ -29,7 +29,7 @@ export async function createMnemonicAccount(
   } catch (error) {
     const receipt = error && typeof error === 'object' ? wallet.session.completion(error) : undefined;
     try {
-      if (receipt?.completion === 'committed' && receipt.value) {
+      if (receipt?.value) {
         const value = receipt.value as NativeCreatedAccount;
         await releaseToken(value.signerToken);
       }

@@ -77,6 +77,7 @@ export interface NativeWalletCalls {
   enhancement_apply(args: EnhancementApply & Op): { revision: string };
   account_balance(args: { accountId: string; confirmations: ConfirmationsPolicy } & Op): WalletBalance;
   account_import_mnemonic_signer(args: MnemonicAccountInput): NativeCreatedAccount;
+  account_restore_mnemonic_signer(args: MnemonicAccountInput): NativeCreatedAccount;
   account_create_mnemonic_signer(args: MnemonicAccountInput): NativeCreatedAccount;
   pczt_prove(
     args: { operationId: string; artifactId: string; spend: Uint8Array; output: Uint8Array; maximum: number },
@@ -151,6 +152,7 @@ export const walletCommands: Record<keyof NativeWalletCalls, CommandPolicy> = {
   wallet_history: { stage: 'query' },
   wallet_transaction: { stage: 'query' },
   account_import_mnemonic_signer: { stage: 'account', write: true, secret: true },
+  account_restore_mnemonic_signer: { stage: 'account', secret: true },
   account_create_mnemonic_signer: { stage: 'account', write: true, secret: true },
   pczt_prove: { stage: 'proving', write: true },
   pczt_import: { stage: 'proposal', write: true },

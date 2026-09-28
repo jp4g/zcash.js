@@ -46,6 +46,33 @@ For interactive approval, use [reviewed proposals](proposals.md) so the user app
 
 ## Shield transparent funds
 
+Open the wallet with an explicit policy that admits owned transparent inputs.
+This keeps shielded spending and change in Ironwood, matching the receive example:
+
+```ts
+import { createWalletClient, parseZec } from '@jp4g/zcash.js';
+import type { WalletStorage } from '@jp4g/zcash.js';
+
+export function openForShielding(endpoint: string, storage: WalletStorage) {
+  return createWalletClient(endpoint, {
+    network: 'testnet', storage,
+    transactionPolicy: {
+      spendPools: ['transparent', 'ironwood'], transparent: 'allow-owned', changePool: 'ironwood',
+      feeRule: 'zip317-standard',
+      confirmations: { trusted: 3, untrusted: 3, allowZeroConfirmationShielding: false },
+      expiry: { kind: 'offset', blocks: 80 }, lockExpiryBlocks: 20,
+      shieldingThreshold: parseZec('0.0001'),
+      freshness: { mode: 'require-synced', maxLagBlocks: 0 },
+    },
+  });
+}
+```
+
+Import or create the account, attach its signer, and fund an address issued with
+`request: { format: 'transparent' }`. Sync before calling `shield` below, and close
+the wallet when finished. The ordinary default policy disallows transparent
+inputs and cannot be used for this recipe.
+
 ```ts
 import { parseZec } from '@jp4g/zcash.js';
 import type { AccountRecord, WalletClient } from '@jp4g/zcash.js';
@@ -53,7 +80,7 @@ import type { AccountRecord, WalletClient } from '@jp4g/zcash.js';
 export async function shield(wallet: WalletClient, account: AccountRecord, requestId: string) {
   const pending = await wallet.shield({
     accountId: account.id,
-    toPool: 'sapling',
+    toPool: 'ironwood',
     threshold: parseZec('0.001'),
     idempotencyKey: requestId,
   });

@@ -8,11 +8,13 @@ import type { AccountRecord, WalletClient } from '@jp4g/zcash.js';
 export async function receiveAddress(wallet: WalletClient, account: AccountRecord) {
   const issued = await wallet.addresses.next({
     accountId: account.id,
-    request: { format: 'unified', transparent: 'omit', sapling: 'require', ironwood: 'require' },
+    request: { format: 'unified', transparent: 'omit', sapling: 'omit', ironwood: 'require' },
   });
   return issued.address;
 }
 ```
+
+This Ironwood-only address matches the endpoint wallet’s default spending policy. Request additional receivers only when your spending policy and network support those pools. Omitting receiver requirements still exposes all supported receivers; the SDK default is unchanged.
 
 `next` commits address exposure before returning. Display the returned string in your receive UI or QR code. `current({ accountId, request })` is a local read returning a string or `null`; it does not allocate an address. `list` returns issued records. `at({ accountId, index, request })` exposes an exact derivation index and is a write.
 

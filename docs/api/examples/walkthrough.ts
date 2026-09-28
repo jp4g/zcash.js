@@ -81,7 +81,7 @@ try {
   if (!scanned.targetReached) throw new Error('Account sync has not reached its target');
   const issued = await wallet.addresses.next({
     accountId,
-    request: { format: 'unified', transparent: 'omit', sapling: 'require', ironwood: 'require' },
+    request: { format: 'unified', transparent: 'omit', sapling: 'omit', ironwood: 'require' },
   });
   // Display issued.address privately in the receive UI. Sync does not fund this account.
   // Sending requires a separate incoming payment; this specification supplies none.

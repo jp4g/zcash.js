@@ -25,6 +25,20 @@ export interface Network {
   readonly identity: string;
   readonly genesisHash: BlockHash;
 }
+/** Complete deployment consensus schedule. Null means an upgrade is inactive. */
+export interface NetworkParameters {
+  readonly encoding: 'main' | 'test' | 'regtest';
+  readonly Overwinter: number | null;
+  readonly Sapling: number | null;
+  readonly Blossom: number | null;
+  readonly Heartwood: number | null;
+  readonly Canopy: number | null;
+  readonly Nu5: number | null;
+  readonly Nu6: number | null;
+  readonly Nu6_1: number | null;
+  readonly Nu6_2: number | null;
+  readonly Nu6_3: number | null;
+}
 export interface NetworkDefinition {
   readonly identity: string;
   readonly genesisHash: BlockHash;

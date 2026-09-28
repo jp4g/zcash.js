@@ -1,3 +1,5 @@
+import type { NetworkDefinition, NetworkParameters } from './types.js';
+import { snapshot } from './clients/owned-plumbing.js';
 import { failure, invalidArgument } from './errors.js';
 import { blockHash } from './primitives.js';
 
@@ -18,6 +20,22 @@ const upgrades = [
   'Nu6_2',
   'Nu6_3',
 ] as const;
+
+/** Encode a complete typed schedule for defineNetwork without exposing canonical JSON details. */
+export function encodeNetworkParameters(
+  parameters: NetworkParameters,
+): Pick<NetworkDefinition, 'parametersFormat' | 'parameters'> {
+  const input = snapshot(parameters, ['encoding', ...upgrades]);
+  // Validate primitive values before JSON serialization can coerce NaN/Infinity to null.
+  if (typeof input.encoding !== 'string' || upgrades.some(key => input[key] !== null
+    && (typeof input[key] !== 'number' || !Number.isFinite(input[key])))) throw invalidArgument();
+  const bytes = new TextEncoder().encode(JSON.stringify({
+    encoding: input.encoding,
+    ...Object.fromEntries(upgrades.map(key => [key, input[key]])),
+  }));
+  parseNetworkParameters(bytes, format);
+  return { parametersFormat: format, parameters: bytes };
+}
 
 /** Internal document validation only; does not create or register a Network. */
 export function parseNetworkParameters(input: Uint8Array, parametersFormat: string) {

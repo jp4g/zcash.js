@@ -1,5 +1,5 @@
 import {
-  createPublicClient, defineNetwork, httpTransport, readGenesisHash,
+  createPublicClient, defineNetwork, encodeNetworkParameters, httpTransport, readGenesisHash,
 } from '@jp4g/zcash.js';
 
 export async function connectRegtest(rpcUrl: string) {
@@ -10,12 +10,11 @@ export async function connectRegtest(rpcUrl: string) {
   const genesisHash = await readGenesisHash(transport);
   const network = await defineNetwork({
     identity: 'local-regtest', genesisHash,
-    parametersFormat: 'zcash-js-network/1',
-    parameters: new TextEncoder().encode(JSON.stringify({
+    ...encodeNetworkParameters({
       encoding: 'regtest',
       Overwinter: 1, Sapling: 1, Blossom: 1, Heartwood: 1, Canopy: 1,
       Nu5: 1, Nu6: 1, Nu6_1: null, Nu6_2: null, Nu6_3: null,
-    })),
+    }),
   });
   const client = createPublicClient({
     network, transport,

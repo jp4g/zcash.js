@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Rename the public `http` transport factory to `httpTransport`. Update imports
+  and calls to the new name; transport options and behavior are unchanged.
+
 ## 0.1.0-rc.4 — wallet endpoint defaults
 
 - `createWalletClient(endpoint, { network, storage })` configures network,

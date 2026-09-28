@@ -9,13 +9,13 @@ export async function runBrowser() {
     throw Error(`${label}: expected ${code}`);
   };
   const { getTransaction } = await import('/src/clients/public-transaction-reads.js');
-  const { http } = await import('/src/http.js');
+  const { httpTransport } = await import('/src/http.js');
   const { initialize } = await import('/packet/network.mjs');
   initialize(new Uint8Array(await (await fetch('/packet/bindings_bg.wasm')).arrayBuffer()));
   const { decodeTransaction } = await import('/packet/transaction.mjs');
   const vectors = await (await fetch('/vectors.json')).json();
   const source = (mode, options = {}) => ({ sourceId: 'fixture',
-    transport: http(`${location.origin}/rpc/${mode}`, { ...transportOptions, ...options }) });
+    transport: httpTransport(`${location.origin}/rpc/${mode}`, { ...transportOptions, ...options }) });
   const context = v => ({ txid: v.display, decodeTransaction: raw => decodeTransaction(raw, v.branch) });
   for (const v of vectors) {
     const value = await getTransaction(source('mempool'), context(v), { txid: v.display });

@@ -39,12 +39,12 @@ export async function run() {
     sdk = await import('/package/dist/src/index.js');
     bundled = await import('/bundle.mjs');
     for (const api of [sdk, bundled.sdk]) {
-      check(Object.keys(api).sort().join(',') === 'accountFromViewingKey,accountIndex,addresses,blockHash,createCustomSigner,createLightClient,createPublicClient,createWalletClient,createZcashClient,defineNetwork,diversifierIndex,formatZec,grpc,http,isZcashError,parseZec,pczt,resolveBirthday,txId,viewing', 'root exports');
+      check(Object.keys(api).sort().join(',') === 'accountFromViewingKey,accountIndex,addresses,blockHash,createCustomSigner,createLightClient,createPublicClient,createWalletClient,createZcashClient,defineNetwork,diversifierIndex,formatZec,grpc,httpTransport,isZcashError,parseZec,pczt,resolveBirthday,txId,viewing', 'root exports');
       check(api.parseZec('9007199254740993.00000001') === 900719925474099300000001n, 'amount parse');
       check(api.formatZec(900719925474099300000001n) === '9007199254740993.00000001', 'amount format');
       check(api.txId('a'.repeat(64)) === 'a'.repeat(64) && api.blockHash('b'.repeat(64)) === 'b'.repeat(64), 'hash IDs');
       check(api.accountIndex(0) === 0 && api.diversifierIndex(0n) === 0n, 'index IDs');
-      check(Object.keys(api.http(`${location.origin}/rpc`, policy)).length === 0, 'opaque transport');
+      check(Object.keys(api.httpTransport(`${location.origin}/rpc`, policy)).length === 0, 'opaque transport');
     }
   });
   document.removeEventListener('securitypolicyviolation', violation);
@@ -62,7 +62,7 @@ export async function run() {
   try { await import('/negative-unsupported.mjs'); } catch (error) { unsupported = error instanceof SyntaxError; }
   check(unsupported, 'nonexistent named import must reject in Firefox');
   const network = await networks([sdk, bundled.sdk]);
-  const transport = bundled.sdk.http(`${location.origin}/rpc`, policy);
+  const transport = bundled.sdk.httpTransport(`${location.origin}/rpc`, policy);
   const read = (mode, signal, t = transport) => bundled.readRpc(t, 'getblockhash', [mode, 7, true, '€'], signal);
   const good = await read('good');
   check(good.value.text === '9007199254740993' && good.text === '€雪😀', 'precision/streamed UTF8');
@@ -77,7 +77,7 @@ export async function run() {
       errors[mode] = { code: error.code, retryable: error.retryable, elapsedMs: performance.now() - start };
     }
   }
-  await rejects('deadline', 'TIMEOUT', undefined, bundled.sdk.http(`${location.origin}/rpc`, { ...policy, timeoutMs: 300 }));
+  await rejects('deadline', 'TIMEOUT', undefined, bundled.sdk.httpTransport(`${location.origin}/rpc`, { ...policy, timeoutMs: 300 }));
   const controller = new AbortController();
   // Wait for the real server to confirm this request entered a stalled response.
   const aborted = rejects('abort', 'ABORTED', controller.signal);
@@ -92,7 +92,7 @@ export async function run() {
   } finally { controller.abort(); }
   await aborted;
   await rejects('invalid', 'PROTOCOL_MISMATCH');
-  await rejects('rpc-error', 'METHOD_NOT_SUPPORTED', undefined, bundled.sdk.http(`${location.origin}/rpc`,
+  await rejects('rpc-error', 'METHOD_NOT_SUPPORTED', undefined, bundled.sdk.httpTransport(`${location.origin}/rpc`,
     { ...policy, readRetry: { attempts: 3, delayMs: 0 } }));
   check(errors['rpc-error'].retryable === false, 'RPC error retryability');
   const vector=await(await fetch('/light-vector.json')).json(),light=[];
@@ -111,7 +111,7 @@ export async function run() {
   const publicClients=[];
   for(const api of [sdk,bundled.sdk]) {
     const previous=(await(await fetch('/fixture-state')).json()).publicRequests.length;
-    publicClients.push(await publicClientChecks(api,(mode='good')=>api.http(location.origin+'/public-rpc',{...policy,maxResponseBytes:4*1024*1024,headers:()=>({'x-fixture-mode':mode})}),vector,async(method,mode)=>{
+    publicClients.push(await publicClientChecks(api,(mode='good')=>api.httpTransport(location.origin+'/public-rpc',{...policy,maxResponseBytes:4*1024*1024,headers:()=>({'x-fixture-mode':mode})}),vector,async(method,mode)=>{
       const deadline=performance.now()+3000;
       while(performance.now()<deadline){const state=await(await fetch('/fixture-state')).json();if(state.publicRequests.slice(previous).some(r=>r.method===method&&r.mode===mode))return;await new Promise(resolve=>setTimeout(resolve,10));}
       throw Error('public dispatch timeout');

@@ -4,12 +4,12 @@ import test from 'node:test';
 import { fixture, result, sourceId, hashA, hashB, transportOptions } from './public-chain-reads-fixtures.mjs';
 
 import { buildRoot as build } from '../support/paths.mjs';
-const { http } = await import(`${build}/src/http.js`);
+const { httpTransport } = await import(`${build}/src/http.js`);
 const adapter = await import(`${build}/src/clients/public-chain-reads.js`);
 async function local(t, respond, options = {}) {
   const server = await fixture(respond);
   t.after(() => server.close());
-  return { ...server, context: { sourceId, transport: http(server.origin + '/rpc', { ...transportOptions, ...options }) } };
+  return { ...server, context: { sourceId, transport: httpTransport(server.origin + '/rpc', { ...transportOptions, ...options }) } };
 }
 
 test('getTip returns the coherent blocks/bestblockhash pair in one RPC', async t => {
@@ -191,7 +191,7 @@ test('abort and timeout cover both header requests through the existing transpor
     const reading = adapter.getBlockHeader(f.context, { height: 0, signal: controller.signal });
     const rejected = assert.rejects(reading, code('ABORTED'));
     await arrived; controller.abort(); await rejected;
-    const timed = { sourceId, transport: http(f.origin + '/rpc', { ...transportOptions, timeoutMs: 30 }) };
+    const timed = { sourceId, transport: httpTransport(f.origin + '/rpc', { ...transportOptions, timeoutMs: 30 }) };
     await assert.rejects(adapter.getBlockHeader(timed, { height: 0 }), code('TIMEOUT'));
   }
   const f = await local(t, () => undefined, { timeoutMs: 30 });
@@ -297,7 +297,7 @@ async function admissionFixture(t) {
       call.method === 'getblockchaininfo' ? { blocks: 0, bestblockhash: genesis.verbose.hash }
         : call.params[1] ? genesis.verbose : genesis.raw }));
   });
-  return { calls, source: { sourceId, transport: http('http://127.0.0.1:1/rpc', transportOptions) } };
+  return { calls, source: { sourceId, transport: httpTransport('http://127.0.0.1:1/rpc', transportOptions) } };
 }
 
 test('admission snapshots each source descriptor once without proxy property rereads', async t => {
@@ -380,7 +380,7 @@ const bad=code=>e=>{assert.ok(isZcashError(e),'error must narrow with isZcashErr
 const invoke=(method,s,signal)=>method(s,method===getTip?{signal}:{height:0,signal});
 function fixture(t,{vector=genesis,headers,answer,timeoutMs=100,readRetry={attempts:1,delayMs:0}}={}) {
  const calls=[];let headerCalls=0;
- const source={sourceId:'r2-label',transport:http('http://127.0.0.1:1/rpc',{sourceId:'r2-label',timeoutMs,maxResponseBytes:16384,readRetry,headers:async()=>{headerCalls++;return await headers?.()??{};}})};
+ const source={sourceId:'r2-label',transport:httpTransport('http://127.0.0.1:1/rpc',{sourceId:'r2-label',timeoutMs,maxResponseBytes:16384,readRetry,headers:async()=>{headerCalls++;return await headers?.()??{};}})};
  t.mock.method(globalThis,'fetch',async(_url,init)=>{
   const c=JSON.parse(init.body);calls.push(c);
   if(answer)return answer(c,init);
@@ -478,7 +478,7 @@ for(const method of [getTip,getBlockHeader])for(const mode of ['good','METHOD_NO
  const foreign=Error('private-sentinel-r2');const signal=new AbortController().signal;
  Object.defineProperty(signal,'removeEventListener',{value(){throw foreign;}});
  let calls=0,response;
- const source={sourceId:'r2',transport:http('http://127.0.0.1:1/rpc',{sourceId:'r2',timeoutMs:mode==='TIMEOUT'?20:1000,readRetry:{attempts:1,delayMs:0},maxResponseBytes:16384})};
+ const source={sourceId:'r2',transport:httpTransport('http://127.0.0.1:1/rpc',{sourceId:'r2',timeoutMs:mode==='TIMEOUT'?20:1000,readRetry:{attempts:1,delayMs:0},maxResponseBytes:16384})};
  t.mock.method(globalThis,'fetch',async(_url,init)=>{
   calls++;const c=JSON.parse(init.body);
   const envelope={jsonrpc:'2.0',id:c.id,...(mode==='METHOD_NOT_SUPPORTED'?{error:{code:-32601,message:'server-private'}}:{result:mode==='PROTOCOL_MISMATCH'?null:c.method==='getblockchaininfo'?{blocks:0,bestblockhash:genesis.verbose.hash}:c.params[1]?genesis.verbose:genesis.raw})};
@@ -496,7 +496,7 @@ for(const method of [getTip,getBlockHeader])for(const mode of ['good','METHOD_NO
 });
 for(const method of [getTip,getBlockHeader])test(`REPRO forged signal with no-op listener methods must not dispatch: ${method.name}`,async t=>{
  let calls=0;const signal=Object.create(AbortSignal.prototype,{aborted:{value:false},addEventListener:{value(){}},removeEventListener:{value(){}}});
- const source={sourceId:'r2',transport:http('http://127.0.0.1:1/rpc',{sourceId:'r2',timeoutMs:100,readRetry:{attempts:1,delayMs:0},maxResponseBytes:16384})};
+ const source={sourceId:'r2',transport:httpTransport('http://127.0.0.1:1/rpc',{sourceId:'r2',timeoutMs:100,readRetry:{attempts:1,delayMs:0},maxResponseBytes:16384})};
  t.mock.method(globalThis,'fetch',async(_url,init)=>{calls++;const c=JSON.parse(init.body);return new Response(JSON.stringify({jsonrpc:'2.0',id:c.id,result:c.method==='getblockchaininfo'?{blocks:0,bestblockhash:genesis.verbose.hash}:c.params[1]?genesis.verbose:genesis.raw}));});
  let error,value;try{value=await run(method,source,signal);}catch(e){error=e;}
 
@@ -518,7 +518,7 @@ for (const method of [adapter.getTip, adapter.getBlockHeader]) test(`${method.na
     };
     mutate();
     let response;
-    const source = { sourceId, transport: http('http://127.0.0.1:1/rpc', {
+    const source = { sourceId, transport: httpTransport('http://127.0.0.1:1/rpc', {
       ...transportOptions, maxResponseBytes: mode === 'RESOURCE_LIMIT' ? 1 : 16384,
       headers: async () => { await Promise.resolve(); mutate(); if (mode === 'ABORTED') controller.abort(); return {}; },
     }) };
@@ -544,7 +544,7 @@ test('genuine signal mutation and abort preempt late native hash rejections at b
   const { genesis } = await import('./public-chain-reads-fixtures.mjs');
   for (const stage of [1, 2]) {
     const controller = new AbortController();
-    const source = { sourceId, transport: http('http://127.0.0.1:1/rpc', transportOptions) };
+    const source = { sourceId, transport: httpTransport('http://127.0.0.1:1/rpc', transportOptions) };
     const fetching = t.mock.method(globalThis, 'fetch', async (_url, init) => {
       const call = JSON.parse(init.body);
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: call.id, result: call.params[1] ? genesis.verbose : genesis.raw }));
@@ -578,7 +578,7 @@ for(const block of [false,true])for(const [method,stage] of [[getTip,'headers'],
  const ac=new AbortController();
  if(block)ac.signal.addEventListener('abort',e=>e.stopImmediatePropagation(),{once:true});
  let headers=0,calls=0,digests=0;const responses=[];
- const source={sourceId:'r3',transport:http('http://127.0.0.1:1/rpc',{sourceId:'r3',timeoutMs:1000,maxResponseBytes:16384,readRetry:{attempts:1,delayMs:0},headers:async()=>{headers++;if(stage==='headers')ac.abort('private-reason');return {};}})};
+ const source={sourceId:'r3',transport:httpTransport('http://127.0.0.1:1/rpc',{sourceId:'r3',timeoutMs:1000,maxResponseBytes:16384,readRetry:{attempts:1,delayMs:0},headers:async()=>{headers++;if(stage==='headers')ac.abort('private-reason');return {};}})};
  t.mock.method(globalThis,'fetch',async(_url,init)=>{calls++;const c=JSON.parse(init.body);const response=new Response(JSON.stringify({jsonrpc:'2.0',id:c.id,result:method===getTip?{blocks:0,bestblockhash:genesis.verbose.hash}:c.params[1]?genesis.verbose:genesis.raw}));responses.push(response);return response;});
  const native=crypto.subtle.digest.bind(crypto.subtle);
  t.mock.method(crypto.subtle,'digest',async(...args)=>{const v=await native(...args);digests++;if(stage.endsWith(String(digests))){ac.abort('private-reason');if(stage.startsWith('reject'))throw Error('private-late-digest');}return v;});
@@ -608,7 +608,7 @@ for (const methodName of ['getTip', 'getBlockHeader']) {
       responses.push(response);
       return response;
     });
-    const source = { sourceId, transport: http('http://127.0.0.1:1/rpc', transportOptions) };
+    const source = { sourceId, transport: httpTransport('http://127.0.0.1:1/rpc', transportOptions) };
     await assert.rejects(adapter[methodName](source, {
       ...(methodName === 'getTip' ? {} : { height: 0 }), signal: controller.signal,
     }), code('ABORTED'));

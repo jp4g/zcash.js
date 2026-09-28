@@ -9,7 +9,7 @@ Use the chapter links for examples. The [package entry point](https://github.com
 | `defineNetwork` | Validate and register network parameters | [Networks](networks-amounts.md) |
 | `parseZec`, `formatZec` | Exact ZEC/zatoshi conversion | [Amounts](networks-amounts.md) |
 | `accountIndex`, `diversifierIndex`, `txId`, `blockHash` | Validate typed identifiers | [Identifiers](networks-amounts.md) |
-| `http`, `createPublicClient` | JSON-RPC transport and public reads | [Public client](public-client.md) |
+| `httpTransport`, `createPublicClient` | JSON-RPC transport and public reads | [Public client](public-client.md) |
 | `grpc`, `createLightClient` | Lightwallet transport and reads | [Light client](light-client.md) |
 | `createWalletClient` | Open the local wallet and recover recorded work | [Wallet setup](wallet-runtime.md) |
 | `createZcashClient` | Group existing same-network clients | [Introduction](README.md) |

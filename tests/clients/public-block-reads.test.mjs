@@ -4,7 +4,7 @@ import test from 'node:test';
 import { fixture, result, sourceId, transportOptions, blockOne } from './public-chain-reads-fixtures.mjs';
 
 import { buildRoot as build } from '../support/paths.mjs';
-const { http } = await import(`${build}/src/http.js`);
+const { httpTransport } = await import(`${build}/src/http.js`);
 const adapter = await import(`${build}/src/clients/public-block-reads.js`);
 // The single txid is verbatim from the pinned verbosity-1 block-one snapshot.
 const txids = ['851bf6fbf7a976327817c738c489d7fa657752445430922d94c983c0b9ed4609'];
@@ -14,7 +14,7 @@ const code = expected => error => error.code === expected;
 async function local(t, respond = reply, options = {}) {
   const server = await fixture(respond);
   t.after(async () => { await server.close(); assert.deepEqual(server.unexpected, []); });
-  return { ...server, source: { sourceId, transport: http(server.origin + '/rpc', { ...transportOptions, ...options }) } };
+  return { ...server, source: { sourceId, transport: httpTransport(server.origin + '/rpc', { ...transportOptions, ...options }) } };
 }
 
 test('getBlock resolves height once and pins both header calls across a reorg', async t => {
@@ -41,7 +41,7 @@ test('getBlock resolves height once and pins both header calls across a reorg', 
 
 test('invalid selector/source rejects without invoking callbacks', async () => {
   let callbacks = 0;
-  const source = { sourceId, transport: http('http://127.0.0.1:1', { ...transportOptions,
+  const source = { sourceId, transport: httpTransport('http://127.0.0.1:1', { ...transportOptions,
     headers() { callbacks++; throw Error('private-fixture'); } }) };
   for (const args of [undefined, null, [], {}, { height: 1, hash: block.hash }, { height: 1, hash: undefined },
     { hash: block.hash, height: undefined }, { height: -1 }, { height: 4294967296 }, { height: NaN },
@@ -200,7 +200,7 @@ for (const stage of [0, 1, 2]) {
 
 test('pre-aborted operation does not call transport callbacks', async () => {
   let calls = 0;
-  const source = { sourceId, transport: http('http://127.0.0.1:1', { ...transportOptions, headers() { calls++; return {}; } }) };
+  const source = { sourceId, transport: httpTransport('http://127.0.0.1:1', { ...transportOptions, headers() { calls++; return {}; } }) };
   const controller = new AbortController(); controller.abort();
   await assert.rejects(adapter.getBlock(source, { height: 1, signal: controller.signal }), code('ABORTED'));
   assert.equal(calls, 0);
@@ -266,7 +266,7 @@ function boundary(t, options = {}) {
     const call = JSON.parse(request.body); calls.push(call);
     return new Response(`{"jsonrpc":"2.0","id":${JSON.stringify(call.id)},${reply(call)}}`);
   });
-  return { calls, source: { sourceId, transport: http('http://127.0.0.1:1', { ...transportOptions, ...options }) } };
+  return { calls, source: { sourceId, transport: httpTransport('http://127.0.0.1:1', { ...transportOptions, ...options }) } };
 }
 const sanitized = expected => error => {
   assert.equal(error.code, expected); assert.equal(error.message, expected === 'INVALID_ARGUMENT' ? 'Invalid argument.' : 'Request aborted.');

@@ -40,7 +40,7 @@ function integer(value: unknown, minimum: number): asserts value is number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum) throw invalidArgument();
 }
 
-export function http(url: string, options: TransportOptions): HttpTransport {
+export function httpTransport(url: string, options: TransportOptions): HttpTransport {
   let endpoint: URL;
   try {
     if (typeof url !== 'string' || url.trim() !== url) throw invalidArgument();

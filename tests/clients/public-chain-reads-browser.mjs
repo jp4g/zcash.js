@@ -16,15 +16,15 @@ export async function runBrowser() {
   const forbidden = name => () => { eager[name]++; throw Error(`unexpected ${name}`); };
   globalThis.fetch = forbidden('fetch'); globalThis.Worker = forbidden('Worker');
   globalThis.WebAssembly = new Proxy(WebAssembly, { get() { return forbidden('WebAssembly'); } });
-  let api, http;
+  let api, httpTransport;
   try {
     api = await import('/src/clients/public-chain-reads.js');
-    const root = await import('/src/index.js'); http = root.http;
+    const root = await import('/src/index.js'); httpTransport = root.httpTransport;
     check(!('getTip' in root) && !('getBlockHeader' in root) && typeof root.createPublicClient === 'function', 'internal exports only');
     check(Object.values(eager).every(n => n === 0), 'imports are lazy');
     globalThis.fetch = originals.fetch;
     const context = (mode, timeoutMs = 1000) => ({ sourceId,
-      transport: http(`${location.origin}/rpc/${mode}`, { ...transportOptions, timeoutMs }) });
+      transport: httpTransport(`${location.origin}/rpc/${mode}`, { ...transportOptions, timeoutMs }) });
     const { isZcashError } = await import('/src/errors.js');
     for (const method of [api.getTip, api.getBlockHeader]) {
       const source = context(method === api.getTip ? 'good' : 'genesis');
@@ -72,7 +72,7 @@ export async function runBrowser() {
           }
         };
         if (mode === 'overrides') mutate();
-        const lifetimeSource = { sourceId, transport: http(`${location.origin}/rpc/${method === api.getTip ? 'good' : 'genesis'}`, {
+        const lifetimeSource = { sourceId, transport: httpTransport(`${location.origin}/rpc/${method === api.getTip ? 'good' : 'genesis'}`, {
           ...transportOptions, headers: async () => {
             await Promise.resolve();
             if (mode === 'mutated' || mode === 'abort') mutate();
@@ -121,7 +121,7 @@ export async function runBrowser() {
     for (const method of [api.getTip, api.getBlockHeader]) {
       const controller = new AbortController();
       controller.signal.addEventListener('abort', event => event.stopImmediatePropagation(), { once: true });
-      const source = { sourceId, transport: http(`${location.origin}/rpc/invalid-input`, {
+      const source = { sourceId, transport: httpTransport(`${location.origin}/rpc/invalid-input`, {
         ...transportOptions, headers: async () => { controller.abort(); return {}; },
       }) };
       await rejects(method(source, { ...(method === api.getTip ? {} : { height: 0 }), signal: controller.signal }), 'ABORTED');

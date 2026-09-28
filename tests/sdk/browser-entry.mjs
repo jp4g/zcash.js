@@ -2,7 +2,7 @@ import * as sdk from '@jp4g/zcash.js';
 import { readRpc } from '../../dist/src/http.js';
 
 export async function run() {
-  const transport = sdk.http('https://synthetic.invalid', {
+  const transport = sdk.httpTransport('https://synthetic.invalid', {
     sourceId: 'browser-fixture', timeoutMs: 1000,
     readRetry: { attempts: 1, delayMs: 0 }, maxResponseBytes: 4096,
   });

@@ -11,23 +11,23 @@ const response = (request, result = 'ok') => new Response(JSON.stringify({ jsonr
 
 function mockFetch(t, callback) { t.mock.method(globalThis, 'fetch', callback); }
 
-test('http is lazy, opaque, validates every option and snapshots policy', async (t) => {
+test('httpTransport is lazy, opaque, validates every option and snapshots policy', async (t) => {
   let calls = 0;
   mockFetch(t, async (_url, init) => { calls++; return response(JSON.parse(init.body)); });
   const policy = options();
-  const transport = sdk.http('https://synthetic.invalid/token?secret=hidden', policy);
+  const transport = sdk.httpTransport('https://synthetic.invalid/token?secret=hidden', policy);
   assert.deepEqual(Object.keys(transport), []);
   assert.equal(calls, 0);
   policy.readRetry.attempts = 0;
   assert.equal(await call(transport), 'ok');
   assert.equal(calls, 1);
   for (const url of ['', '/relative', 'ftp://synthetic.invalid', 'https://user:pass@synthetic.invalid',
-    'https://synthetic.invalid/#fragment']) assert.throws(() => sdk.http(url, options()), { code: 'INVALID_ARGUMENT' });
+    'https://synthetic.invalid/#fragment']) assert.throws(() => sdk.httpTransport(url, options()), { code: 'INVALID_ARGUMENT' });
   for (const extra of [{ sourceId: '' }, { timeoutMs: 0 }, { timeoutMs: NaN }, { timeoutMs: 1.2 },
     { timeoutMs: Number.MAX_SAFE_INTEGER + 1 }, { maxResponseBytes: 0 }, { headers: {} },
     { readRetry: { attempts: 0, delayMs: 0 } }, { readRetry: { attempts: 1, delayMs: -1 } },
     { readRetry: { attempts: 1, delayMs: 0, unknown: true } }, { unknown: true }, { [Symbol()]: true }]) {
-    assert.throws(() => sdk.http('https://synthetic.invalid', options(extra)), { code: 'INVALID_ARGUMENT' });
+    assert.throws(() => sdk.httpTransport('https://synthetic.invalid', options(extra)), { code: 'INVALID_ARGUMENT' });
   }
   await assert.rejects(call({}), { code: 'INVALID_ARGUMENT' });
 });
@@ -49,7 +49,7 @@ test('non-enumerable supported options retain byte limits, deadlines and retry p
   for (const [key, value] of Object.entries(options({ timeoutMs: 20, maxResponseBytes: 64, readRetry: retry }))) {
     Object.defineProperty(policy, key, { value });
   }
-  const transport = sdk.http('https://synthetic.invalid', policy);
+  const transport = sdk.httpTransport('https://synthetic.invalid', policy);
   await assert.rejects(call(transport), { code: 'RESOURCE_LIMIT' });
   mode = 'stall';
   const controller = new AbortController();
@@ -78,14 +78,14 @@ test('supported option getters are read once and their first values are validate
     assert.equal(init.headers.get('authorization'), 'first');
     return response(JSON.parse(init.body));
   });
-  const transport = sdk.http('https://synthetic.invalid', policy);
+  const transport = sdk.httpTransport('https://synthetic.invalid', policy);
   assert.equal(await call(transport), 'ok');
   assert.deepEqual(reads, { sourceId: 1, timeoutMs: 1, readRetry: 1, maxResponseBytes: 1,
     headers: 1, 'retry.attempts': 1, 'retry.delayMs': 1 });
   let invalidReads = 0;
   const invalid = options();
   Object.defineProperty(invalid, 'timeoutMs', { get() { return ++invalidReads === 1 ? 0 : 1000; } });
-  assert.throws(() => sdk.http('https://synthetic.invalid', invalid), { code: 'INVALID_ARGUMENT' });
+  assert.throws(() => sdk.httpTransport('https://synthetic.invalid', invalid), { code: 'INVALID_ARGUMENT' });
   assert.equal(invalidReads, 1);
 });
 
@@ -104,7 +104,7 @@ test('wire requests use POST, distinct string IDs, explicit credentials, no redi
     await new Promise(resolve => setTimeout(resolve, requests.length === 1 ? 15 : 0));
     return response(body, body.params);
   });
-  const transport = sdk.http('https://synthetic.invalid', options({ headers: async () => ({ Authorization: 'synthetic-token' }) }));
+  const transport = sdk.httpTransport('https://synthetic.invalid', options({ headers: async () => ({ Authorization: 'synthetic-token' }) }));
   const results = await Promise.all([internal.readRpc(transport, 'getblockhash', [0]), internal.readRpc(transport, 'getblockhash', [123])]);
   assert.equal(results[0][0].text, '0');
   assert.equal(results[1][0].text, '123');
@@ -127,7 +127,7 @@ for (const enumerable of [true, false]) {
       received.push(init.headers.get('authorization'));
       return response(JSON.parse(init.body));
     });
-    await call(sdk.http('https://synthetic.invalid', options({ headers: async () => headers })));
+    await call(sdk.httpTransport('https://synthetic.invalid', options({ headers: async () => headers })));
     assert.deepEqual(received, ['expected-token']);
     assert.equal(reads, 1);
   });
@@ -143,7 +143,7 @@ for (const enumerable of [true, false]) {
       received.push(request);
       return received.length === 1 ? new Response('', { status: 503 }) : response(request);
     });
-    const transport = sdk.http('https://synthetic.invalid', options({ readRetry: { attempts: 2, delayMs: 0 } }));
+    const transport = sdk.httpTransport('https://synthetic.invalid', options({ readRetry: { attempts: 2, delayMs: 0 } }));
     await internal.readRpc(transport, 'getblockhash', params);
     assert.deepEqual(received.map(request => request.params), [[7], [7]]);
     assert.notEqual(received[0].id, received[1].id);
@@ -158,7 +158,7 @@ for (const variant of ['custom iterator', 'overridden some', 'hole', 'object', '
     let serializations = 0;
     const unsupported = { toJSON() { serializations++; return 7; } };
     mockFetch(t, async (_url, init) => { dispatches++; return response(JSON.parse(init.body)); });
-    const transport = sdk.http('https://synthetic.invalid', options());
+    const transport = sdk.httpTransport('https://synthetic.invalid', options());
     const overriddenSome = [unsupported];
     overriddenSome.some = () => false;
     const customIterator = [7];
@@ -181,7 +181,7 @@ test('malformed replies and mismatched IDs never become successful/absent result
   ];
   let current;
   mockFetch(t, async (_url, init) => new Response(JSON.stringify(current(JSON.parse(init.body).id))));
-  const transport = sdk.http('https://synthetic.invalid', options());
+  const transport = sdk.httpTransport('https://synthetic.invalid', options());
   for (current of malformed) await assert.rejects(call(transport), { code: 'PROTOCOL_MISMATCH' });
 });
 
@@ -193,7 +193,7 @@ test('RPC errors are distinct from absence, sanitized, and not retried', async (
     return new Response(JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(init.body).id,
       error: { code, message: 'private-server-text', data: 'private-server-data' } }));
   });
-  const transport = sdk.http('https://synthetic.invalid/private-path', options({ readRetry: { attempts: 3, delayMs: 0 } }));
+  const transport = sdk.httpTransport('https://synthetic.invalid/private-path', options({ readRetry: { attempts: 3, delayMs: 0 } }));
   await assert.rejects(call(transport), { code: 'METHOD_NOT_SUPPORTED', retryable: false });
   code = -5;
   await assert.rejects(call(transport), error => {
@@ -212,7 +212,7 @@ test('structured RPC errors survive HTTP error statuses without read replay', as
     return new Response(JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(init.body).id,
       error: { code: -32601, message: 'private-server-text' } }), { status: 500 });
   });
-  await assert.rejects(call(sdk.http('https://synthetic.invalid', options({ readRetry: { attempts: 3, delayMs: 0 } }))),
+  await assert.rejects(call(sdk.httpTransport('https://synthetic.invalid', options({ readRetry: { attempts: 3, delayMs: 0 } }))),
     { code: 'METHOD_NOT_SUPPORTED', retryable: false });
   assert.equal(calls, 1);
 });
@@ -226,7 +226,7 @@ test('a retry uses the original parameter snapshot', async (t) => {
     params[0] = 99;
     return received.length === 1 ? new Response('', { status: 503 }) : response(request);
   });
-  const transport = sdk.http('https://synthetic.invalid', options({ readRetry: { attempts: 2, delayMs: 0 } }));
+  const transport = sdk.httpTransport('https://synthetic.invalid', options({ readRetry: { attempts: 2, delayMs: 0 } }));
   await internal.readRpc(transport, 'getblockhash', params);
   assert.deepEqual(received, [0, 0]);
 });
@@ -235,11 +235,11 @@ test('retry backoff is abortable and credentials failures never dispatch or disc
   let calls = 0;
   const controller = new AbortController();
   mockFetch(t, async () => { calls++; setTimeout(() => controller.abort('private'), 5); return new Response('', { status: 503 }); });
-  const transport = sdk.http('https://synthetic.invalid', options({ readRetry: { attempts: 5, delayMs: 1000 } }));
+  const transport = sdk.httpTransport('https://synthetic.invalid', options({ readRetry: { attempts: 5, delayMs: 1000 } }));
   await assert.rejects(call(transport, controller.signal), { code: 'ABORTED' });
   assert.equal(calls, 1);
   for (const headers of [async () => { throw Error('private-header'); }, async () => ({ X: 'bad\nheader' }), async () => null]) {
-    await assert.rejects(call(sdk.http('https://synthetic.invalid/private', options({ headers }))), error => {
+    await assert.rejects(call(sdk.httpTransport('https://synthetic.invalid/private', options({ headers }))), error => {
       assert.equal(error.code, 'INVALID_ARGUMENT');
       assert.doesNotMatch(`${error.stack} ${JSON.stringify(error)}`, /private-header|bad\nheader|invalid\/private/);
       return true;
@@ -252,7 +252,7 @@ test('transport rejects invalid UTF-8, empty/truncated bodies and wrong lengths'
   let content;
   let headers;
   mockFetch(t, async () => new Response(content, { headers }));
-  const transport = sdk.http('https://synthetic.invalid', options({ maxResponseBytes: 64 }));
+  const transport = sdk.httpTransport('https://synthetic.invalid', options({ maxResponseBytes: 64 }));
   for (content of ['', '{', '\ufeff{}', new Uint8Array([0xe2, 0x82])]) {
     await assert.rejects(call(transport), { code: 'PROTOCOL_MISMATCH' });
   }
@@ -268,7 +268,7 @@ test('native response wrapper preserves numeric tokens and checks container dept
   mockFetch(t, async (_url, init) => new Response(
     `{"jsonrpc":"2.0","id":${JSON.stringify(JSON.parse(init.body).id)},"result":${result}}`,
   ));
-  const transport = sdk.http('https://synthetic.invalid', options());
+  const transport = sdk.httpTransport('https://synthetic.invalid', options());
   const value = await call(transport);
   assert.equal(value.n.text, '9007199254740993');
   assert.equal(value.amount.text, '0.123456789012345678');
@@ -288,7 +288,7 @@ test('numeric responses reject when native parsing lacks reviver source support'
     return reviver.call(this, key, value);
   }));
   mockFetch(t, async (_url, init) => response(JSON.parse(init.body), 42));
-  const transport = sdk.http('https://synthetic.invalid', options());
+  const transport = sdk.httpTransport('https://synthetic.invalid', options());
   await assert.rejects(call(transport), { code: 'PROTOCOL_MISMATCH' });
 });
 
@@ -298,7 +298,7 @@ test('byte accounting spans chunks and cancellation settles even when stream can
     start(controller) { controller.enqueue(new Uint8Array(40)); controller.enqueue(new Uint8Array(40)); },
     cancel() { cancelled++; return new Promise(() => {}); },
   })));
-  const transport = sdk.http('https://synthetic.invalid', options({ maxResponseBytes: 64, timeoutMs: 30 }));
+  const transport = sdk.httpTransport('https://synthetic.invalid', options({ maxResponseBytes: 64, timeoutMs: 30 }));
   await assert.rejects(call(transport), { code: 'RESOURCE_LIMIT' });
   assert.equal(cancelled, 1);
 });
@@ -315,7 +315,7 @@ test('an abort only cancels its own concurrent request and releases a stalled bo
       cancel() { cancelled++; },
     }));
   });
-  const transport = sdk.http('https://synthetic.invalid', options());
+  const transport = sdk.httpTransport('https://synthetic.invalid', options());
   const controller = new AbortController();
   const stalled = internal.readRpc(transport, 'getblockchaininfo', ['stall'], controller.signal);
   const good = call(transport);
@@ -335,7 +335,7 @@ test('read retry attempts include first dispatch, keep one endpoint, and use fre
     ids.push(request.id);
     return ids.length < 3 ? new Response('private-server-error', { status: 503 }) : response(request);
   });
-  assert.equal(await call(sdk.http('https://synthetic.invalid', options({ readRetry: { attempts: 3, delayMs: 1 } }))), 'ok');
+  assert.equal(await call(sdk.httpTransport('https://synthetic.invalid', options({ readRetry: { attempts: 3, delayMs: 1 } }))), 'ok');
   assert.equal(new Set(ids).size, 3);
   assert.equal(new Set(urls).size, 1);
 });
@@ -345,11 +345,11 @@ test('caller abort and timeout bound both headers and fetch, ignoring private ab
   mockFetch(t, async () => { calls++; return new Promise(() => {}); });
   const aborted = new AbortController();
   aborted.abort('private-abort-reason');
-  await assert.rejects(call(sdk.http('https://synthetic.invalid', options()), aborted.signal), { code: 'ABORTED' });
+  await assert.rejects(call(sdk.httpTransport('https://synthetic.invalid', options()), aborted.signal), { code: 'ABORTED' });
   assert.equal(calls, 0);
-  const timeoutTransport = sdk.http('https://synthetic.invalid', options({ timeoutMs: 20 }));
+  const timeoutTransport = sdk.httpTransport('https://synthetic.invalid', options({ timeoutMs: 20 }));
   await assert.rejects(call(timeoutTransport), { code: 'TIMEOUT' });
-  const hangingHeaders = sdk.http('https://synthetic.invalid', options({ timeoutMs: 20, headers: async () => new Promise(() => {}) }));
+  const hangingHeaders = sdk.httpTransport('https://synthetic.invalid', options({ timeoutMs: 20, headers: async () => new Promise(() => {}) }));
   await assert.rejects(call(hangingHeaders), { code: 'TIMEOUT' });
   assert.equal(calls, 1);
   const controller = new AbortController();
@@ -369,7 +369,7 @@ test('expired synchronous header acquisition or processing never dispatches HTTP
     async () => { exceedDeadline(); return {}; },
     async () => ({ get Authorization() { exceedDeadline(); return 'synthetic-token'; } }),
   ]) {
-    const transport = sdk.http('https://synthetic.invalid', options({ timeoutMs: 10, headers }));
+    const transport = sdk.httpTransport('https://synthetic.invalid', options({ timeoutMs: 10, headers }));
     await assert.rejects(call(transport), { code: 'TIMEOUT' });
     assert.equal(calls, 0);
   }
@@ -382,7 +382,7 @@ test('body byte limits and UTF-8 validation apply to actual stream bytes and rel
     start(controller) { controller.enqueue(mode === 'large' ? new Uint8Array(65) : new Uint8Array([0xff])); },
     cancel() { cancelled++; },
   })));
-  const transport = sdk.http('https://synthetic.invalid', options({ maxResponseBytes: 64, timeoutMs: 30 }));
+  const transport = sdk.httpTransport('https://synthetic.invalid', options({ maxResponseBytes: 64, timeoutMs: 30 }));
   await assert.rejects(call(transport), { code: 'RESOURCE_LIMIT' });
   mode = 'invalid';
   await assert.rejects(call(transport), { code: 'PROTOCOL_MISMATCH' });
@@ -411,7 +411,7 @@ test('isolated HTTP server exercises real serialization, streaming, precision an
     throw error;
   }
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
-  const transport = sdk.http(`http://127.0.0.1:${server.address().port}`, options({ timeoutMs: 200 }));
+  const transport = sdk.httpTransport(`http://127.0.0.1:${server.address().port}`, options({ timeoutMs: 200 }));
   assert.equal((await call(transport)).value.text, '9007199254740993');
   await assert.rejects(internal.readRpc(transport, 'getblockchaininfo', ['stall']), { code: 'TIMEOUT' });
   assert.equal(requests.length, 2);
@@ -433,7 +433,7 @@ test('public RPC foundation owns structured reads and never replays dispatched w
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
   const url = `http://127.0.0.1:${server.address().port}`;
   let release;
-  const transport = sdk.http(url, options({ readRetry: { attempts: 3, delayMs: 0 },
+  const transport = sdk.httpTransport(url, options({ readRetry: { attempts: 3, delayMs: 0 },
     headers: () => new Promise(resolve => { release = () => resolve({}); }) }));
   assert.equal(internal.httpSourceId(transport), 'synthetic');
   const addresses = ['original'];
@@ -446,7 +446,7 @@ test('public RPC foundation owns structured reads and never replays dispatched w
     { addresses: ['a'], chainInfo: true, extra: 1 }, { addresses: new Array(1025).fill('a'), chainInfo: true }]) {
     await assert.rejects(internal.readRpc(transport, 'getaddressutxos', [invalid]), { code: 'INVALID_ARGUMENT' });
   }
-  const direct = sdk.http(url, options({ readRetry: { attempts: 3, delayMs: 0 } }));
+  const direct = sdk.httpTransport(url, options({ readRetry: { attempts: 3, delayMs: 0 } }));
   mode = 'error';
   await assert.rejects(call(direct), error => internal.rpcErrorCode(error) === -5 && !error.message.includes('SECRET'));
   assert.equal(internal.rpcErrorCode({ code: -5 }), undefined);
@@ -483,11 +483,11 @@ test('fragmented UTF-8 decoding keeps exact numbers and counts bytes rather than
     } });
     return new Response(body);
   });
-  const result = await call(sdk.http('https://synthetic.invalid', options({ maxResponseBytes: bytes.length })));
+  const result = await call(sdk.httpTransport('https://synthetic.invalid', options({ maxResponseBytes: bytes.length })));
   assert.equal(result.text, '雪🙂');
   assert.equal(result.amount.text, '9007199254740993');
   assert.equal(body.locked, false);
-  await assert.rejects(call(sdk.http('https://synthetic.invalid', options({ maxResponseBytes: bytes.length - 1 }))),
+  await assert.rejects(call(sdk.httpTransport('https://synthetic.invalid', options({ maxResponseBytes: bytes.length - 1 }))),
     { code: 'RESOURCE_LIMIT' });
   assert.equal(body.locked, false);
 });
@@ -495,7 +495,7 @@ test('fragmented UTF-8 decoding keeps exact numbers and counts bytes rather than
 test('HTTP status translation preserves the distinction between RPC, JSON and UTF-8 failures', async t => {
   let content;
   mockFetch(t, async () => new Response(content, { status: 503 }));
-  const transport = sdk.http('https://synthetic.invalid', options());
+  const transport = sdk.httpTransport('https://synthetic.invalid', options());
   content = '{"jsonrpc":"2.0","id":"1","error":{"code":-5,"message":"private-server-text"}}';
   await assert.rejects(call(transport), error => internal.rpcErrorCode(error) === -5 && !error.retryable);
   content = 'not a JSON response';
@@ -518,6 +518,6 @@ test('cancellation at body-decoder completion cannot publish a successful RPC re
     body = current.body;
     return current;
   });
-  await assert.rejects(call(sdk.http('https://synthetic.invalid', options()), controller.signal), { code: 'ABORTED' });
+  await assert.rejects(call(sdk.httpTransport('https://synthetic.invalid', options()), controller.signal), { code: 'ABORTED' });
   assert.equal(body.locked, false);
 });

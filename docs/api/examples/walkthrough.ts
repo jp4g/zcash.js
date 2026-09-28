@@ -1,6 +1,6 @@
 import {
   createLightClient, createPublicClient, createWalletClient, defineNetwork, formatZec,
-  grpc, http, isZcashError, parseZec,
+  grpc, httpTransport, isZcashError, parseZec,
 } from "@jp4g/zcash.js";
 import type {
   ErrorCode, LocalProvingOptions, MemorySigner, NetworkDefinition, PaymentState,
@@ -49,7 +49,7 @@ const appWalletConfiguration: Pick<WalletOptions,
 const network = await defineNetwork(networkDefinition);
 const publicClient = createPublicClient({
   network, observation: appObservation,
-  transport: http('https://rpc.example.invalid', {
+  transport: httpTransport('https://rpc.example.invalid', {
     ...appTransportOptions, sourceId: 'walkthrough-rpc',
   }),
 });

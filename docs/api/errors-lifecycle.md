@@ -39,6 +39,11 @@ These returned details belong in the application's private UI/state, not generic
 | `ABORTED`, `TIMEOUT` | Inspect progress and retained payment state before retrying |
 | `RECOVERY_REQUIRED` | Inspect recorded state and the indicated recovery action |
 
+Setup failures identify endpoint requirements, transport policy fields, supported
+network presets, and canonical custom-network parameter requirements. Messages
+contain fixed SDK guidance, not supplied URLs, credentials, or secret values.
+Branch on `code`; message wording is diagnostic text, not a stable API.
+
 ## Cancel a read
 
 ```ts

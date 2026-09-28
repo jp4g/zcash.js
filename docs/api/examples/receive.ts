@@ -3,7 +3,7 @@ import type { AccountId, WalletClient } from "@jp4g/zcash.js";
 declare const wallet: WalletClient;
 declare const accountId: AccountId;
 const request = {
-  format: 'unified', transparent: 'omit', sapling: 'require', ironwood: 'require',
+  format: 'unified', transparent: 'omit', sapling: 'omit', ironwood: 'require',
 } as const;
 
 const existing = await wallet.addresses.current({ accountId, request });

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Zcash browser example</title>
+  </head>
+  <body>
+    <h1>Zcash browser example</h1>
+    <p>Supply a gRPC-Web endpoint that permits this origin through CORS.</p>
+    <form id="client">
+      <p><label>Endpoint <input name="endpoint" type="url" required placeholder="https://your-lightwallet-endpoint"></label></p>
+      <p><label>Network <select name="network"><option value="testnet">Testnet</option><option value="mainnet">Mainnet</option></select></label></p>
+      <p><label>Local wallet name <input name="walletName" required pattern="[a-zA-Z0-9_-]{1,128}" value="browser-example"></label></p>
+      <button name="action" value="tip">Read chain tip</button>
+      <button name="action" value="accounts">List local accounts</button>
+    </form>
+    <p>The local wallet uses this browser's origin-private storage. Listing accounts opens and closes it without scanning or contacting the endpoint.</p>
+    <pre id="result" role="status" aria-live="polite"></pre>
+    <script type="module" src="/app.mjs"></script>
+  </body>
+</html>

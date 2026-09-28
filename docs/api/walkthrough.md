@@ -6,7 +6,7 @@ Before running it, supply a matching network, a functioning light source and bro
 
 ```ts
 import { accountIndex, createWalletClient, formatZec, parseZec } from '@jp4g/zcash.js';
-import type { MemorySigner, Proposal, SignerBinding, WalletOptions } from '@jp4g/zcash.js';
+import type { MemorySigner, PendingPayment, Proposal, SignerBinding, WalletClient, WalletOptions } from '@jp4g/zcash.js';
 
 export async function walletWalkthrough(
   options: WalletOptions,
@@ -41,7 +41,7 @@ export async function walletWalkthrough(
       return { receiveAddress: received.address, totalZec: formatZec(balance.amounts.total), sent: false };
     }
     const pending = await wallet.send({ proposal });
-    const confirmation = await pending.wait({ confirmations: 3, timeoutMs: 120_000 });
+    const confirmation = await waitForConfirmation(wallet, pending);
     return { receiveAddress: received.address, confirmation, sent: true };
   } finally {
     try { await binding?.dispose(); }
@@ -51,7 +51,26 @@ export async function walletWalkthrough(
     }
   }
 }
+
+async function waitForConfirmation(wallet: WalletClient, pending: PendingPayment) {
+  const timeoutMs = 120_000;
+  const stop = new AbortController();
+  const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(timeoutMs)]);
+  const watching = (async () => {
+    for await (const _status of wallet.watchSync({ signal })) { /* Drain every status. */ }
+    throw Error('Sync watcher ended before confirmation.');
+  })();
+  const waiting = pending.wait({ confirmations: 3, timeoutMs, signal });
+  try {
+    return await Promise.race([watching, waiting]);
+  } finally {
+    stop.abort();
+    await Promise.allSettled([watching, waiting]);
+  }
+}
 ```
+
+The confirmation helper runs scanning and payment observation together, propagates failure from either, and cancels and drains both before the wallet closes. It uses the lifecycle tested in the [runnable testnet example](https://github.com/jp4g/zcash.js/blob/main/examples/testnet/confirmation.mjs). A timeout stops waiting; it does not cancel the payment.
 
 The application owns the mnemonic bytes and should clear them when its input flow no longer needs them. `approve` is your review UI: show every recipient, amount, fee, pool, expiry, and transaction step, and resolve only after the user's decision.
 

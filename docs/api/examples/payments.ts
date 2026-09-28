@@ -1,3 +1,4 @@
+import { waitForConfirmation } from './confirmation.js';
 import type { AccountId, Signer, WalletClient } from "@jp4g/zcash.js";
 
 declare const wallet: WalletClient;
@@ -7,7 +8,7 @@ declare const recipient: string; // synthetic fixture destination
 
 export async function sendPayment() {
   const pending = await wallet.send({ accountId, to: recipient, amount: 125_000n, signer });
-  return pending.wait({ confirmations: 3, timeoutMs: 120_000 });
+  return waitForConfirmation(wallet, pending);
 }
 export async function shieldFunds() {
   // Open with the explicit allow-owned transparent policy in the shielding guide.

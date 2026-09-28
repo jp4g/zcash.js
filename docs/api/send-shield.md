@@ -10,7 +10,7 @@ wallet](wallet-runtime.md) for defaults and overrides.
 
 ```ts
 import { parseZec } from '@jp4g/zcash.js';
-import type { AccountRecord, WalletClient } from '@jp4g/zcash.js';
+import type { AccountRecord, PendingPayment, WalletClient } from '@jp4g/zcash.js';
 
 export async function sendPayment(
   wallet: WalletClient, account: AccountRecord, recipient: string, requestId: string,
@@ -21,11 +21,30 @@ export async function sendPayment(
     amount: parseZec('0.00125'),
     idempotencyKey: requestId,
   });
-  return pending.wait({ confirmations: 3, timeoutMs: 120_000 });
+  return waitForConfirmation(wallet, pending);
+}
+
+async function waitForConfirmation(wallet: WalletClient, pending: PendingPayment) {
+  const timeoutMs = 120_000;
+  const stop = new AbortController();
+  const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(timeoutMs)]);
+  const watching = (async () => {
+    for await (const _status of wallet.watchSync({ signal })) { /* Drain every status. */ }
+    throw Error('Sync watcher ended before confirmation.');
+  })();
+  const waiting = pending.wait({ confirmations: 3, timeoutMs, signal });
+  try {
+    return await Promise.race([watching, waiting]);
+  } finally {
+    stop.abort();
+    await Promise.allSettled([watching, waiting]);
+  }
 }
 ```
 
 Assign a stable application request ID to one intended payment. Reuse that ID when recovering the same intent; generate a new ID only for a genuinely new payment. Conflicting reuse fails with `IDEMPOTENCY_CONFLICT`.
+
+The helper above consumes `watchSync()` while waiting, then cancels and drains both tasks. It follows the [tested testnet helper](https://github.com/jp4g/zcash.js/blob/main/examples/testnet/confirmation.mjs). `pending.wait()` alone observes payment state; it does not scan your wallet.
 
 `send` plans, executes, and dispatches, then returns a `PendingPayment`. It does not mean the transaction is mined. `wait` returns confirmation for every required transaction step, or rejects with a timeout/error and any available payment state.
 

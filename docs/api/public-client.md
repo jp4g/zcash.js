@@ -1,6 +1,32 @@
 # Query the public chain
 
-Use a public client when you need chain data without opening a wallet. Import `createPublicClient` and `httpTransport` from `@jp4g/zcash.js`, then pass `httpTransport(url, options)` as the client’s `transport`. The factory was previously named `http`; update both imports and calls to `httpTransport`.
+Use a public client when you need chain data without opening a wallet:
+
+```ts
+import { createPublicClient } from '@jp4g/zcash.js';
+
+export async function readTip(rpcUrl: string) {
+  const client = await createPublicClient(rpcUrl);
+  return client.getTip();
+}
+```
+
+Omitting `network` selects mainnet. For testnet pass `{ network: 'testnet' }`;
+custom networks accept a validated `Network` or `NetworkDefinition`. No provider is
+selected for you, and the first read still verifies the endpoint's genesis header.
+Construction initializes local codecs but makes no requests.
+
+The shorthand defaults to a 30-second HTTP deadline, two read attempts 500 ms
+apart, a 4 MiB response limit, and the source label `public-rpc`. Observers poll
+every second and buffer at most 16 updates. Override selected fields with
+`transportOptions` and `observation`; `readRetry`, when supplied, replaces the
+whole retry policy. Explicit `createPublicClient({ network, transport,
+observation })` composition remains synchronous and requires those components.
+
+`httpTransport(url, overrides?)` owns the same bounded HTTP defaults, so
+`readGenesisHash(httpTransport(rpcUrl))` also works without policy boilerplate.
+The transport factory was previously named `http`; update imports and calls to
+`httpTransport`.
 
 For a custom/regtest endpoint without a configured genesis hash, use
 [`readGenesisHash` to bootstrap the network](networks-amounts.md#bootstrap-a-local-regtest-endpoint)

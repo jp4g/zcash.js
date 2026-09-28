@@ -38,9 +38,11 @@ continued tip movement returns `SYNC_REQUIRED`; recover the same operation.
 Automatic startup recovery does not initiate this scan refresh.
 
 Keep `watchSync()` running and consume its statuses while waiting for confirmation.
-The payment observer retries a changing chain view up to three times, then returns
-retryable `OBSERVATION_UNAVAILABLE`. Stable inconsistent evidence remains
-`PROTOCOL_MISMATCH`.
+Each observation attempts a coherent chain view up to three times. `events()` and
+`wait()` keep polling when a mined transaction is temporarily ahead of the source’s
+latest tip; other coherence failures return retryable `OBSERVATION_UNAVAILABLE`.
+Stable inconsistent evidence remains `PROTOCOL_MISMATCH`. See
+[observation and recovery](operations.md#unknown-submission-and-cancellation).
 
 For interactive approval, use [reviewed proposals](proposals.md) so the user approves the exact proposal before execution.
 

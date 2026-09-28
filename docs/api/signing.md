@@ -28,7 +28,7 @@ export async function externalSign(
 }
 ```
 
-`finalize` verifies and stores final bytes locally; it does **not** submit them. Call `pending.broadcast()` explicitly afterward, then `pending.wait()` to observe confirmations. Treat exported PCZTs as sensitive data.
+`finalize` verifies and stores final bytes locally; it does **not** submit them. Call `pending.broadcast()` explicitly afterward, then use the [send guide’s confirmation helper](send-shield.md#send-a-payment) to scan and observe confirmations with a bounded wait. `pending.wait()` alone does not scan the wallet. Treat exported PCZTs as sensitive data.
 
 ## Local stages and standalone tools
 

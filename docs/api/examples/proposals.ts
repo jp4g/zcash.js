@@ -1,3 +1,4 @@
+import { waitForConfirmation } from './confirmation.js';
 import type { AccountId, ProposedOutput, Proposal, Signer, WalletClient } from "@jp4g/zcash.js";
 
 declare const wallet: WalletClient;
@@ -9,7 +10,9 @@ declare function review(proposal: Proposal): Promise<boolean>;
 const proposal = await wallet.propose({ accountId, to: recipient, amount: 125_000n });
 if (await review(proposal)) {
   const pending = await wallet.send({ proposal, signer });
-  await pending.wait({ confirmations: 3 });
+  await waitForConfirmation(wallet, pending);
+} else {
+  await wallet.operations.abandon({ operationId: proposal.operationId });
 }
 
 // Proposal recipients are always exact; internal addresses may be selected at build time.

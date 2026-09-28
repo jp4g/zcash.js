@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, readdir, stat, copyFile } from 'node:fs/promises';
 import { resolve, join, extname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { build } from 'vite';
 import { firefoxOptions } from '../tests/support/firefox-options.mjs';
 
 const root = resolve(import.meta.dirname, '..');
+const example = process.argv.includes('--example');
 const consumer = await mkdtemp(resolve(root, '../zcash-package-consumer-'));
 const run = (command, args, cwd = consumer) => execFileSync(command, args, { cwd, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
 const [packed] = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', consumer], root));
@@ -60,7 +61,14 @@ window.runWallet = async () => {
   } finally {await (await navigator.storage.getDirectory()).removeEntry(name,{recursive:true});}
 };
 `);
-await build({ root: consumer, configFile: false, logLevel: 'warn', base: '/nested/', build: { target: 'es2022', assetsInlineLimit: 0, minify: false } });
+if (example) {
+  for (const name of ['index.html', 'app.mjs']) {
+    await copyFile(join(root, 'examples/browser', name), join(consumer, name));
+  }
+}
+const exampleConfig = example ? (await import('../examples/browser/vite.config.mjs')).default : {};
+await build({ ...exampleConfig, root: consumer, configFile: false, logLevel: 'warn', base: '/nested/',
+  build: { target: 'es2022', assetsInlineLimit: 0, ...exampleConfig.build, minify: false } });
 const dist = join(consumer, 'dist');
 const emitted = {};
 for (const name of await readdir(dist, { recursive: true })) {
@@ -105,8 +113,26 @@ try {
   await command(`/session/${session}/url`, 'POST', { url: `http://127.0.0.1:${server.address().port}/nested/` });
   report.beforeWallet = [...requests];
   assert.ok(!requests.some(path => /\.wasm|\.params/.test(path)), 'import must not download wallet/proving assets');
-  report.wallet = await command(`/session/${session}/execute/async`, 'POST', { script: 'const done=arguments[arguments.length-1]; window.runWallet().then(done,error=>done({error:String(error),stack:error.stack}));', args: [] });
-  assert.equal(report.wallet.persisted, true, JSON.stringify(report.wallet));
+  report.wallet = await command(`/session/${session}/execute/async`, 'POST', { script: example ? `
+    const done = arguments[arguments.length - 1];
+    const form = document.querySelector('#client');
+    const result = document.querySelector('#result');
+    const name = 'example-' + crypto.randomUUID();
+    form.elements.endpoint.value = 'https://offline.invalid';
+    form.elements.walletName.value = name;
+    const observer = new MutationObserver(async () => {
+      if (!['complete', 'error'].includes(result.dataset.state)) return;
+      observer.disconnect();
+      try {
+        const opened = result.dataset.state === 'complete' && result.textContent === '[]';
+        await (await navigator.storage.getDirectory()).removeEntry(name, { recursive: true });
+        done({ opened, storage: 'opfs', error: opened ? null : result.textContent });
+      } catch (error) { done({ error: String(error) }); }
+    });
+    observer.observe(result, { attributes: true });
+    form.querySelector('[value=accounts]').click();
+  ` : 'const done=arguments[arguments.length-1]; window.runWallet().then(done,error=>done({error:String(error),stack:error.stack}));', args: [] });
+  assert.equal(example ? report.wallet.opened : report.wallet.persisted, true, JSON.stringify(report.wallet));
   assert.ok(requests.some(path => /\.wasm/.test(path)), 'wallet engine was loaded');
   assert.ok(!requests.some(path => /\.params/.test(path)), 'read-only wallet must not download proving files');
   report.status = 'passed';

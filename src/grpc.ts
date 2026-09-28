@@ -33,12 +33,15 @@ function integer(value: unknown, minimum: number, maximum = Number.MAX_SAFE_INTE
 
 /** Opaque configuration only; platform loading and connections are lazy. */
 export function grpc(url: string, options: TransportOptions): GrpcTransport {
+  let message = 'gRPC endpoint must be an HTTP(S) origin without credentials, path, query or fragment.';
   try {
     if (typeof url !== 'string' || /[\s\\?#]/.test(url) || !/^https?:\/\//.test(url)) throw invalidArgument();
     const authority = /^https?:\/\/([^/]+)/.exec(url)?.[1];
     if (!authority || authority.includes('@')) throw invalidArgument();
     const endpoint = new URL(url);
     if (endpoint.username || endpoint.password || endpoint.pathname !== '/') throw invalidArgument();
+    message = 'gRPC options require sourceId, positive timeoutMs and maxResponseBytes, '
+      + 'readRetry attempts/delayMs, and an optional headers callback.';
     const input = record(options, ['sourceId', 'timeoutMs', 'readRetry', 'maxResponseBytes', 'headers']);
     const retry = record(input.readRetry, ['attempts', 'delayMs']);
     if (typeof input.sourceId !== 'string' || !input.sourceId.trim() || input.sourceId.length > 256
@@ -55,7 +58,7 @@ export function grpc(url: string, options: TransportOptions): GrpcTransport {
     transports.set(transport, Object.freeze({ url, options: snapshot }));
     return transport;
   } catch {
-    throw invalidArgument();
+    throw failure('INVALID_ARGUMENT', 'validation', 'correct-input', message);
   }
 }
 

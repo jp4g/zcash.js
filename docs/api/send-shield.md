@@ -10,7 +10,7 @@ wallet](wallet-runtime.md) for defaults and overrides.
 
 ```ts
 import { parseZec } from '@jp4g/zcash.js';
-import type { AccountRecord, WalletClient } from '@jp4g/zcash.js';
+import type { AccountRecord, PendingPayment, WalletClient } from '@jp4g/zcash.js';
 
 export async function sendPayment(
   wallet: WalletClient, account: AccountRecord, recipient: string, requestId: string,
@@ -21,11 +21,30 @@ export async function sendPayment(
     amount: parseZec('0.00125'),
     idempotencyKey: requestId,
   });
-  return pending.wait({ confirmations: 3, timeoutMs: 120_000 });
+  return waitForConfirmation(wallet, pending);
+}
+
+async function waitForConfirmation(wallet: WalletClient, pending: PendingPayment) {
+  const timeoutMs = 120_000;
+  const stop = new AbortController();
+  const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(timeoutMs)]);
+  const watching = (async () => {
+    for await (const _status of wallet.watchSync({ signal })) { /* Drain every status. */ }
+    throw Error('Sync watcher ended before confirmation.');
+  })();
+  const waiting = pending.wait({ confirmations: 3, timeoutMs, signal });
+  try {
+    return await Promise.race([watching, waiting]);
+  } finally {
+    stop.abort();
+    await Promise.allSettled([watching, waiting]);
+  }
 }
 ```
 
 Assign a stable application request ID to one intended payment. Reuse that ID when recovering the same intent; generate a new ID only for a genuinely new payment. Conflicting reuse fails with `IDEMPOTENCY_CONFLICT`.
+
+The helper above consumes `watchSync()` while waiting, then cancels and drains both tasks. It follows the [tested testnet helper](https://github.com/jp4g/zcash.js/blob/main/examples/testnet/confirmation.mjs). `pending.wait()` alone observes payment state; it does not scan your wallet.
 
 `send` plans, executes, and dispatches, then returns a `PendingPayment`. It does not mean the transaction is mined. `wait` returns confirmation for every required transaction step, or rejects with a timeout/error and any available payment state.
 
@@ -38,13 +57,42 @@ continued tip movement returns `SYNC_REQUIRED`; recover the same operation.
 Automatic startup recovery does not initiate this scan refresh.
 
 Keep `watchSync()` running and consume its statuses while waiting for confirmation.
-The payment observer retries a changing chain view up to three times, then returns
-retryable `OBSERVATION_UNAVAILABLE`. Stable inconsistent evidence remains
-`PROTOCOL_MISMATCH`.
+Each observation attempts a coherent chain view up to three times. `events()` and
+`wait()` keep polling when a mined transaction is temporarily ahead of the source’s
+latest tip; other coherence failures return retryable `OBSERVATION_UNAVAILABLE`.
+Stable inconsistent evidence remains `PROTOCOL_MISMATCH`. See
+[observation and recovery](operations.md#unknown-submission-and-cancellation).
 
 For interactive approval, use [reviewed proposals](proposals.md) so the user approves the exact proposal before execution.
 
 ## Shield transparent funds
+
+Open the wallet with an explicit policy that admits owned transparent inputs.
+This keeps shielded spending and change in Ironwood, matching the receive example:
+
+```ts
+import { createWalletClient, parseZec } from '@jp4g/zcash.js';
+import type { WalletStorage } from '@jp4g/zcash.js';
+
+export function openForShielding(endpoint: string, storage: WalletStorage) {
+  return createWalletClient(endpoint, {
+    network: 'testnet', storage,
+    transactionPolicy: {
+      spendPools: ['transparent', 'ironwood'], transparent: 'allow-owned', changePool: 'ironwood',
+      feeRule: 'zip317-standard',
+      confirmations: { trusted: 3, untrusted: 3, allowZeroConfirmationShielding: false },
+      expiry: { kind: 'offset', blocks: 80 }, lockExpiryBlocks: 20,
+      shieldingThreshold: parseZec('0.0001'),
+      freshness: { mode: 'require-synced', maxLagBlocks: 0 },
+    },
+  });
+}
+```
+
+Import or create the account, attach its signer, and fund an address issued with
+`request: { format: 'transparent' }`. Sync before calling `shield` below, and close
+the wallet when finished. The ordinary default policy disallows transparent
+inputs and cannot be used for this recipe.
 
 ```ts
 import { parseZec } from '@jp4g/zcash.js';
@@ -53,7 +101,7 @@ import type { AccountRecord, WalletClient } from '@jp4g/zcash.js';
 export async function shield(wallet: WalletClient, account: AccountRecord, requestId: string) {
   const pending = await wallet.shield({
     accountId: account.id,
-    toPool: 'sapling',
+    toPool: 'ironwood',
     threshold: parseZec('0.001'),
     idempotencyKey: requestId,
   });

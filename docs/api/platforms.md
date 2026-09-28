@@ -23,17 +23,20 @@ parameters remain separate lazy assets within the same installed npm package.
 
 Do not open the same wallet storage concurrently from multiple processes or tabs. Always close wallets on an orderly shutdown. OPFS data is origin-scoped and can be removed with browser site data; memory storage disappears at shutdown.
 
+A [runnable Vite browser starter](https://github.com/jp4g/zcash.js/tree/main/examples/browser)
+includes the asset configuration and an offline OPFS wallet check.
+
 ## Current limits
 
-The package is an experimental prerelease. It has no default network/provider, managed artifact hosting, persistent secret vault, database backup API, remote proving integration, or concrete hardware signer integration. Storage is not advertised as encrypted at rest.
+The package is an experimental prerelease. Endpoint factories default to mainnet, but require an explicit provider endpoint (see [wallet defaults](wallet-runtime.md#defaults)). It has no managed artifact hosting, persistent secret vault, database backup API, remote proving integration, or concrete hardware signer integration. Storage is not advertised as encrypted at rest.
 
 The current persistent Node adapter is Linux-specific and uses the operating
 system's `flock` utility for crash-safe ownership. macOS and Windows persistent
 wallet storage are not qualified. Bundling the WASM does not change that existing
 platform limit; the memory wallet has no filesystem-lock dependency.
 
-Fresh wallet databases and reopening with the same candidate runtime have been
-tested. Historical database migration is not yet qualified; same-version reopen
+Fresh wallet databases, reopening, and the [closed-wallet Linux backup/restore
+procedure](operations.md#closed-wallet-backup-on-linux) have same-candidate tests. Historical database migration is not yet qualified; same-version reopen
 tests are not evidence of upgrade compatibility for an older wallet database.
 
 The repository runs Node tests in CI. Actual Firefox SDK and wallet-host checks are separate runnable checks; a passing bundle build is not a browser execution test. The [test guide](https://github.com/jp4g/zcash.js/blob/main/tests/README.md) describes which checks execute real native fixtures and which need external runtime/proving packages.

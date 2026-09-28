@@ -51,6 +51,12 @@ export interface LightClientOptions {
   readonly network?: BuiltinNetwork | Network | NetworkDefinition;
   readonly transportOptions?: Partial<TransportOptions>;
 }
+/** JSON-RPC endpoint shorthand; transport and observation reads remain bounded. */
+export interface PublicClientOptions {
+  readonly network?: BuiltinNetwork | Network | NetworkDefinition;
+  readonly transportOptions?: Partial<TransportOptions>;
+  readonly observation?: Partial<ObservationOptions>;
+}
 export interface ConsensusContext {
   readonly network: Network;
   readonly targetHeight: number;

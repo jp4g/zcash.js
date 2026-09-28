@@ -100,6 +100,7 @@ export type {
   NetworkParameters,
   BuiltinNetwork,
   LightClientOptions,
+  PublicClientOptions,
   Op,
   AccountIndex,
   DiversifierIndex,

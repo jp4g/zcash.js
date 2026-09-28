@@ -11,6 +11,14 @@ independent A/B wallets and prints their receive addresses. Recovery phrases and
 databases stay under `private/` (ignored by Git); keep that directory private and
 back it up before funding. Do not copy it into a browser build or publish it.
 
+If initialization is interrupted, rerun `npm run init` with the same directory.
+It retains the saved recovery phrases and scan height, verifies any committed
+account against its phrase, and reuses an already issued receive address. Before
+issuing a missing first address, it runs a bounded sync against your endpoint. A
+completed initialization can also be rerun without replacing accounts or
+rotating addresses. Do not delete `accounts.json` or a database to retry; a
+mismatch or unreadable state file requires inspection of the preserved files.
+
 Acceptance is Ironwood-only: both receive addresses contain only Ironwood,
 spending selects only Ironwood inputs, and change returns to Ironwood. For existing
 test wallets, `node wallet.mjs addresses` generates and verifies new Ironwood-only

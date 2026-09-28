@@ -23,6 +23,9 @@ parameters remain separate lazy assets within the same installed npm package.
 
 Do not open the same wallet storage concurrently from multiple processes or tabs. Always close wallets on an orderly shutdown. OPFS data is origin-scoped and can be removed with browser site data; memory storage disappears at shutdown.
 
+A [runnable Vite browser starter](https://github.com/jp4g/zcash.js/tree/main/examples/browser)
+includes the asset configuration and an offline OPFS wallet check.
+
 ## Current limits
 
 The package is an experimental prerelease. Endpoint factories default to mainnet, but require an explicit provider endpoint (see [wallet defaults](wallet-runtime.md#defaults)). It has no managed artifact hosting, persistent secret vault, database backup API, remote proving integration, or concrete hardware signer integration. Storage is not advertised as encrypted at rest.

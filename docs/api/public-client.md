@@ -32,6 +32,31 @@ For a custom/regtest endpoint without a configured genesis hash, use
 [`readGenesisHash` to bootstrap the network](networks-amounts.md#bootstrap-a-local-regtest-endpoint)
 before constructing the client.
 
+## Authenticated endpoints
+
+Keep credentials out of the RPC URL; credential-bearing URLs are rejected. Supply
+headers through the asynchronous callback, which runs for each HTTP attempt:
+
+```ts
+import { createPublicClient } from '@jp4g/zcash.js';
+
+export async function authenticatedClient(
+  rpcUrl: string,
+  readAuthorization: () => Promise<string>,
+) {
+  return createPublicClient(rpcUrl, {
+    transportOptions: {
+      headers: async () => ({ authorization: await readAuthorization() }),
+    },
+  });
+}
+```
+
+The callback returns the complete authorization value expected by your endpoint
+(for example, `Bearer <token>` or `Basic <base64(username:password)>`). Load it from
+your application's credential store; do not put server credentials in a browser bundle.
+The same `headers` option is available on `httpTransport`.
+
 ## Read a transaction
 
 ```ts

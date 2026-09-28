@@ -2,6 +2,8 @@
 
 This example imports an existing mnemonic account, scans it, issues a receive address, reviews a payment, and waits for confirmation. It uses the configuration described in [open a wallet](wallet-runtime.md).
 
+Starting with a new wallet instead? Follow [create a new mnemonic account](accounts-signers.md#create-a-new-mnemonic-account) to generate and confirm a backup before receiving funds.
+
 Before running it, supply a matching network, a functioning light source and broadcaster, and a mnemonic account with sufficient eligible funds. The package supplies the baseline wallet runtime and local proving material by default. `sync()` discovers funds; it does not create them. The example assumes derivation index zero and uses a full scan for explicit recovery.
 
 ```ts

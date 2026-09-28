@@ -29,7 +29,7 @@ export async function walletWalkthrough(
 
     const synced = await wallet.sync();
     if (!synced.targetReached) throw new Error('Sync stopped before reaching its target');
-    const received = await wallet.addresses.next({ accountId, request: { format: 'unified' } });
+    const received = await wallet.addresses.next({ accountId, request: { format: 'unified', transparent: 'omit', sapling: 'omit', ironwood: 'require' } });
     const balance = await wallet.getBalance({ accountId });
     if (balance.amounts === null) throw new Error('Balance is not available yet');
 

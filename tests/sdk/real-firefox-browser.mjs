@@ -39,7 +39,7 @@ export async function run() {
     sdk = await import('/package/dist/src/index.js');
     bundled = await import('/bundle.mjs');
     for (const api of [sdk, bundled.sdk]) {
-      check(Object.keys(api).sort().join(',') === 'accountFromViewingKey,accountIndex,addresses,blockHash,createCustomSigner,createLightClient,createPublicClient,createWalletClient,createZcashClient,defineNetwork,diversifierIndex,formatZec,grpc,httpTransport,isZcashError,parseZec,pczt,resolveBirthday,txId,viewing', 'root exports');
+      check(Object.keys(api).sort().join(',') === 'accountFromViewingKey,accountIndex,addresses,blockHash,createCustomSigner,createLightClient,createPublicClient,createWalletClient,createZcashClient,defineNetwork,diversifierIndex,formatZec,grpc,httpTransport,isZcashError,parseZec,pczt,readGenesisHash,resolveBirthday,txId,viewing', 'root exports');
       check(api.parseZec('9007199254740993.00000001') === 900719925474099300000001n, 'amount parse');
       check(api.formatZec(900719925474099300000001n) === '9007199254740993.00000001', 'amount format');
       check(api.txId('a'.repeat(64)) === 'a'.repeat(64) && api.blockHash('b'.repeat(64)) === 'b'.repeat(64), 'hash IDs');

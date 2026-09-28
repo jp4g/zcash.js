@@ -98,6 +98,7 @@ export type {
   NetworkDefinition,
   BuiltinNetwork,
   LightClientOptions,
+  PublicClientOptions,
   Op,
   AccountIndex,
   DiversifierIndex,

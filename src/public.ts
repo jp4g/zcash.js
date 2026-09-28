@@ -4,6 +4,8 @@ import { observationOptions } from './options.js';
 import { ObserverBuffer } from './observer-buffer.js';
 import type {
   PublicClient,
+  PublicClientOptions,
+  NetworkDefinition,
   Network,
   HttpTransport,
   ObservationOptions,
@@ -14,8 +16,8 @@ import type {
   Inclusion,
   ConfirmedTransaction,
 } from './types.js';
-import { networkBinding } from './network.js';
-import { httpSourceId, httpEndpoint, readRpc, sendRawTransaction, rpcErrorCode } from './http.js';
+import { defineNetwork, networkBinding } from './network.js';
+import { httpTransport, httpSourceId, httpEndpoint, readRpc, sendRawTransaction, rpcErrorCode } from './http.js';
 import { snapshot } from './clients/owned-plumbing.js';
 import { operation } from './clients/light-chain-reads.js';
 import * as chain from './clients/public-chain-reads.js';
@@ -67,10 +69,18 @@ function positive(value: number): void {
   if (!Number.isSafeInteger(value) || value <= 0) throw invalidArgument();
 }
 
-/** Internal complete factory candidate; publication waits for real capsule/consumer qualification. */
+/** Endpoint shorthand initializes codecs; requests remain lazy. */
+export function createPublicClient(endpoint: string, options?: PublicClientOptions): Promise<PublicClient>;
+/** Explicit composition retains synchronous construction and explicit policies. */
 export function createPublicClient(
   args: { network: Network; transport: HttpTransport; observation: ObservationOptions },
-): PublicClient {
+): PublicClient;
+export function createPublicClient(
+  args: string | { network: Network; transport: HttpTransport; observation: ObservationOptions },
+  options?: PublicClientOptions,
+): PublicClient | Promise<PublicClient> {
+  if (typeof args === 'string') return publicFromEndpoint(args, options);
+  if (options !== undefined) throw invalidArgument();
   const input = snapshot(args, ['network', 'transport', 'observation']);
   const { network, transport } = input,
     sourceId = httpSourceId(transport),
@@ -483,4 +493,26 @@ function checkSignal(signal?: AbortSignal): void {
   } catch {
     throw invalidArgument();
   }
+}
+
+async function publicFromEndpoint(endpoint: string, options: PublicClientOptions = {}): Promise<PublicClient> {
+  const input = snapshot(options, ['network', 'transportOptions', 'observation']);
+  const transport = httpTransport(endpoint, input.transportOptions);
+  const observation = observationOptions({
+    pollIntervalMs: 1000,
+    maxBufferedUpdates: 16,
+    ...(input.observation === undefined ? {} : snapshot(input.observation, ['pollIntervalMs', 'maxBufferedUpdates'])),
+  });
+  let network: Network;
+  if (input.network === undefined || typeof input.network === 'string') {
+    network = await defineNetwork(input.network);
+  } else {
+    try {
+      networkBinding(input.network);
+      network = input.network as Network;
+    } catch {
+      network = await defineNetwork(input.network as NetworkDefinition);
+    }
+  }
+  return createPublicClient({ network, transport, observation });
 }

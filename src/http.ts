@@ -42,7 +42,7 @@ function integer(value: unknown, minimum: number): asserts value is number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum) throw invalidArgument();
 }
 
-export function httpTransport(url: string, options: TransportOptions): HttpTransport {
+export function httpTransport(url: string, options: Partial<TransportOptions> = {}): HttpTransport {
   let endpoint: URL;
   try {
     if (typeof url !== 'string' || url.trim() !== url) throw invalidArgument();
@@ -50,7 +50,11 @@ export function httpTransport(url: string, options: TransportOptions): HttpTrans
     if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password
       || url.includes('#')) throw invalidArgument();
     record(options, ['sourceId', 'timeoutMs', 'readRetry', 'maxResponseBytes', 'headers']);
-    const { sourceId, timeoutMs, readRetry, maxResponseBytes, headers } = options;
+    const {
+      sourceId = 'public-rpc', timeoutMs = 30000,
+      readRetry = { attempts: 2, delayMs: 500 },
+      maxResponseBytes = 4 * 1024 * 1024, headers,
+    } = options;
     record(readRetry, ['attempts', 'delayMs']);
     const snapshot: TransportOptions = {
       sourceId,

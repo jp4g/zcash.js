@@ -36,7 +36,7 @@ export async function resumePayment(wallet: WalletClient, operationId: string) {
 | `{ mode: 'online', timeoutMs: 15000 }` | Reconcile locally, then observe within a bounded pass |
 | Online with `rebroadcast` | Additionally allow policy-limited retry of previously dispatched exact bytes |
 
-Omitting the policy selects online recovery with a 15-second deadline when `light` is present, otherwise offline. Online recovery needs a light client; rebroadcast additionally needs a broadcaster.
+Endpoint construction defaults to offline recovery. In component construction, omitting the policy selects online recovery with a 15-second deadline when `light` is present, otherwise offline. See the [wallet defaults](wallet-runtime.md#defaults). Online recovery needs a light client; rebroadcast additionally needs a broadcaster.
 
 ```ts
 import type { RecoveryPolicy } from '@jp4g/zcash.js';

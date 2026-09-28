@@ -25,7 +25,7 @@ Do not open the same wallet storage concurrently from multiple processes or tabs
 
 ## Current limits
 
-The package is an experimental prerelease. It has no default network/provider, managed artifact hosting, persistent secret vault, database backup API, remote proving integration, or concrete hardware signer integration. Storage is not advertised as encrypted at rest.
+The package is an experimental prerelease. Endpoint factories default to mainnet, but require an explicit provider endpoint (see [wallet defaults](wallet-runtime.md#defaults)). It has no managed artifact hosting, persistent secret vault, database backup API, remote proving integration, or concrete hardware signer integration. Storage is not advertised as encrypted at rest.
 
 The current persistent Node adapter is Linux-specific and uses the operating
 system's `flock` utility for crash-safe ownership. macOS and Windows persistent

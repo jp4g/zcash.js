@@ -118,7 +118,11 @@ try {
     const form = document.querySelector('#client');
     const result = document.querySelector('#result');
     const name = 'example-' + crypto.randomUUID();
-    form.elements.endpoint.value = 'https://offline.invalid';
+    form.elements.endpoint.value = '';
+    form.querySelector('[value=tip]').click();
+    if (form.elements.endpoint.validity.valid || result.dataset.state === 'pending') {
+      done({ error: 'A chain-tip read must require an endpoint.' }); return;
+    }
     form.elements.walletName.value = name;
     const observer = new MutationObserver(async () => {
       if (!['complete', 'error'].includes(result.dataset.state)) return;

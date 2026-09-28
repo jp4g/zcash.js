@@ -7,9 +7,9 @@
   </head>
   <body>
     <h1>Zcash browser example</h1>
-    <p>Supply a gRPC-Web endpoint that permits this origin through CORS.</p>
-    <form id="client">
-      <p><label>Endpoint <input name="endpoint" type="url" required placeholder="https://your-lightwallet-endpoint"></label></p>
+    <p>Chain-tip reads require a gRPC-Web endpoint that permits this origin through CORS. Local account listing needs no endpoint.</p>
+    <form id="client" novalidate>
+      <p><label>Endpoint (chain tip only) <input name="endpoint" type="url" required placeholder="https://your-lightwallet-endpoint"></label></p>
       <p><label>Network <select name="network"><option value="testnet">Testnet</option><option value="mainnet">Mainnet</option></select></label></p>
       <p><label>Local wallet name <input name="walletName" required pattern="[a-zA-Z0-9_-]{1,128}" value="browser-example"></label></p>
       <button name="action" value="tip">Read chain tip</button>

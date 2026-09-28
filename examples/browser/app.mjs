@@ -1,9 +1,11 @@
-import { createLightClient, createWalletClient, isZcashError } from '@jp4g/zcash.js';
+import { createLightClient, createWalletClient, defineNetwork, isZcashError } from '@jp4g/zcash.js';
 
 const form = document.querySelector('#client');
 const result = document.querySelector('#result');
 form.addEventListener('submit', async event => {
   event.preventDefault();
+  const readTip = event.submitter.value === 'tip';
+  if (!(readTip ? form.elements.endpoint : form.elements.walletName).reportValidity()) return;
   const values = new FormData(form);
   const endpoint = String(values.get('endpoint'));
   const network = String(values.get('network'));
@@ -13,12 +15,15 @@ form.addEventListener('submit', async event => {
   result.textContent = 'Working…';
   try {
     let value;
-    if (event.submitter.value === 'tip') {
+    if (readTip) {
       const light = await createLightClient(endpoint, { network });
       value = await light.getTip({ signal: AbortSignal.timeout(30_000) });
     } else {
-      const wallet = await createWalletClient(endpoint, {
-        network, storage: { kind: 'browser-opfs', name: String(values.get('walletName')) },
+      const wallet = await createWalletClient({
+        network: await defineNetwork(network), storage: { kind: 'browser-opfs', name: String(values.get('walletName')) },
+        confirmations: { trusted: 3, untrusted: 3, allowZeroConfirmationShielding: false },
+        observation: { pollIntervalMs: 5000, maxBufferedUpdates: 16 },
+        recovery: { mode: 'offline' },
       });
       try { value = await wallet.accounts.list(); }
       finally { await wallet.close(); }

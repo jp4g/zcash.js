@@ -1,12 +1,15 @@
 import type { BuiltinNetwork, NetworkDefinition } from './types.js';
 import { blockHash } from './primitives.js';
-import { invalidArgument } from './errors.js';
+import { failure } from './errors.js';
 
 // Activation schedules: locked zcash_protocol 0.10.6, consensus.rs Main/TestNetwork.
 // Genesis hashes: zcash/zcash src/chainparams.cpp CMainParams/CTestNetParams.
 // Update with the bundled native protocol; never learn consensus rules from an endpoint.
 export function networkPreset(name: BuiltinNetwork): NetworkDefinition {
-  if (name !== 'mainnet' && name !== 'testnet') throw invalidArgument();
+  if (name !== 'mainnet' && name !== 'testnet') {
+    throw failure('INVALID_ARGUMENT', 'validation', 'correct-input',
+      'Network preset must be mainnet or testnet; custom networks require a full definition.');
+  }
   const main = name === 'mainnet';
   return {
     identity: main ? 'zcash-mainnet' : 'zcash-testnet',

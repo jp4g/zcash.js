@@ -1,6 +1,6 @@
 # Contributing
 
-Use Node 22.12 or newer. The repository contains the implemented experimental SDK, its tests, and a developer guide.
+Use Node 22.23.4. The repository contains the implemented experimental SDK, its tests, and a developer guide.
 
 ## Workflow
 

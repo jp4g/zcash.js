@@ -31,7 +31,7 @@ reopening are verified; these do not establish older-database compatibility.
 
 ## Build and test
 
-Use Node 22.12 or newer and npm.
+Use Node 22.23.4 and npm.
 
 ```sh
 npm ci

@@ -50,4 +50,4 @@ npm run docs:dev
 ```
 
 The last command serves the guide at `http://127.0.0.1:4173/`.
-See [Maintain and publish](gitbook.md) for GitBook sync and site deployment.
+See [Maintain and publish](gitbook.md) for VitePress maintenance and GitHub Pages deployment.

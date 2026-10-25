@@ -48,7 +48,7 @@ npm run docs:build
 npm run docs:dev
 ```
 
-The local guide runs at `http://127.0.0.1:4173/`. Its displayed TypeScript snippets are checked against the actual package entry point. GitHub Pages deploys automatically after checks pass on `main`. [Publishing instructions](https://jp4g.github.io/zcash.js/api/gitbook.html) also cover optional GitBook Git Sync using the same Markdown chapters.
+The local guide runs at `http://127.0.0.1:4173/`. Its displayed TypeScript snippets are checked against the actual package entry point. GitHub Pages deploys automatically after checks pass on `main`. [Publishing instructions](https://jp4g.github.io/zcash.js/api/gitbook.html) cover maintaining and deploying the VitePress guide on GitHub Pages.
 
 [Contributing](https://github.com/jp4g/zcash.js/blob/main/CONTRIBUTING.md) describes the PR workflow. Retained planning and research live under `docs/planning` and `docs/research` in the repository; they do not override the implemented API and are not shipped in the npm package.
 
